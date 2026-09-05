@@ -1,0 +1,206 @@
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { Pagination, Spin, Tag, Tooltip, Typography } from "antd";
+import dayjs from "dayjs";
+import { useMemo } from "react";
+
+import { StatusTag } from "@/components/common/StatusTag";
+import type { ModelArtifact } from "@/types/models";
+import { formatBytes, formatPercent, truncateDigest } from "@/utils/format";
+
+interface ModelsTableProps {
+  data: ModelArtifact[];
+  loading?: boolean;
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number, pageSize: number) => void;
+}
+
+export function ModelsTable({
+  data,
+  loading,
+  total,
+  page,
+  pageSize,
+  onPageChange,
+}: ModelsTableProps) {
+  const columns = useMemo<ColumnDef<ModelArtifact>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Name",
+        cell: ({ row }) => {
+          const meta = (row.original.metadata || {}) as Record<string, unknown>;
+          const candidate = Boolean(meta.candidate);
+          const total = meta.total_sample_count;
+          return (
+            <div>
+              <div className="flex items-center gap-2 font-medium text-slate-900">
+                {row.original.name}
+                {candidate ? <Tag color="gold">candidate</Tag> : null}
+              </div>
+              <Typography.Text type="secondary" className="text-xs">
+                {row.original.filename}
+                {total != null ? ` · train data ${String(total)}` : ""}
+              </Typography.Text>
+            </div>
+          );
+        },
+      },
+      { accessorKey: "version", header: "Version" },
+      {
+        id: "lineage_data",
+        header: "Train data P+N=T",
+        cell: ({ row }) => {
+          const meta = (row.original.metadata || {}) as Record<string, unknown>;
+          const p = meta.parent_sample_count;
+          const n = meta.new_sample_count;
+          const t = meta.total_sample_count;
+          if (p == null && n == null && t == null) return "—";
+          return (
+            <span className="text-xs">
+              {String(p ?? "—")}+{String(n ?? "—")}=
+              <strong>{String(t ?? "—")}</strong>
+            </span>
+          );
+        },
+      },
+      { accessorKey: "ocr_type", header: "OCR type" },
+      { accessorKey: "role", header: "Role" },
+      { accessorKey: "runtime", header: "Runtime" },
+      {
+        accessorKey: "framework",
+        header: "Framework",
+        cell: ({ getValue }) => getValue<string | null>() || "—",
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ getValue }) => <StatusTag status={getValue<string>()} />,
+      },
+      {
+        accessorKey: "size_bytes",
+        header: "Size",
+        cell: ({ getValue }) => formatBytes(getValue<number>()),
+      },
+      {
+        accessorKey: "artifact_digest",
+        header: "Digest",
+        cell: ({ getValue }) => {
+          const digest = getValue<string>();
+          return (
+            <Tooltip title={digest}>
+              <span className="font-mono text-xs">
+                {truncateDigest(digest)}
+              </span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        accessorKey: "training_accuracy",
+        header: "Train acc.",
+        cell: ({ getValue }) => formatPercent(getValue<number | null>()),
+      },
+      {
+        accessorKey: "created_at",
+        header: "Created",
+        cell: ({ getValue }) => {
+          const v = getValue<string | null>();
+          return v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—";
+        },
+      },
+      {
+        accessorKey: "created_by",
+        header: "Created by",
+        cell: ({ getValue }) => getValue<string | null>() || "—",
+      },
+    ],
+    [],
+  );
+
+  const table = useReactTable({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: Math.max(1, Math.ceil(total / Math.max(pageSize, 1))),
+  });
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <Spin spinning={Boolean(loading)}>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1400px] w-full border-collapse text-left text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id} className="border-b border-slate-200">
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      className="whitespace-nowrap px-3 py-3 font-medium"
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className="px-3 py-10 text-center text-slate-500"
+                  >
+                    No models found
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-slate-100 hover:bg-slate-50/80"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className="whitespace-nowrap px-3 py-3 align-top"
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Spin>
+      <div className="flex justify-end border-t border-slate-100 px-4 py-3">
+        <Pagination
+          current={page}
+          pageSize={pageSize}
+          total={total}
+          showSizeChanger
+          pageSizeOptions={[10, 20, 50]}
+          showTotal={(count, range) => `${range[0]}–${range[1]} of ${count}`}
+          onChange={onPageChange}
+        />
+      </div>
+    </div>
+  );
+}

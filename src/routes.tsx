@@ -1,0 +1,64 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+
+import { AppLayout } from "@/components/layout/AppLayout";
+import { DatabankListPage } from "@/pages/DatabankListPage";
+import { EvaluationDatasetsPage } from "@/pages/EvaluationDatasetsPage";
+import { EvaluationRunsPage } from "@/pages/EvaluationRunsPage";
+import { ModelListPage } from "@/pages/ModelListPage";
+import { ModelOverviewPage } from "@/pages/ModelOverviewPage";
+import { ModelRefsPage } from "@/pages/ModelRefsPage";
+import { OcrPlaygroundPage } from "@/pages/OcrPlaygroundPage";
+import { RecognitionConfigsPage } from "@/pages/RecognitionConfigsPage";
+import { TrainingCurationPage } from "@/pages/TrainingCurationPage";
+import { TrainingDatasetsPage } from "@/pages/TrainingDatasetsPage";
+import { TrainingOverviewPage } from "@/pages/TrainingOverviewPage";
+import { TrainingRunDetailPage } from "@/pages/TrainingRunDetailPage";
+import { TrainingRunsPage } from "@/pages/TrainingRunsPage";
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route index element={<Navigate to="/models/list" replace />} />
+        <Route
+          path="/models"
+          element={<Navigate to="/models/list" replace />}
+        />
+        <Route path="/models/list" element={<ModelListPage />} />
+        <Route path="/models/refs" element={<ModelRefsPage />} />
+        <Route
+          path="/models/recognition-configs"
+          element={<RecognitionConfigsPage />}
+        />
+        <Route path="/models/overview" element={<ModelOverviewPage />} />
+        <Route
+          path="/evaluation"
+          element={<Navigate to="/evaluation/datasets" replace />}
+        />
+        <Route
+          path="/evaluation/datasets"
+          element={<EvaluationDatasetsPage />}
+        />
+        <Route path="/evaluation/dataset-list" element={<DatabankListPage />} />
+        <Route
+          path="/evaluation/training-datasets"
+          element={<TrainingDatasetsPage />}
+        />
+        <Route path="/evaluation/runs" element={<EvaluationRunsPage />} />
+        <Route path="/training" element={<TrainingOverviewPage />} />
+        <Route path="/training/runs" element={<TrainingRunsPage />} />
+        <Route
+          path="/training/runs/:runId"
+          element={<TrainingRunDetailPage />}
+        />
+        <Route
+          path="/training/datasets"
+          element={<Navigate to="/evaluation/training-datasets" replace />}
+        />
+        <Route path="/training/curate" element={<TrainingCurationPage />} />
+        <Route path="/ocr" element={<OcrPlaygroundPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/models/list" replace />} />
+    </Routes>
+  );
+}
