@@ -28,6 +28,7 @@ import { listEvaluations } from "@/api/evaluation";
 import {
   createRecognitionConfig,
   createRefFromRecognitionConfig,
+  deleteRecognitionConfig,
   listArtifacts,
   listRecognitionConfigs,
   listRecognitionPreviewCases,
@@ -664,6 +665,20 @@ export function RecognitionConfigsPage() {
     onError: (e) => message.error(getApiErrorMessage(e)),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteRecognitionConfig(id),
+    onSuccess: async (art) => {
+      message.success(`Deleted ${art.name} v${art.version}`);
+      await queryClient.invalidateQueries({
+        queryKey: ["models", "recognition-configs"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["models", "artifacts"],
+      });
+    },
+    onError: (e) => message.error(getApiErrorMessage(e)),
+  });
+
   const defaults = query.data?.defaults;
 
   useEffect(() => {
@@ -773,7 +788,7 @@ export function RecognitionConfigsPage() {
       {
         title: "Actions",
         key: "actions",
-        width: 280,
+        width: 340,
         render: (_, r) => (
           <Space size="small" wrap>
             <Button
@@ -800,11 +815,29 @@ export function RecognitionConfigsPage() {
             >
               Create model ref
             </Button>
+            <Button
+              size="small"
+              danger
+              loading={
+                deleteMutation.isPending && deleteMutation.variables === r.id
+              }
+              onClick={() => {
+                Modal.confirm({
+                  title: "Delete recognition config?",
+                  content: `Permanently deletes ${r.name} v${r.version}. Blocked if a pipeline ref, evaluation, or training run still references it.`,
+                  okText: "Delete forever",
+                  okButtonProps: { danger: true },
+                  onOk: () => deleteMutation.mutateAsync(r.id),
+                });
+              }}
+            >
+              Delete
+            </Button>
           </Space>
         ),
       },
     ],
-    [refForm],
+    [deleteMutation.isPending, deleteMutation.variables, refForm],
   );
 
   const openNew = () => {

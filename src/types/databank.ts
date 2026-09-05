@@ -36,6 +36,7 @@ export interface DatabankDataset {
   blurry_count?: number;
   category_counts?: Record<string, { total: number; reviewed: number }>;
   custom_categories?: string[];
+  reviewed_eval_chunk_count?: number;
   model_ref?: string | null;
   detection_artifact_id?: string | null;
   recognition_artifact_id?: string | null;

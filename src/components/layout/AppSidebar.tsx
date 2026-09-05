@@ -85,9 +85,14 @@ const NAV_ITEMS: MenuItem[] = [
     label: "Training",
     children: [
       {
+        key: "/training-center",
+        icon: <DashboardOutlined />,
+        label: <Link to="/training-center">Training Center</Link>,
+      },
+      {
         key: "/training",
         icon: <DashboardOutlined />,
-        label: <Link to="/training">Overview</Link>,
+        label: <Link to="/training">Legacy overview</Link>,
       },
       {
         key: "/training/curate",
@@ -123,6 +128,7 @@ export function AppSidebar() {
     if (path.startsWith("/evaluation/dataset-list"))
       return "/evaluation/dataset-list";
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
+    if (path.startsWith("/training-center")) return "/training-center";
     if (path.startsWith("/training/runs/")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
     if (path.startsWith("/training/curate")) return "/training/curate";
@@ -137,6 +143,8 @@ export function AppSidebar() {
     if (location.pathname.startsWith("/evaluation"))
       keys.push("evaluation-group");
     if (location.pathname.startsWith("/training")) keys.push("training-group");
+    if (location.pathname.startsWith("/training-center"))
+      keys.push("training-group");
     return keys.length
       ? keys
       : ["models-group", "evaluation-group", "training-group"];
@@ -155,7 +163,10 @@ export function AppSidebar() {
           : [...keys, "evaluation-group"],
       );
     }
-    if (location.pathname.startsWith("/training")) {
+    if (
+      location.pathname.startsWith("/training") ||
+      location.pathname.startsWith("/training-center")
+    ) {
       setOpenKeys((keys) =>
         keys.includes("training-group") ? keys : [...keys, "training-group"],
       );

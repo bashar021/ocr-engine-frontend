@@ -49,6 +49,7 @@ export interface ListArtifactsParams {
   ocr_type?: string;
   role?: string;
   status?: string;
+  exclude_status?: string;
   runtime?: string;
   search?: string;
   limit?: number;

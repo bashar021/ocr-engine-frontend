@@ -57,14 +57,35 @@ export async function listDatabankSamples(
   return data;
 }
 
+export type DatabankSyncMirrorResult = {
+  id?: string;
+  name?: string;
+  version?: string;
+  sample_count?: number;
+  chunk_index?: number;
+  chunk_count?: number;
+};
+
+export type DatabankSyncResponse = Record<
+  string,
+  | DatabankSyncMirrorResult
+  | {
+      chunk_count?: number;
+      sample_count?: number;
+      chunks?: DatabankSyncMirrorResult[];
+    }
+>;
+
 export async function syncDatabankReviewedEval(
   datasetId: string,
-): Promise<
-  Record<string, { name?: string; version?: string; sample_count?: number }>
-> {
-  const { data } = await apiClient.post<
-    Record<string, { name?: string; version?: string; sample_count?: number }>
-  >(`/v1/databank/datasets/${datasetId}/sync-reviewed-eval`);
+  options?: { reviewed_chunk_count?: number },
+): Promise<DatabankSyncResponse> {
+  const { data } = await apiClient.post<DatabankSyncResponse>(
+    `/v1/databank/datasets/${datasetId}/sync-reviewed-eval`,
+    {
+      reviewed_chunk_count: options?.reviewed_chunk_count ?? 1,
+    },
+  );
   return data;
 }
 

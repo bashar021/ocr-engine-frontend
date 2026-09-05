@@ -1,10 +1,11 @@
+import { App, Button, Space, Typography } from "antd";
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { Pagination, Spin, Tag, Tooltip, Typography } from "antd";
+import { Pagination, Spin, Tag, Tooltip } from "antd";
 import dayjs from "dayjs";
 import { useMemo } from "react";
 
@@ -19,6 +20,11 @@ interface ModelsTableProps {
   page: number;
   pageSize: number;
   onPageChange: (page: number, pageSize: number) => void;
+  tab?: "activated" | "deactivated";
+  onDeactivate?: (artifact: ModelArtifact) => void;
+  onActivate?: (artifact: ModelArtifact) => void;
+  onDelete?: (artifact: ModelArtifact) => void;
+  actionLoadingId?: string | null;
 }
 
 export function ModelsTable({
@@ -28,7 +34,14 @@ export function ModelsTable({
   page,
   pageSize,
   onPageChange,
+  tab = "activated",
+  onDeactivate,
+  onActivate,
+  onDelete,
+  actionLoadingId,
 }: ModelsTableProps) {
+  const { modal } = App.useApp();
+
   const columns = useMemo<ColumnDef<ModelArtifact>[]>(
     () => [
       {
@@ -120,8 +133,79 @@ export function ModelsTable({
         header: "Created by",
         cell: ({ getValue }) => getValue<string | null>() || "—",
       },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const art = row.original;
+          const busy = actionLoadingId === art.id;
+          return (
+            <Space size={4} wrap>
+              {tab === "activated" ? (
+                <Button
+                  size="small"
+                  loading={busy}
+                  onClick={() =>
+                    modal.confirm({
+                      title: "Deactivate model?",
+                      content: (
+                        <div className="text-sm text-slate-600">
+                          Retires{" "}
+                          <strong>
+                            {art.name}@{art.version}
+                          </strong>{" "}
+                          so it cannot be bound to new pipeline refs. Blocked if
+                          an active ref still uses it.
+                        </div>
+                      ),
+                      okText: "Deactivate",
+                      onOk: () => onDeactivate?.(art),
+                    })
+                  }
+                >
+                  Deactivate
+                </Button>
+              ) : (
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={busy}
+                  onClick={() => onActivate?.(art)}
+                >
+                  Activate
+                </Button>
+              )}
+              <Button
+                size="small"
+                danger
+                loading={busy}
+                onClick={() =>
+                  modal.confirm({
+                    title: "Delete model permanently?",
+                    content: (
+                      <div className="text-sm text-slate-600">
+                        Deletes{" "}
+                        <strong>
+                          {art.name}@{art.version}
+                        </strong>{" "}
+                        and its file from disk. Blocked if refs, evaluations, or
+                        training runs still reference it.
+                      </div>
+                    ),
+                    okText: "Delete forever",
+                    okButtonProps: { danger: true },
+                    onOk: () => onDelete?.(art),
+                  })
+                }
+              >
+                Delete
+              </Button>
+            </Space>
+          );
+        },
+      },
     ],
-    [],
+    [actionLoadingId, modal, onActivate, onDeactivate, onDelete, tab],
   );
 
   const table = useReactTable({
@@ -136,7 +220,7 @@ export function ModelsTable({
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <Spin spinning={Boolean(loading)}>
         <div className="overflow-x-auto">
-          <table className="min-w-[1400px] w-full border-collapse text-left text-sm">
+          <table className="min-w-[1500px] w-full border-collapse text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="border-b border-slate-200">

@@ -13,6 +13,7 @@ import {
   Dropdown,
   Form,
   Input,
+  InputNumber,
   Modal,
   Progress,
   Select,
@@ -143,6 +144,8 @@ export function DatabankListPage() {
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [recognitionBuildOpen, setRecognitionBuildOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncChunkCount, setSyncChunkCount] = useState(1);
   const [sampleSearch, setSampleSearch] = useState("");
   const [samplePage, setSamplePage] = useState(1);
   const [samplePageSize, setSamplePageSize] = useState(20);
@@ -339,26 +342,51 @@ export function DatabankListPage() {
   });
 
   const syncReviewedMutation = useMutation({
-    mutationFn: () => syncDatabankReviewedEval(datasetId!),
+    mutationFn: (chunkCount: number) =>
+      syncDatabankReviewedEval(datasetId!, {
+        reviewed_chunk_count: chunkCount,
+      }),
     onSuccess: (ds) => {
-      const parts = Object.entries(ds ?? {})
-        .filter(
-          (
-            entry,
-          ): entry is [
-            string,
-            { sample_count?: number; name?: string; version?: string },
-          ] => Boolean(entry[1]) && typeof entry[1] === "object",
-        )
-        .map(
-          ([key, v]) =>
-            `${key}: ${v.sample_count ?? 0} → ${v.name ?? key}@${v.version ?? "1.0.0"}`,
+      const parts: string[] = [];
+      for (const [key, v] of Object.entries(ds ?? {})) {
+        if (!v || typeof v !== "object") continue;
+        if (
+          "chunks" in v &&
+          Array.isArray((v as { chunks?: unknown }).chunks)
+        ) {
+          const chunked = v as {
+            chunk_count?: number;
+            chunks: Array<{
+              name?: string;
+              version?: string;
+              sample_count?: number;
+            }>;
+          };
+          const chunkParts = chunked.chunks.map(
+            (c) =>
+              `${c.name ?? key}@${c.version ?? "1.0.0"} (${c.sample_count ?? 0})`,
+          );
+          parts.push(
+            `${key}: ${chunked.chunk_count ?? chunkParts.length} chunks → ${chunkParts.join(", ")}`,
+          );
+          continue;
+        }
+        const info = v as {
+          sample_count?: number;
+          name?: string;
+          version?: string;
+        };
+        if (info.sample_count == null && !info.name) continue;
+        parts.push(
+          `${key}: ${info.sample_count ?? 0} → ${info.name ?? key}@${info.version ?? "1.0.0"}`,
         );
+      }
       message.success(
         parts.length
           ? `Synced mirrors — ${parts.join("; ")}`
           : "Synced mirrors",
       );
+      setSyncOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       void queryClient.invalidateQueries({
         queryKey: ["evaluation", "datasets"],
@@ -794,7 +822,12 @@ export function DatabankListPage() {
                 icon={<ReloadOutlined />}
                 loading={syncReviewedMutation.isPending}
                 disabled={!datasetId}
-                onClick={() => syncReviewedMutation.mutate()}
+                onClick={() => {
+                  setSyncChunkCount(
+                    Math.max(1, dataset?.reviewed_eval_chunk_count ?? 1),
+                  );
+                  setSyncOpen(true);
+                }}
               >
                 Sync categories to Dataset tab
               </Button>
@@ -1273,6 +1306,33 @@ export function DatabankListPage() {
             const name = newCategoryName.trim();
             if (name) addCategoryMutation.mutate(name);
           }}
+        />
+      </Modal>
+
+      <Modal
+        title="Sync to Dataset tab"
+        open={syncOpen}
+        onCancel={() => setSyncOpen(false)}
+        okText="Sync now"
+        confirmLoading={syncReviewedMutation.isPending}
+        onOk={() => syncReviewedMutation.mutate(syncChunkCount)}
+      >
+        <Typography.Paragraph type="secondary" className="!mb-3">
+          Blurry / dead / custom categories stay as one dataset each. Normal
+          reviewed images can be split into N evaluation datasets (e.g.{" "}
+          <code>data-bank-reviewed-01</code> …{" "}
+          <code>data-bank-reviewed-0N</code>). Use 1 for a single{" "}
+          <code>data-bank-reviewed</code> mirror.
+        </Typography.Paragraph>
+        <div className="mb-1 text-sm text-slate-600">
+          Reviewed images chunks
+        </div>
+        <InputNumber
+          min={1}
+          max={50}
+          value={syncChunkCount}
+          onChange={(v) => setSyncChunkCount(Math.max(1, Number(v) || 1))}
+          className="w-full"
         />
       </Modal>
 

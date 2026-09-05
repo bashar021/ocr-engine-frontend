@@ -148,6 +148,20 @@ export async function retireArtifact(id: string): Promise<ModelArtifact> {
   return data;
 }
 
+export async function activateArtifact(id: string): Promise<ModelArtifact> {
+  const { data } = await apiClient.post<ModelArtifact>(
+    `/v1/models/artifacts/${id}/activate`,
+  );
+  return data;
+}
+
+export async function deleteArtifact(id: string): Promise<ModelArtifact> {
+  const { data } = await apiClient.delete<ModelArtifact>(
+    `/v1/models/artifacts/${id}`,
+  );
+  return data;
+}
+
 export type RecognitionConfigBody = Record<string, unknown>;
 
 export interface RecognitionConfigArtifact extends ModelArtifact {
@@ -208,6 +222,15 @@ export async function createRecognitionConfig(payload: {
   const { data } = await apiClient.post(
     "/v1/models/recognition-configs",
     payload,
+  );
+  return data;
+}
+
+export async function deleteRecognitionConfig(
+  artifactId: string,
+): Promise<RecognitionConfigArtifact> {
+  const { data } = await apiClient.delete(
+    `/v1/models/recognition-configs/${artifactId}`,
   );
   return data;
 }
