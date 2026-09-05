@@ -160,10 +160,25 @@ export function ModelRefsPage() {
             }}
             actionLoadingKey={actionLoadingKey}
             onActivate={(ref, setDefault) => {
+              const baseline = window.prompt(
+                "Optional: baseline evaluation UUID for promotion audit (Cancel to skip)",
+              );
+              let candidate: string | null = null;
+              if (baseline?.trim()) {
+                candidate = window.prompt(
+                  "Candidate evaluation UUID (post-train or compare run)",
+                );
+              }
               mutations.activate.mutate({
                 ocrType: ref.ocr_type,
                 modelRef: ref.model_ref,
                 setDefault,
+                ...(baseline?.trim() && candidate?.trim()
+                  ? {
+                      baseline_evaluation_id: baseline.trim(),
+                      candidate_evaluation_id: candidate.trim(),
+                    }
+                  : {}),
               });
             }}
             onSetDefault={(ref) => {

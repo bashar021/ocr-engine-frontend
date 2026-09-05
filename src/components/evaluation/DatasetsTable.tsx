@@ -16,6 +16,7 @@ const ORIGIN_LABEL: Record<string, { label: string; color: string }> = {
   databank_blurry: { label: "Databank blurry", color: "orange" },
   databank_dead: { label: "Databank dead", color: "red" },
   databank_category: { label: "Databank category", color: "gold" },
+  recognition_crops: { label: "Recognition crops", color: "magenta" },
 };
 
 function originTag(

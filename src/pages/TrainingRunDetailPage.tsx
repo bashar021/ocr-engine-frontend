@@ -3,11 +3,15 @@ import {
   Button,
   Card,
   Descriptions,
+  Input,
   Progress,
+  Space,
+  Statistic,
   Tag,
   message,
 } from "antd";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -21,6 +25,9 @@ const POLL_MS = 2500;
 
 export function TrainingRunDetailPage() {
   const { runId = "" } = useParams();
+  const navigate = useNavigate();
+  const [logFilter, setLogFilter] = useState("");
+  const logRef = useRef<HTMLPreElement>(null);
   const runQuery = useQuery({
     queryKey: ["training", "run", runId],
     queryFn: () => getTrainingRun(runId),
@@ -39,6 +46,15 @@ export function TrainingRunDetailPage() {
     enabled: Boolean(run?.output_artifact_id),
   });
 
+  useEffect(() => {
+    if (
+      logRef.current &&
+      ["queued", "starting", "running"].includes(run?.status ?? "")
+    ) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [run?.logs_tail, run?.status]);
+
   if (runQuery.isError) {
     return (
       <div className="p-6">
@@ -46,6 +62,18 @@ export function TrainingRunDetailPage() {
       </div>
     );
   }
+
+  const val = run?.validation_metrics as
+    | { exact_match?: number; test?: { exact_match_accuracy?: number } }
+    | null
+    | undefined;
+  const testAcc = val?.test?.exact_match_accuracy ?? val?.exact_match ?? null;
+  const filteredLogs = (run?.logs_tail || "")
+    .split("\n")
+    .filter((line) =>
+      logFilter ? line.toLowerCase().includes(logFilter.toLowerCase()) : true,
+    )
+    .join("\n");
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -57,21 +85,42 @@ export function TrainingRunDetailPage() {
           { title: run ? `${run.name}:${run.version}` : "Run" },
         ]}
         actions={
-          run && ["queued", "starting", "running"].includes(run.status) ? (
-            <Button
-              danger
-              onClick={() =>
-                void cancelTrainingRun(run.id)
-                  .then(() => {
-                    message.success("Cancel requested");
-                    void runQuery.refetch();
+          <Space>
+            {run?.status === "completed" && run.role === "recognition" ? (
+              <Button
+                onClick={() =>
+                  navigate("/training/runs", {
+                    state: {
+                      preferBaseArtifactId: run.output_artifact_id,
+                      role: "recognition",
+                    },
                   })
-                  .catch((e) => message.error(getApiErrorMessage(e)))
-              }
-            >
-              Cancel
-            </Button>
-          ) : null
+                }
+              >
+                Use as next base
+              </Button>
+            ) : null}
+            {run?.output_artifact_id ? (
+              <Link to="/models/refs">
+                <Button type="primary">Create / activate model ref</Button>
+              </Link>
+            ) : null}
+            {run && ["queued", "starting", "running"].includes(run.status) ? (
+              <Button
+                danger
+                onClick={() =>
+                  void cancelTrainingRun(run.id)
+                    .then(() => {
+                      message.success("Cancel requested");
+                      void runQuery.refetch();
+                    })
+                    .catch((e) => message.error(getApiErrorMessage(e)))
+                }
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </Space>
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
@@ -98,7 +147,7 @@ export function TrainingRunDetailPage() {
                   {run.framework ?? "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="Base artifact">
-                  {run.training_base_artifact_id ?? "—"}
+                  {run.training_base_artifact_id ?? "Default / none"}
                 </Descriptions.Item>
                 <Descriptions.Item label="Output artifact">
                   {run.output_artifact_id ? (
@@ -117,6 +166,29 @@ export function TrainingRunDetailPage() {
             </>
           ) : null}
         </Card>
+
+        {testAcc != null || run?.validation_metrics ? (
+          <Card title="Holdout / validation metrics">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Statistic
+                title="Test exact-match"
+                value={
+                  testAcc != null
+                    ? Number((testAcc * 100).toFixed(1))
+                    : undefined
+                }
+                suffix={testAcc != null ? "%" : undefined}
+                valueRender={() =>
+                  testAcc != null ? `${(testAcc * 100).toFixed(1)}%` : "—"
+                }
+              />
+              <Statistic
+                title="Epoch"
+                value={`${run?.current_epoch ?? "—"} / ${run?.total_epochs ?? "—"}`}
+              />
+            </div>
+          </Card>
+        ) : null}
 
         {run?.data_counts ? (
           <TrainingDataCountsPanel
@@ -139,45 +211,21 @@ export function TrainingRunDetailPage() {
                   ? `${(artifactQuery.data.training_accuracy * 100).toFixed(1)}%`
                   : "—"}
               </Descriptions.Item>
-              <Descriptions.Item label="Digest">
-                <span className="font-mono text-xs">
-                  {artifactQuery.data.artifact_digest?.slice(0, 16)}…
-                </span>
-              </Descriptions.Item>
-              <Descriptions.Item label="Parent samples">
-                {String(
-                  (
-                    artifactQuery.data.metadata as Record<
-                      string,
-                      unknown
-                    > | null
-                  )?.parent_sample_count ?? "—",
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="New samples">
-                {String(
-                  (
-                    artifactQuery.data.metadata as Record<
-                      string,
-                      unknown
-                    > | null
-                  )?.new_sample_count ?? "—",
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="Total samples">
-                {String(
-                  (
-                    artifactQuery.data.metadata as Record<
-                      string,
-                      unknown
-                    > | null
-                  )?.total_sample_count ?? "—",
-                )}
+              <Descriptions.Item label="Runtime">
+                {artifactQuery.data.runtime}
               </Descriptions.Item>
               <Descriptions.Item label="Candidate">
                 <Tag color="gold">yes — promote manually</Tag>
               </Descriptions.Item>
             </Descriptions>
+            <div className="mt-3">
+              <Alert
+                type="info"
+                showIcon
+                message="Human promotion only"
+                description="Compare test exact-match to your baseline, then create a model ref binding this recognition artifact with your detection model and activate when ready."
+              />
+            </div>
           </Card>
         ) : null}
 
@@ -187,17 +235,12 @@ export function TrainingRunDetailPage() {
               <li key={`${d.dataset_id}-${d.role}`}>
                 <Tag>{d.role}</Tag> {d.dataset_id.slice(0, 8)}… ·{" "}
                 {d.sample_count ?? 0} samples
-                {d.manifest_digest ? (
-                  <span className="ml-2 text-xs text-slate-400">
-                    {d.manifest_digest.slice(0, 18)}…
-                  </span>
-                ) : null}
               </li>
             ))}
           </ul>
         </Card>
 
-        <Card title="Metrics">
+        <Card title="Metrics (raw)">
           <pre className="max-h-40 overflow-auto rounded bg-slate-50 p-2 text-xs">
             {JSON.stringify(
               {
@@ -210,9 +253,23 @@ export function TrainingRunDetailPage() {
           </pre>
         </Card>
 
-        <Card title="Logs">
-          <pre className="max-h-64 overflow-auto rounded bg-slate-50 p-2 text-xs">
-            {run?.logs_tail || "—"}
+        <Card
+          title="Logs"
+          extra={
+            <Input.Search
+              allowClear
+              placeholder="Filter logs"
+              size="small"
+              className="w-48"
+              onChange={(e) => setLogFilter(e.target.value)}
+            />
+          }
+        >
+          <pre
+            ref={logRef}
+            className="max-h-80 overflow-auto rounded bg-slate-50 p-2 text-xs"
+          >
+            {filteredLogs || "—"}
           </pre>
           {run?.error_message ? (
             <Alert className="mt-2" type="error" message={run.error_message} />
@@ -224,7 +281,7 @@ export function TrainingRunDetailPage() {
             <ul className="text-sm">
               {run!.post_train_eval_ids.map((id) => (
                 <li key={id}>
-                  <Link to="/evaluation/runs">{id}</Link>
+                  <Link to={`/evaluation/runs`}>{id}</Link>
                 </li>
               ))}
             </ul>

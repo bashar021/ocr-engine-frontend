@@ -63,27 +63,42 @@ export function TrainingOverviewPage() {
         </Row>
 
         <Card
-          title="Workflow"
-          extra={<Link to="/training/runs">Start training →</Link>}
+          title="Detection workflow"
+          extra={<Link to="/training/runs">Start detection →</Link>}
         >
           <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
             <li>
               From a completed evaluation, open{" "}
               <Link to="/training/curate">Curate failures</Link>
             </li>
+            <li>Draw bbox, fix GT, export detection_full pack</li>
             <li>
-              Draw the correct boundary, fix ground truth, exclude false/bad
-              images
+              Train with Ultralytics under <Link to="/training/runs">Runs</Link>
+            </li>
+          </ol>
+        </Card>
+
+        <Card
+          title="Recognition workflow"
+          extra={<Link to="/training/runs">Start recognition →</Link>}
+        >
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
+            <li>
+              Review images in{" "}
+              <Link to="/evaluation/dataset-list">Dataset list</Link>
             </li>
             <li>
-              Create a <strong>copied</strong> hard-case dataset (source stays
-              unmodified)
+              <strong>Build recognition pack</strong> (frozen train/val/test
+              crops) — also on{" "}
+              <Link to="/evaluation/training-datasets">Training datasets</Link>
             </li>
             <li>
-              Start a run with original dataset (base) + hard-case dataset under{" "}
-              <Link to="/training/runs">Runs</Link>. Curated packs live under{" "}
-              <Link to="/evaluation/training-datasets">Training datasets</Link>;
-              uploads under <Link to="/evaluation/datasets">Datasets</Link>.
+              Start a recognition run: first base = default PaddleOCR; later
+              pick your <strong>strongest version</strong> as base (manual)
+            </li>
+            <li>
+              Watch logs on the run detail page; compare test exact-match;{" "}
+              <Link to="/models/refs">promote</Link> when better
             </li>
           </ol>
         </Card>

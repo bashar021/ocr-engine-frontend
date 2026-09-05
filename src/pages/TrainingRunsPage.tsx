@@ -14,7 +14,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -22,6 +22,7 @@ import { listDatasets } from "@/api/evaluation";
 import { listArtifacts } from "@/api/models";
 import {
   cancelTrainingRun,
+  getPaddleTrainingReadiness,
   listTrainingAdapters,
   listTrainingRuns,
   startTrainingRun,
@@ -36,6 +37,7 @@ const POLL_MS = 3000;
 
 export function TrainingRunsPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [role, setRole] = useState<"detection" | "recognition">("detection");
   const [form] = Form.useForm();
   const baseId = Form.useWatch("training_base_artifact_id", form);
@@ -45,9 +47,32 @@ export function TrainingRunsPage() {
     | string[]
     | undefined;
 
+  useEffect(() => {
+    const st = location.state as {
+      preferBaseArtifactId?: string;
+      role?: "detection" | "recognition";
+    } | null;
+    if (st?.role === "recognition") {
+      setRole("recognition");
+      form.setFieldValue("role", "recognition");
+    }
+    if (st?.preferBaseArtifactId) {
+      form.setFieldValue("training_base_artifact_id", st.preferBaseArtifactId);
+      message.info(
+        "Base model set from previous run — review and start when ready",
+      );
+    }
+  }, [location.state, form]);
+
   const adaptersQuery = useQuery({
     queryKey: ["training", "adapters"],
     queryFn: listTrainingAdapters,
+  });
+  const paddleReadyQuery = useQuery({
+    queryKey: ["training", "paddle-readiness"],
+    queryFn: getPaddleTrainingReadiness,
+    enabled: role === "recognition",
+    staleTime: 30_000,
   });
   const runsQuery = useQuery({
     queryKey: ["training", "runs"],
@@ -83,15 +108,30 @@ export function TrainingRunsPage() {
     queryFn: () => listArtifacts({ role: "recognition", limit: 100 }),
   });
 
-  const datasetOptions = useMemo(
-    () =>
-      (datasetsQuery.data?.datasets ?? []).map((d) => ({
+  const datasetOptions = useMemo(() => {
+    const all = datasetsQuery.data?.datasets ?? [];
+    const filtered =
+      role === "recognition"
+        ? all.filter(
+            (d) =>
+              d.pack === "recognition_crops" ||
+              d.metadata?.pack === "recognition_crops" ||
+              Boolean(d.split_counts) ||
+              d.image_mode === "recognition_crop",
+          )
+        : all;
+    return filtered.map((d) => {
+      const sc = d.split_counts;
+      const splitLabel = sc
+        ? ` · ${sc.train ?? 0}/${sc.val ?? 0}/${sc.test ?? 0}`
+        : "";
+      return {
         value: d.id,
-        label: `${d.name} v${d.version} (${d.sample_count} samples)`,
+        label: `${d.name} v${d.version} (${d.sample_count}${splitLabel})`,
         sample_count: d.sample_count,
-      })),
-    [datasetsQuery.data],
-  );
+      };
+    });
+  }, [datasetsQuery.data, role]);
 
   const evalDatasetOptions = useMemo(
     () =>
@@ -170,6 +210,7 @@ export function TrainingRunsPage() {
       for (const id of values.hard_dataset_ids ?? []) {
         dataset_ids.push({ dataset_id: id, role: "hard_case" });
       }
+      const isRec = values.role === "recognition";
       const run = await startTrainingRun({
         ocr_type: "odometer",
         role: values.role,
@@ -177,16 +218,26 @@ export function TrainingRunsPage() {
         version: values.version,
         adapter_id: values.adapter_id,
         dataset_ids,
-        training_base_artifact_id: values.training_base_artifact_id,
-        hyperparameters: {
-          epochs: values.epochs ?? 25,
-          imgsz: values.imgsz ?? 640,
-          batch: values.batch ?? 8,
-          patience: values.patience ?? 20,
-        },
+        training_base_artifact_id:
+          values.training_base_artifact_id || undefined,
+        hyperparameters: isRec
+          ? {
+              epochs: values.epochs ?? 20,
+              batch: values.batch ?? 8,
+              learning_rate: values.learning_rate ?? 0.000015,
+              run_test_eval: values.run_test_eval !== false,
+              use_gpu: Boolean(values.use_gpu),
+            }
+          : {
+              epochs: values.epochs ?? 25,
+              imgsz: values.imgsz ?? 640,
+              batch: values.batch ?? 8,
+              patience: values.patience ?? 20,
+            },
         config: {
           paired_detection_artifact_id: values.paired_detection_artifact_id,
           paired_recognition_artifact_id: values.paired_recognition_artifact_id,
+          run_test_eval: values.run_test_eval !== false,
         },
         auto_evaluate: Boolean(values.auto_evaluate),
         evaluate_dataset_ids: values.evaluate_dataset_ids,
@@ -304,9 +355,47 @@ export function TrainingRunsPage() {
         <Alert
           type="info"
           showIcon
-          message="Detection training uses Ultralytics YOLO fine-tuning"
-          description="Select a parent/base artifact to continue training an already-trained .pt (recommended). Hard-case datasets must be curated with detection_full (human bbox). Stub adapters only copy weights and will not improve accuracy."
+          message={
+            role === "recognition"
+              ? "Recognition fine-tune (manual iterative)"
+              : "Detection training uses Ultralytics YOLO fine-tuning"
+          }
+          description={
+            role === "recognition" ? (
+              <>
+                Pick a recognition crop pack with train/val/test. Leave base
+                empty to fine-tune from configured PP-OCRv5 pretrained weights.
+                Later runs: pick your strongest prior recognition artifact
+                (train_checkpoint is reused). Default LR 1.5e-5 for fine-tune.
+              </>
+            ) : (
+              "Select a parent/base artifact to continue training an already-trained .pt (recommended). Hard-case datasets must be curated with detection_full (human bbox)."
+            )
+          }
         />
+        {role === "recognition" && paddleReadyQuery.data ? (
+          <Alert
+            type={paddleReadyQuery.data.ready ? "success" : "warning"}
+            showIcon
+            message={
+              paddleReadyQuery.data.ready
+                ? "Paddle training environment ready"
+                : "Paddle training not fully configured"
+            }
+            description={
+              <div className="text-sm">
+                <div>{paddleReadyQuery.data.message}</div>
+                <ul className="mt-2 list-disc pl-5">
+                  {paddleReadyQuery.data.checks.map((c) => (
+                    <li key={c.name}>
+                      {c.ok ? "✓" : "✗"} {c.name}: {c.detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+        ) : null}
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <Form
             form={form}
@@ -317,6 +406,9 @@ export function TrainingRunsPage() {
               imgsz: 640,
               batch: 8,
               patience: 20,
+              learning_rate: 0.000015,
+              run_test_eval: true,
+              use_gpu: false,
               auto_evaluate: false,
               auto_version: true,
             }}
@@ -328,7 +420,16 @@ export function TrainingRunsPage() {
                   { value: "detection", label: "Detection" },
                   { value: "recognition", label: "Recognition" },
                 ]}
-                onChange={(v) => setRole(v)}
+                onChange={(v) => {
+                  setRole(v);
+                  if (v === "recognition") {
+                    form.setFieldsValue({
+                      epochs: 20,
+                      learning_rate: 0.000015,
+                      name: form.getFieldValue("name") || "odometer-recognizer",
+                    });
+                  }
+                }}
               />
             </Form.Item>
             <Form.Item
@@ -340,16 +441,41 @@ export function TrainingRunsPage() {
             </Form.Item>
             <Form.Item
               name="training_base_artifact_id"
-              label="Parent / base artifact"
+              label={
+                role === "recognition"
+                  ? "Base model (strong version)"
+                  : "Parent / base artifact"
+              }
+              extra={
+                role === "recognition"
+                  ? "Empty = default PaddleOCR pretrained. Prefer your best prior candidate for the next run."
+                  : undefined
+              }
             >
               <Select
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                options={(artifactsQuery.data?.artifacts ?? []).map((a) => ({
-                  value: a.id,
-                  label: `${a.name}:${a.version}`,
-                }))}
+                options={(artifactsQuery.data?.artifacts ?? [])
+                  .slice()
+                  .sort((a, b) => {
+                    const aa = a.training_accuracy ?? -1;
+                    const bb = b.training_accuracy ?? -1;
+                    return bb - aa;
+                  })
+                  .map((a) => ({
+                    value: a.id,
+                    label: `${a.name}:${a.version}${
+                      a.training_accuracy != null
+                        ? ` · ${(a.training_accuracy * 100).toFixed(1)}%`
+                        : ""
+                    }${a.metadata && (a.metadata as { candidate?: boolean }).candidate ? " · candidate" : ""}`,
+                  }))}
+                placeholder={
+                  role === "recognition"
+                    ? "Default PaddleOCR (or pick strong version)"
+                    : undefined
+                }
               />
             </Form.Item>
             <Form.Item
@@ -357,7 +483,13 @@ export function TrainingRunsPage() {
               label="Output name"
               rules={[{ required: true }]}
             >
-              <Input placeholder="odometer-detector" />
+              <Input
+                placeholder={
+                  role === "recognition"
+                    ? "odometer-recognizer"
+                    : "odometer-detector"
+                }
+              />
             </Form.Item>
             <Form.Item
               name="version"
@@ -379,32 +511,77 @@ export function TrainingRunsPage() {
             <Form.Item name="epochs" label="Epochs">
               <InputNumber min={1} max={300} className="w-full" />
             </Form.Item>
-            <Form.Item name="imgsz" label="Image size">
-              <InputNumber min={320} max={1280} step={32} className="w-full" />
-            </Form.Item>
+            {role === "detection" ? (
+              <>
+                <Form.Item name="imgsz" label="Image size">
+                  <InputNumber
+                    min={320}
+                    max={1280}
+                    step={32}
+                    className="w-full"
+                  />
+                </Form.Item>
+                <Form.Item name="patience" label="Early-stop patience">
+                  <InputNumber min={0} max={100} className="w-full" />
+                </Form.Item>
+              </>
+            ) : (
+              <>
+                <Form.Item name="learning_rate" label="Learning rate">
+                  <InputNumber
+                    min={1e-6}
+                    max={0.1}
+                    step={0.0001}
+                    className="w-full"
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="run_test_eval"
+                  label="Eval frozen test after train"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+                <Form.Item
+                  name="use_gpu"
+                  label="Use GPU"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+              </>
+            )}
             <Form.Item name="batch" label="Batch size">
               <InputNumber min={1} max={64} className="w-full" />
             </Form.Item>
-            <Form.Item name="patience" label="Early-stop patience">
-              <InputNumber min={0} max={100} className="w-full" />
-            </Form.Item>
-            <Form.Item
-              name="base_dataset_id"
-              label="Original / parent training dataset"
-              className="md:col-span-1"
-            >
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                options={evalDatasetOptions}
-                placeholder="Evaluation-eligible datasets"
-              />
-            </Form.Item>
+            {role === "detection" ? (
+              <Form.Item
+                name="base_dataset_id"
+                label="Original / parent training dataset"
+                className="md:col-span-1"
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  options={evalDatasetOptions}
+                  placeholder="Evaluation-eligible datasets"
+                />
+              </Form.Item>
+            ) : null}
             <Form.Item
               name="hard_dataset_ids"
-              label="New / hard-case datasets"
+              label={
+                role === "recognition"
+                  ? "Recognition crop pack(s)"
+                  : "New / hard-case datasets"
+              }
               className="md:col-span-2"
+              rules={
+                role === "recognition"
+                  ? [{ required: true, message: "Select a recognition pack" }]
+                  : undefined
+              }
             >
               <Select
                 mode="multiple"
@@ -412,7 +589,11 @@ export function TrainingRunsPage() {
                 showSearch
                 optionFilterProp="label"
                 options={datasetOptions}
-                placeholder="From Training datasets (curated / merged)"
+                placeholder={
+                  role === "recognition"
+                    ? "Packs with train/val/test (Build recognition pack)"
+                    : "From Training datasets (curated / merged)"
+                }
               />
             </Form.Item>
             <Form.Item
@@ -442,22 +623,24 @@ export function TrainingRunsPage() {
                 )}
               />
             </Form.Item>
-            <Form.Item
-              name="paired_recognition_artifact_id"
-              label="Paired recognition"
-            >
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                options={(recognitionArtsQuery.data?.artifacts ?? []).map(
-                  (a) => ({
-                    value: a.id,
-                    label: `${a.name}:${a.version}`,
-                  }),
-                )}
-              />
-            </Form.Item>
+            {role === "detection" ? (
+              <Form.Item
+                name="paired_recognition_artifact_id"
+                label="Paired recognition"
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  options={(recognitionArtsQuery.data?.artifacts ?? []).map(
+                    (a) => ({
+                      value: a.id,
+                      label: `${a.name}:${a.version}`,
+                    }),
+                  )}
+                />
+              </Form.Item>
+            ) : null}
             <Form.Item
               name="auto_evaluate"
               label="Auto-evaluate"

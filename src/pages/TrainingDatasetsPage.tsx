@@ -9,6 +9,7 @@ import { getApiErrorMessage } from "@/api/client";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusTag } from "@/components/common/StatusTag";
 import { DatasetSamplesDrawer } from "@/components/evaluation/DatasetSamplesDrawer";
+import { RecognitionBuildModal } from "@/components/training/RecognitionBuildModal";
 import {
   useArchiveDataset,
   useHardDeleteDataset,
@@ -36,6 +37,7 @@ export function TrainingDatasetsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
   const [samplesDataset, setSamplesDataset] =
     useState<EvaluationDataset | null>(null);
 
@@ -179,8 +181,35 @@ export function TrainingDatasetsPage() {
       },
       {
         title: "Samples",
-        dataIndex: "sample_count",
-        width: 90,
+        key: "samples",
+        width: 160,
+        render: (_, d) => {
+          const sc = d.split_counts;
+          if (sc && (sc.train != null || sc.val != null || sc.test != null)) {
+            return (
+              <div className="text-xs">
+                <div>{d.sample_count} total</div>
+                <div className="text-slate-500">
+                  {sc.train ?? 0}/{sc.val ?? 0}/{sc.test ?? 0}
+                </div>
+                <Tag className="mt-1">train/val/test</Tag>
+              </div>
+            );
+          }
+          return d.sample_count;
+        },
+      },
+      {
+        title: "Pack",
+        key: "pack",
+        width: 110,
+        render: (_, d) =>
+          d.pack ||
+          (typeof d.metadata?.pack === "string" ? d.metadata.pack : null) ? (
+            <Tag color="magenta">{String(d.pack || d.metadata?.pack)}</Tag>
+          ) : (
+            "—"
+          ),
       },
       {
         title: "Eval",
@@ -333,6 +362,9 @@ export function TrainingDatasetsPage() {
         ]}
         actions={
           <Space>
+            <Button onClick={() => setBuildOpen(true)}>
+              Build recognition pack
+            </Button>
             <Button
               icon={<MergeCellsOutlined />}
               disabled={!canMerge}
@@ -357,7 +389,8 @@ export function TrainingDatasetsPage() {
               <Link to="/training/curate">Curate failures</Link> (and merges).
               They cannot be used for evaluation until you click{" "}
               <strong>Allow for eval</strong>. Merge small sets into one larger
-              training pack — lineage shows parents (A + B → C).
+              training pack — lineage shows parents (A + B → C). Build
+              recognition packs for train/val/test crop fine-tuning.
             </>
           }
         />
@@ -435,6 +468,13 @@ export function TrainingDatasetsPage() {
         open={Boolean(samplesDataset)}
         dataset={samplesDataset}
         onClose={() => setSamplesDataset(null)}
+      />
+      <RecognitionBuildModal
+        open={buildOpen}
+        onClose={() => setBuildOpen(false)}
+        datasetIds={
+          selectedRows.length ? selectedRows.map((d) => d.id) : undefined
+        }
       />
     </div>
   );

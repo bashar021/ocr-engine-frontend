@@ -22,8 +22,23 @@ export function usePipelineRefMutations() {
       ocrType,
       modelRef,
       setDefault = false,
-    }: RefKey & { setDefault?: boolean }) =>
-      activatePipelineRef(ocrType, modelRef, setDefault),
+      baseline_evaluation_id,
+      candidate_evaluation_id,
+      promotion_override,
+      promotion_reason,
+    }: RefKey & {
+      setDefault?: boolean;
+      baseline_evaluation_id?: string;
+      candidate_evaluation_id?: string;
+      promotion_override?: boolean;
+      promotion_reason?: string;
+    }) =>
+      activatePipelineRef(ocrType, modelRef, setDefault, {
+        baseline_evaluation_id,
+        candidate_evaluation_id,
+        promotion_override,
+        promotion_reason,
+      }),
     onSuccess: async (_data, vars) => {
       await invalidate();
       message.success(

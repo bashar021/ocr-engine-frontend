@@ -29,7 +29,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -53,6 +53,7 @@ import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
+import { RecognitionBuildModal } from "@/components/training/RecognitionBuildModal";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { DatabankMetrics, DatabankSample } from "@/types/databank";
 import type { OcrBoundingBox } from "@/types/ocr";
@@ -71,9 +72,11 @@ type MatchFilter = "all" | "yes" | "no" | "none";
 type FinalGtFilter = "all" | "yes" | "no";
 type RerunFilter = "all" | "has" | "missing" | "ok" | "miss";
 
-function formatPct(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "—";
-  return `${(value * 100).toFixed(1)}%`;
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
 }
 
 function MetricsStrip({
@@ -85,7 +88,8 @@ function MetricsStrip({
   metrics?: DatabankMetrics | null;
   emptyHint: string;
 }) {
-  if (!metrics || metrics.comparable_samples === 0) {
+  const comparable = Number(metrics?.comparable_samples ?? 0);
+  if (!metrics || comparable === 0) {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
         <Typography.Text strong>{title}</Typography.Text>
@@ -93,17 +97,24 @@ function MetricsStrip({
       </div>
     );
   }
+  const accuracy =
+    metrics.exact_match_accuracy == null ||
+    Number.isNaN(Number(metrics.exact_match_accuracy))
+      ? null
+      : Number(metrics.exact_match_accuracy) * 100;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
       <Typography.Text strong>{title}</Typography.Text>
       <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Statistic
           title="Accuracy"
-          value={formatPct(metrics.exact_match_accuracy)}
+          value={accuracy ?? "—"}
+          precision={accuracy == null ? undefined : 1}
+          suffix={accuracy == null ? undefined : "%"}
         />
-        <Statistic title="Matches" value={metrics.exact_matches} />
-        <Statistic title="Mismatches" value={metrics.mismatches} />
-        <Statistic title="Compared" value={metrics.comparable_samples} />
+        <Statistic title="Matches" value={Number(metrics.exact_matches) || 0} />
+        <Statistic title="Mismatches" value={Number(metrics.mismatches) || 0} />
+        <Statistic title="Compared" value={comparable} />
       </div>
     </div>
   );
@@ -131,6 +142,7 @@ export function DatabankListPage() {
   const [reviewTab, setReviewTab] = useState<string>("unreviewed");
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [recognitionBuildOpen, setRecognitionBuildOpen] = useState(false);
   const [sampleSearch, setSampleSearch] = useState("");
   const [samplePage, setSamplePage] = useState(1);
   const [samplePageSize, setSamplePageSize] = useState(20);
@@ -176,6 +188,24 @@ export function DatabankListPage() {
   const datasetId = dataset?.id;
   const uploadProgress = dataset?.upload_progress;
   const jobRunning = uploadProgress?.status === "running";
+  const customCategories = useMemo(
+    () => asStringList(dataset?.custom_categories),
+    [dataset?.custom_categories],
+  );
+
+  useEffect(() => {
+    const known = new Set([
+      "unreviewed",
+      "reviewed",
+      "blurry",
+      "dead",
+      ...customCategories,
+    ]);
+    if (!known.has(reviewTab)) {
+      setReviewTab("unreviewed");
+      setSamplePage(1);
+    }
+  }, [customCategories, reviewTab]);
 
   const samplesQuery = useQuery({
     queryKey: [
@@ -311,11 +341,24 @@ export function DatabankListPage() {
   const syncReviewedMutation = useMutation({
     mutationFn: () => syncDatabankReviewedEval(datasetId!),
     onSuccess: (ds) => {
-      const parts = Object.entries(ds).map(
-        ([key, v]) =>
-          `${key}: ${v.sample_count ?? 0} → ${v.name ?? key}@${v.version ?? "1.0.0"}`,
+      const parts = Object.entries(ds ?? {})
+        .filter(
+          (
+            entry,
+          ): entry is [
+            string,
+            { sample_count?: number; name?: string; version?: string },
+          ] => Boolean(entry[1]) && typeof entry[1] === "object",
+        )
+        .map(
+          ([key, v]) =>
+            `${key}: ${v.sample_count ?? 0} → ${v.name ?? key}@${v.version ?? "1.0.0"}`,
+        );
+      message.success(
+        parts.length
+          ? `Synced mirrors — ${parts.join("; ")}`
+          : "Synced mirrors",
       );
-      message.success(`Synced mirrors — ${parts.join("; ")}`);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       void queryClient.invalidateQueries({
         queryKey: ["evaluation", "datasets"],
@@ -367,7 +410,7 @@ export function DatabankListPage() {
       setAddCategoryOpen(false);
       setNewCategoryName("");
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
-      const customs = ds.custom_categories ?? [];
+      const customs = asStringList(ds.custom_categories);
       if (customs.length) setReviewTab(customs[customs.length - 1]!);
     },
     onError: (error) => message.error(getApiErrorMessage(error)),
@@ -493,9 +536,7 @@ export function DatabankListPage() {
       width: 320,
       render: (_, row) => {
         const cat = row.category || (row.is_blurry ? "blurry" : "");
-        const customCats = (dataset?.custom_categories ?? []).filter(
-          (c) => c !== cat,
-        );
+        const customCats = customCategories.filter((c) => c !== cat);
         return (
           <Space size={4} wrap>
             <Button size="small" onClick={() => setReviewSample(row)}>
@@ -614,6 +655,12 @@ export function DatabankListPage() {
             >
               Upload to data bank
             </Button>
+            <Button
+              disabled={!datasetId || busy}
+              onClick={() => setRecognitionBuildOpen(true)}
+            >
+              Build recognition pack
+            </Button>
           </Space>
         }
       />
@@ -628,6 +675,20 @@ export function DatabankListPage() {
 
         {dataset?.error_message ? (
           <Alert type="error" showIcon message={dataset.error_message} />
+        ) : null}
+
+        {bankQuery.isError ? (
+          <Alert
+            type="error"
+            showIcon
+            message="Failed to load data bank"
+            description={getApiErrorMessage(bankQuery.error)}
+            action={
+              <Button size="small" onClick={() => void bankQuery.refetch()}>
+                Retry
+              </Button>
+            }
+          />
         ) : null}
 
         {uploadProgress?.status === "completed" && uploadProgress.message ? (
@@ -789,7 +850,7 @@ export function DatabankListPage() {
               key: "dead",
               label: `Dead (${dataset?.category_counts?.dead?.reviewed ?? 0}/${dataset?.category_counts?.dead?.total ?? 0})`,
             },
-            ...((dataset?.custom_categories ?? []) as string[]).map((c) => ({
+            ...customCategories.map((c) => ({
               key: c,
               label: `${c} (${dataset?.category_counts?.[c]?.reviewed ?? 0}/${dataset?.category_counts?.[c]?.total ?? 0})`,
             })),
@@ -946,12 +1007,12 @@ export function DatabankListPage() {
                     Mark dead
                   </Button>
                 ) : null}
-                {(dataset?.custom_categories ?? []).filter(
+                {customCategories.filter(
                   (c) => c !== (reviewSample.category || ""),
                 ).length ? (
                   <Dropdown
                     menu={{
-                      items: (dataset?.custom_categories ?? [])
+                      items: customCategories
                         .filter((c) => c !== (reviewSample.category || ""))
                         .map((c) => ({
                           key: c,
@@ -1214,6 +1275,13 @@ export function DatabankListPage() {
           }}
         />
       </Modal>
+
+      <RecognitionBuildModal
+        open={recognitionBuildOpen}
+        onClose={() => setRecognitionBuildOpen(false)}
+        ocrType={ocrType}
+        databankDatasetId={datasetId}
+      />
     </div>
   );
 }

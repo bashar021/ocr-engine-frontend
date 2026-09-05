@@ -81,7 +81,7 @@ export function OcrImageViewer({
           (box.x2 - box.x1) * sx,
           (box.y2 - box.y1) * sy,
         );
-        const label = `${box.label ?? "det"} ${(box.confidence * 100).toFixed(0)}%`;
+        const label = `${box.label ?? "det"} ${((box.confidence ?? 0) * 100).toFixed(0)}%`;
         ctx.fillStyle = color;
         ctx.font = "12px IBM Plex Sans, sans-serif";
         ctx.fillText(label, box.x1 * sx, Math.max(12, box.y1 * sy - 4));

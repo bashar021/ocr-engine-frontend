@@ -46,6 +46,14 @@ export interface EvaluationDataset {
   storage_path: string | null;
   manifest_digest: string | null;
   metadata: Record<string, unknown> | null;
+  /** recognition_crops | detection_full | … */
+  pack?: string | null;
+  /** train / val / test counts for recognition packs */
+  split_counts?: {
+    train?: number;
+    val?: number;
+    test?: number;
+  } | null;
   created_at: string | null;
   created_by: string | null;
   archived_at: string | null;
@@ -70,6 +78,7 @@ export interface DatasetSample {
   width: number | null;
   height: number | null;
   status: string;
+  split?: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string | null;
 }
