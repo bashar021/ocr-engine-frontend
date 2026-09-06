@@ -1,17 +1,7 @@
-import {
-  Alert,
-  Button,
-  Modal,
-  Select,
-  Space,
-  Statistic,
-  Tag,
-  message,
-} from "antd";
+import { Alert, Button, Select, message } from "antd";
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
-import { compareEvaluations } from "@/api/evaluation";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EvaluationResultsDrawer } from "@/components/evaluation/EvaluationResultsDrawer";
@@ -19,7 +9,16 @@ import { EvaluationsTable } from "@/components/evaluation/EvaluationsTable";
 import { EVALUATION_POLL_INTERVAL_MS } from "@/constants/polling";
 import { useCancelEvaluation } from "@/features/evaluation/useEvaluationMutations";
 import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
+import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
 import type { EvaluationRun } from "@/types/evaluation";
+
+const OCR_TYPES = [
+  { value: "odometer", label: "Odometer" },
+  { value: "number_plate", label: "Number plate" },
+  { value: "bill", label: "Bill" },
+  { value: "vin", label: "VIN" },
+  { value: "document", label: "Document" },
+];
 
 const RUN_STATUSES = [
   { value: "queued", label: "Queued" },
@@ -29,54 +28,53 @@ const RUN_STATUSES = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-type ComparePayload = {
-  benchmark_compatible: boolean;
-  warning: string | null;
-  aggregates: {
-    left_end_to_end_accuracy: number | null;
-    right_end_to_end_accuracy: number | null;
-    improved: number;
-    regressed: number;
-    unchanged: number;
-    still_failing: number;
-  };
-  promotion?: { status: string; reasons: string[] };
-};
-
 export function EvaluationRunsPage() {
+  const [ocrType, setOcrType] = useState<string | undefined>("odometer");
+  const [modelRef, setModelRef] = useState<string | undefined>();
+  const [datasetId, setDatasetId] = useState<string | undefined>();
   const [status, setStatus] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [resultsRunId, setResultsRunId] = useState<string | null>(null);
-  const [compareLeft, setCompareLeft] = useState<string | undefined>();
-  const [compareRight, setCompareRight] = useState<string | undefined>();
-  const [compareResult, setCompareResult] = useState<ComparePayload | null>(
-    null,
-  );
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [comparing, setComparing] = useState(false);
   const cancelMutation = useCancelEvaluation();
+
+  const datasetsQuery = useDatasetsQuery({
+    scope: "evaluation",
+    ocr_type: ocrType,
+    status: "ready",
+    limit: 200,
+  });
 
   const params = useMemo(
     () => ({
+      ocr_type: ocrType,
+      model_ref: modelRef,
+      dataset_id: datasetId,
       status,
       limit: pageSize,
       offset: (page - 1) * pageSize,
       include_metrics: true,
     }),
-    [status, page, pageSize],
+    [ocrType, modelRef, datasetId, status, page, pageSize],
   );
 
   const query = useEvaluationsQuery(params);
-  const completedOptions = useMemo(
+
+  const modelRefOptions = useMemo(() => {
+    const refs = new Set<string>();
+    for (const run of query.data?.evaluations ?? []) {
+      if (run.model_ref) refs.add(run.model_ref);
+    }
+    return [...refs].sort().map((r) => ({ value: r, label: r }));
+  }, [query.data?.evaluations]);
+
+  const datasetOptions = useMemo(
     () =>
-      (query.data?.evaluations ?? [])
-        .filter((r) => r.status === "completed")
-        .map((r) => ({
-          value: r.id,
-          label: `${r.model_ref ?? "eval"} · ${r.id.slice(0, 8)}`,
-        })),
-    [query.data?.evaluations],
+      (datasetsQuery.data?.datasets ?? []).map((d) => ({
+        value: d.id,
+        label: `${d.name} v${d.version}`,
+      })),
+    [datasetsQuery.data?.datasets],
   );
 
   const handleCancel = async (run: EvaluationRun) => {
@@ -88,33 +86,6 @@ export function EvaluationRunsPage() {
     }
   };
 
-  const runCompare = async () => {
-    if (!compareLeft || !compareRight) {
-      message.warning("Select baseline and candidate evaluations");
-      return;
-    }
-    setComparing(true);
-    try {
-      const data = (await compareEvaluations(
-        compareLeft,
-        compareRight,
-      )) as ComparePayload;
-      setCompareResult(data);
-      setCompareOpen(true);
-    } catch (error) {
-      message.error(getApiErrorMessage(error));
-    } finally {
-      setComparing(false);
-    }
-  };
-
-  const promotionColor =
-    compareResult?.promotion?.status === "PASS"
-      ? "green"
-      : compareResult?.promotion?.status === "WARNING"
-        ? "gold"
-        : "red";
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
@@ -123,11 +94,51 @@ export function EvaluationRunsPage() {
           { title: "Dataset", path: "/evaluation/datasets" },
           { title: "Evaluation runs" },
         ]}
+        actions={
+          <Select
+            allowClear
+            placeholder="OCR type"
+            value={ocrType}
+            onChange={(v) => {
+              setOcrType(v);
+              setPage(1);
+            }}
+            options={OCR_TYPES}
+            className="w-40"
+          />
+        }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
         <DataTableToolbar
           left={
             <>
+              <Select
+                allowClear
+                placeholder="Model ref"
+                className="w-40"
+                showSearch
+                optionFilterProp="label"
+                value={modelRef}
+                options={modelRefOptions}
+                onChange={(v) => {
+                  setModelRef(v);
+                  setPage(1);
+                }}
+              />
+              <Select
+                allowClear
+                placeholder="Dataset"
+                className="min-w-[200px]"
+                showSearch
+                optionFilterProp="label"
+                value={datasetId}
+                options={datasetOptions}
+                loading={datasetsQuery.isLoading}
+                onChange={(v) => {
+                  setDatasetId(v);
+                  setPage(1);
+                }}
+              />
               <Select
                 allowClear
                 placeholder="Status"
@@ -151,42 +162,6 @@ export function EvaluationRunsPage() {
             </span>
           }
         />
-
-        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
-          <div className="min-w-[200px] flex-1">
-            <div className="mb-1 text-xs text-slate-500">Baseline (left)</div>
-            <Select
-              className="w-full"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select evaluation"
-              options={completedOptions}
-              value={compareLeft}
-              onChange={setCompareLeft}
-            />
-          </div>
-          <div className="min-w-[200px] flex-1">
-            <div className="mb-1 text-xs text-slate-500">Candidate (right)</div>
-            <Select
-              className="w-full"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select evaluation"
-              options={completedOptions}
-              value={compareRight}
-              onChange={setCompareRight}
-            />
-          </div>
-          <Button
-            type="primary"
-            loading={comparing}
-            onClick={() => void runCompare()}
-          >
-            Compare & promotion gate
-          </Button>
-        </div>
 
         {query.isError ? (
           <Alert
@@ -222,78 +197,6 @@ export function EvaluationRunsPage() {
         evaluationId={resultsRunId}
         onClose={() => setResultsRunId(null)}
       />
-
-      <Modal
-        title="Evaluation compare"
-        open={compareOpen}
-        onCancel={() => setCompareOpen(false)}
-        footer={
-          <Button type="primary" onClick={() => setCompareOpen(false)}>
-            Close
-          </Button>
-        }
-        width={640}
-      >
-        {compareResult ? (
-          <div className="space-y-4">
-            {!compareResult.benchmark_compatible ? (
-              <Alert
-                type="warning"
-                showIcon
-                message="Not a direct benchmark"
-                description={compareResult.warning}
-              />
-            ) : null}
-            <div>
-              Promotion:{" "}
-              <Tag color={promotionColor}>
-                {compareResult.promotion?.status ?? "—"}
-              </Tag>
-            </div>
-            <ul className="list-disc pl-5 text-sm text-slate-600">
-              {(compareResult.promotion?.reasons ?? []).map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-            <Space size="large" wrap>
-              <Statistic
-                title="Baseline acc"
-                value={
-                  compareResult.aggregates.left_end_to_end_accuracy == null
-                    ? "—"
-                    : `${(compareResult.aggregates.left_end_to_end_accuracy * 100).toFixed(1)}%`
-                }
-              />
-              <Statistic
-                title="Candidate acc"
-                value={
-                  compareResult.aggregates.right_end_to_end_accuracy == null
-                    ? "—"
-                    : `${(compareResult.aggregates.right_end_to_end_accuracy * 100).toFixed(1)}%`
-                }
-              />
-              <Statistic
-                title="Improved"
-                value={compareResult.aggregates.improved}
-              />
-              <Statistic
-                title="Regressed"
-                value={compareResult.aggregates.regressed}
-              />
-              <Statistic
-                title="Still failing"
-                value={compareResult.aggregates.still_failing}
-              />
-            </Space>
-            <Alert
-              type="info"
-              showIcon
-              message="Activation is human-only"
-              description="Create or activate a model ref manually after reviewing this gate. Candidates are never auto-promoted."
-            />
-          </div>
-        ) : null}
-      </Modal>
     </div>
   );
 }

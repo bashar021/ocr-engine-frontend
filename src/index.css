@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 @layer base {
   :root {
@@ -17,12 +17,42 @@
     margin: 0;
     background: #f1f5f9;
     font-family:
-      'IBM Plex Sans',
-      'Segoe UI',
-      Roboto,
-      Helvetica,
-      Arial,
-      sans-serif;
+      "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+.font-display {
+  font-family: "Syne", "IBM Plex Sans", sans-serif;
+}
+
+.font-mono-brand {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.ocr-landing-bg {
+  background:
+    radial-gradient(
+      ellipse 80% 60% at 10% 0%,
+      rgba(6, 182, 212, 0.22),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 70% 50% at 90% 10%,
+      rgba(14, 165, 233, 0.16),
+      transparent 50%
+    ),
+    radial-gradient(
+      circle at 50% 120%,
+      rgba(15, 23, 42, 0.95),
+      rgba(2, 6, 23, 1)
+    );
+}
+
+.ocr-grid-overlay {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at center, black 30%, transparent 85%);
 }

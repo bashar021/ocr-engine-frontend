@@ -18,18 +18,19 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
 import {
   downloadFilteredCropsZip,
   exportHardCases,
+  exportTrainingDataset,
   fetchSampleImageObjectUrl,
+  listAllEvaluationResults,
   reviewEvaluationResult,
 } from "@/api/evaluation";
 import { SearchInput } from "@/components/common/SearchInput";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
-import { useEvaluationResultsQuery } from "@/features/evaluation/useEvaluationDetailQuery";
 import type { EvaluationResult } from "@/types/evaluation";
 import type { OcrBoundingBox } from "@/types/ocr";
 import { formatMs, formatPercent } from "@/utils/format";
@@ -143,21 +144,24 @@ export function EvaluationResultsDrawer({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [trainingExportOpen, setTrainingExportOpen] = useState(false);
   const [exportForm] = Form.useForm();
+  const [trainingExportForm] = Form.useForm();
   const [reviewForm] = Form.useForm();
   const [cropsDownloading, setCropsDownloading] = useState(false);
+  const [trainingExporting, setTrainingExporting] = useState(false);
 
-  const resultsQuery = useEvaluationResultsQuery(
-    open ? evaluationId : null,
-    { limit: 500, offset: 0 },
-    Boolean(evaluationId),
-  );
+  const resultsQuery = useQuery({
+    queryKey: ["evaluation", "results", evaluationId, "all"],
+    queryFn: () => listAllEvaluationResults(evaluationId!),
+    enabled: Boolean(open && evaluationId),
+  });
 
-  const filtered = useMemo(() => {
-    let rows = resultsQuery.data?.results ?? [];
+  const applyFilters = (rows: EvaluationResult[]) => {
+    let filteredRows = rows;
     const q = search.trim().toLowerCase();
     if (q) {
-      rows = rows.filter(
+      filteredRows = filteredRows.filter(
         (r) =>
           (r.filename ?? "").toLowerCase().includes(q) ||
           (r.ground_truth_normalized ?? "").toLowerCase().includes(q) ||
@@ -168,30 +172,41 @@ export function EvaluationResultsDrawer({
       );
     }
     if (correctFilter === "correct") {
-      rows = rows.filter((r) => r.is_correct === true);
+      filteredRows = filteredRows.filter((r) => r.is_correct === true);
     } else if (correctFilter === "incorrect") {
-      rows = rows.filter((r) => r.is_correct === false);
+      filteredRows = filteredRows.filter((r) => r.is_correct === false);
     }
     if (failureFilter) {
-      rows = rows.filter((r) => (r.failure_type || "") === failureFilter);
+      filteredRows = filteredRows.filter(
+        (r) => (r.failure_type || "") === failureFilter,
+      );
     }
     if (failStageFilter) {
-      rows = rows.filter((r) => (r.fail_stage || "") === failStageFilter);
+      filteredRows = filteredRows.filter(
+        (r) => (r.fail_stage || "") === failStageFilter,
+      );
     }
     if (reviewFilter === "unreviewed") {
-      rows = rows.filter((r) => !r.review_status);
+      filteredRows = filteredRows.filter((r) => !r.review_status);
     } else if (reviewFilter) {
-      rows = rows.filter((r) => r.review_status === reviewFilter);
+      filteredRows = filteredRows.filter(
+        (r) => r.review_status === reviewFilter,
+      );
     }
-    return rows;
-  }, [
-    resultsQuery.data?.results,
-    search,
-    correctFilter,
-    failureFilter,
-    failStageFilter,
-    reviewFilter,
-  ]);
+    return filteredRows;
+  };
+
+  const filtered = useMemo(
+    () => applyFilters(resultsQuery.data ?? []),
+    [
+      resultsQuery.data,
+      search,
+      correctFilter,
+      failureFilter,
+      failStageFilter,
+      reviewFilter,
+    ],
+  );
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -339,6 +354,30 @@ export function EvaluationResultsDrawer({
     }
   };
 
+  const onExportTrainingDataset = async () => {
+    if (!evaluationId) return;
+    try {
+      const values = await trainingExportForm.validateFields();
+      setTrainingExporting(true);
+      const result = await exportTrainingDataset(evaluationId, {
+        pack: values.pack,
+        result_ids: filtered.map((r) => r.id),
+      });
+      message.success(
+        `Training dataset ${result.name} v${result.version} (${result.exported_sample_count ?? result.sample_count ?? filtered.length} samples) — see Dataset → Training datasets`,
+      );
+      setTrainingExportOpen(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["evaluation", "datasets"],
+      });
+    } catch (error) {
+      if ((error as { errorFields?: unknown }).errorFields) return;
+      message.error(getApiErrorMessage(error));
+    } finally {
+      setTrainingExporting(false);
+    }
+  };
+
   const onExport = async () => {
     if (!evaluationId) return;
     try {
@@ -431,6 +470,18 @@ export function EvaluationResultsDrawer({
               title="ZIP of detection crops for rows matching the current table filters. Named {name}-crop.{ext}"
             >
               Download crops ({filtered.length})
+            </Button>
+            <Button
+              icon={<ExportOutlined />}
+              onClick={() => {
+                trainingExportForm.setFieldsValue({
+                  pack: "recognition_crops",
+                });
+                setTrainingExportOpen(true);
+              }}
+              disabled={!evaluationId || filtered.length === 0}
+            >
+              Export as training dataset ({filtered.length})
             </Button>
             <Button
               icon={<ExportOutlined />}
@@ -678,6 +729,40 @@ export function EvaluationResultsDrawer({
                 value: v,
                 label: v,
               }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Export as training dataset"
+        open={trainingExportOpen}
+        onCancel={() => setTrainingExportOpen(false)}
+        onOk={() => void onExportTrainingDataset()}
+        okText="Create training dataset"
+        confirmLoading={trainingExporting}
+      >
+        <Form form={trainingExportForm} layout="vertical" className="pt-2">
+          <Alert
+            className="mb-3"
+            type="info"
+            showIcon
+            message={`Exports ${filtered.length} result${filtered.length === 1 ? "" : "s"} matching current table filters`}
+            description="No default review filter — only the rows visible under your active filters are included."
+          />
+          <Form.Item name="pack" label="Pack" rules={[{ required: true }]}>
+            <Select
+              options={[
+                {
+                  value: "recognition_crops",
+                  label: "recognition_crops (cropped digits)",
+                },
+                {
+                  value: "detection_full",
+                  label: "detection_full (full image + bbox)",
+                },
+                { value: "eval_zip", label: "eval_zip (images named by GT)" },
+              ]}
             />
           </Form.Item>
         </Form>

@@ -116,9 +116,12 @@ export function ModelsTable({
         },
       },
       {
-        accessorKey: "training_accuracy",
-        header: "Train acc.",
-        cell: ({ getValue }) => formatPercent(getValue<number | null>()),
+        id: "ground_accuracy",
+        header: "Ground accuracy",
+        cell: ({ row }) =>
+          formatPercent(
+            row.original.ground_accuracy ?? row.original.training_accuracy,
+          ),
       },
       {
         accessorKey: "created_at",

@@ -3,7 +3,6 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
-  FileSearchOutlined,
   LinkOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
@@ -21,6 +20,11 @@ const { Sider } = Layout;
 type MenuItem = Required<MenuProps>["items"][number];
 
 const NAV_ITEMS: MenuItem[] = [
+  {
+    key: "/ocr",
+    icon: <ScanOutlined />,
+    label: <Link to="/ocr">OCR playground</Link>,
+  },
   {
     key: "models-group",
     icon: <ClusterOutlined />,
@@ -42,11 +46,6 @@ const NAV_ITEMS: MenuItem[] = [
         label: (
           <Link to="/models/recognition-configs">Recognition configs</Link>
         ),
-      },
-      {
-        key: "/models/overview",
-        icon: <FileSearchOutlined />,
-        label: <Link to="/models/overview">Overview</Link>,
       },
     ],
   },
@@ -106,21 +105,16 @@ const NAV_ITEMS: MenuItem[] = [
       },
     ],
   },
-  {
-    key: "/ocr",
-    icon: <ScanOutlined />,
-    label: <Link to="/ocr">OCR playground</Link>,
-  },
 ];
 
 export function AppSidebar() {
   const location = useLocation();
   const selectedKey = useMemo(() => {
     const path = location.pathname;
+    if (path.startsWith("/ocr")) return "/ocr";
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
-    if (path.startsWith("/models/overview")) return "/models/overview";
     if (path.startsWith("/models")) return "/models/list";
     if (path.startsWith("/evaluation/runs")) return "/evaluation/runs";
     if (path.startsWith("/evaluation/training-datasets"))
@@ -133,7 +127,6 @@ export function AppSidebar() {
     if (path.startsWith("/training/runs")) return "/training/runs";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training";
-    if (path.startsWith("/ocr")) return "/ocr";
     return path;
   }, [location.pathname]);
 
@@ -182,9 +175,9 @@ export function AppSidebar() {
       theme="dark"
     >
       <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
-        <DashboardOutlined className="text-lg text-sky-400" />
+        <ScanOutlined className="text-lg text-cyan-400" />
         <span className="truncate text-sm font-semibold tracking-wide text-white">
-          OCR Console
+          OCR Playground
         </span>
       </div>
       <Menu

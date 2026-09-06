@@ -45,11 +45,46 @@ export async function createPipelineRef(
 ): Promise<PipelineRef> {
   const { data } = await apiClient.post<PipelineRef>("/v1/models/refs", {
     ocr_type: payload.ocr_type,
-    model_ref: payload.model_ref,
+    ...(payload.model_ref ? { model_ref: payload.model_ref } : {}),
     detection_artifact_id: payload.detection_artifact_id,
     recognition_artifact_id: payload.recognition_artifact_id,
     notes: payload.notes,
   });
+  return data;
+}
+
+export async function suggestModelRef(
+  ocrType = "odometer",
+): Promise<{ suggested_model_ref: string; next_index?: number }> {
+  const { data } = await apiClient.get("/v1/models/refs/suggest", {
+    params: { ocr_type: ocrType },
+  });
+  return data;
+}
+
+export async function suggestArtifactVersion(payload: {
+  ocr_type: string;
+  role: string;
+  name: string;
+  bump?: "major" | "minor" | "patch";
+}): Promise<{ suggested_version: string; bump_level?: string }> {
+  const { data } = await apiClient.post("/v1/models/artifacts/suggest-version", {
+    ocr_type: payload.ocr_type,
+    role: payload.role,
+    name: payload.name,
+    bump: payload.bump ?? "patch",
+  });
+  return data;
+}
+
+export async function markArtifactMainList(
+  artifactId: string,
+  applicable = true,
+): Promise<ModelArtifact> {
+  const { data } = await apiClient.post<ModelArtifact>(
+    `/v1/models/artifacts/${artifactId}/main-list`,
+    { applicable },
+  );
   return data;
 }
 
@@ -119,7 +154,7 @@ export async function uploadArtifact(
   form.append("ocr_type", payload.ocr_type);
   form.append("role", payload.role);
   form.append("name", payload.name);
-  form.append("version", payload.version);
+  if (payload.version) form.append("version", payload.version);
   form.append("runtime", payload.runtime);
   if (payload.framework) form.append("framework", payload.framework);
   if (payload.metadata) form.append("metadata", payload.metadata);
@@ -228,7 +263,13 @@ export async function createRecognitionConfig(payload: {
 
 export async function deleteRecognitionConfig(
   artifactId: string,
-): Promise<RecognitionConfigArtifact> {
+): Promise<
+  RecognitionConfigArtifact & {
+    deleted?: boolean;
+    retired?: boolean;
+    message?: string;
+  }
+> {
   const { data } = await apiClient.delete(
     `/v1/models/recognition-configs/${artifactId}`,
   );
@@ -237,7 +278,7 @@ export async function deleteRecognitionConfig(
 
 export async function createRefFromRecognitionConfig(payload: {
   ocr_type: string;
-  model_ref: string;
+  model_ref?: string;
   detection_artifact_id: string;
   recognition_artifact_id: string;
   activate?: boolean;
@@ -245,7 +286,14 @@ export async function createRefFromRecognitionConfig(payload: {
 }): Promise<PipelineRef & { provenance?: Record<string, unknown> }> {
   const { data } = await apiClient.post(
     "/v1/models/recognition-configs/refs",
-    payload,
+    {
+      ocr_type: payload.ocr_type,
+      ...(payload.model_ref ? { model_ref: payload.model_ref } : {}),
+      detection_artifact_id: payload.detection_artifact_id,
+      recognition_artifact_id: payload.recognition_artifact_id,
+      activate: payload.activate,
+      set_default: payload.set_default,
+    },
   );
   return data;
 }

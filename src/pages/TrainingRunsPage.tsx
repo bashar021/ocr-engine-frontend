@@ -352,27 +352,6 @@ export function TrainingRunsPage() {
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
-        <Alert
-          type="info"
-          showIcon
-          message={
-            role === "recognition"
-              ? "Recognition fine-tune (manual iterative)"
-              : "Detection training uses Ultralytics YOLO fine-tuning"
-          }
-          description={
-            role === "recognition" ? (
-              <>
-                Pick a recognition crop pack with train/val/test. Leave base
-                empty to fine-tune from configured PP-OCRv5 pretrained weights.
-                Later runs: pick your strongest prior recognition artifact
-                (train_checkpoint is reused). Default LR 1.5e-5 for fine-tune.
-              </>
-            ) : (
-              "Select a parent/base artifact to continue training an already-trained .pt (recommended). Hard-case datasets must be curated with detection_full (human bbox)."
-            )
-          }
-        />
         {role === "recognition" && paddleReadyQuery.data ? (
           <Alert
             type={paddleReadyQuery.data.ready ? "success" : "warning"}

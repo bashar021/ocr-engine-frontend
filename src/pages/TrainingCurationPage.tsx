@@ -372,13 +372,6 @@ export function TrainingCurationPage() {
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
-        <Alert
-          type="info"
-          showIcon
-          message="Create a copied training dataset from failed images"
-          description="Filter failures → draw the correct boundary → fix ground truth → exclude false/bad images. The original uploaded dataset stays unmodified; only a new versioned copy is created."
-        />
-
         <div className="flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white p-3">
           <div className="min-w-[280px] flex-1">
             <div className="mb-1 text-xs text-slate-500">

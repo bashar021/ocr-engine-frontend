@@ -197,6 +197,8 @@ export interface ListSamplesResponse {
 }
 
 export interface ListEvaluationsParams {
+  ocr_type?: string;
+  model_ref?: string;
   dataset_id?: string;
   detection_artifact_id?: string;
   recognition_artifact_id?: string;

@@ -167,6 +167,8 @@ export interface TrainingCycle {
     candidate_exact?: number;
     require_e2e?: boolean;
   } | null;
+  mark_for_main_list?: boolean;
+  candidate_improved?: boolean;
   promotion_decision?: string | null;
   max_experiments: number;
   skip_detection: boolean;
@@ -206,6 +208,9 @@ export async function createTrainingCycle(payload: {
   recognition_dataset_id?: string;
   protected_test_dataset_id?: string;
   databank_dataset_id?: string;
+  baseline_recognition_artifact_id?: string;
+  baseline_detection_artifact_id?: string;
+  baseline_model_ref?: string;
   max_experiments?: number;
   skip_detection?: boolean;
   auto_promote?: boolean;
@@ -250,6 +255,8 @@ export interface CycleCreationOptions {
   eligible_datasets: CycleDatasetOption[];
   production: {
     model_ref?: string | null;
+    detection_artifact_id?: string | null;
+    recognition_artifact_id?: string | null;
     will_change_automatically: boolean;
     auto_promote_default: boolean;
     auto_retrain_default: boolean;

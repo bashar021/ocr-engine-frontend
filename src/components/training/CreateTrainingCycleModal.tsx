@@ -18,6 +18,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
+import { listArtifacts, listPipelineRefs } from "@/api/models";
 import {
   createTrainingCycle,
   getCycleCreationOptions,
@@ -42,6 +43,13 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [baselineRecognitionId, setBaselineRecognitionId] = useState<
+    string | undefined
+  >();
+  const [baselineDetectionId, setBaselineDetectionId] = useState<
+    string | undefined
+  >();
+  const [baselineModelRef, setBaselineModelRef] = useState<string | undefined>();
   const [preflight, setPreflight] = useState<CyclePreflightResult | null>(null);
 
   const optionsQuery = useQuery({
@@ -51,6 +59,32 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
   });
 
   const options: CycleCreationOptions | undefined = optionsQuery.data;
+
+  const baselineArtifactsQuery = useQuery({
+    queryKey: ["models", "artifacts", "cycle-baseline", "odometer"],
+    queryFn: () =>
+      listArtifacts({
+        ocr_type: "odometer",
+        include_metrics: false,
+        limit: 200,
+      }),
+    enabled: open,
+  });
+
+  const refsQuery = useQuery({
+    queryKey: ["models", "refs", "cycle-baseline"],
+    queryFn: () => listPipelineRefs({ ocr_type: "odometer", include_metrics: false }),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (!open || !options?.production) return;
+    setBaselineRecognitionId(
+      options.production.recognition_artifact_id ?? undefined,
+    );
+    setBaselineDetectionId(options.production.detection_artifact_id ?? undefined);
+    setBaselineModelRef(options.production.model_ref ?? undefined);
+  }, [open, options?.production]);
   const selected = useMemo(
     () => options?.datasets.find((d) => d.id === datasetId),
     [options, datasetId],
@@ -65,6 +99,9 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
       setDescription("");
       setPreflight(null);
       setAdvancedOpen(false);
+      setBaselineRecognitionId(undefined);
+      setBaselineDetectionId(undefined);
+      setBaselineModelRef(undefined);
     }
   }, [open]);
 
@@ -90,6 +127,9 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
         training_type: trainingType,
         name: name || undefined,
         description: description || undefined,
+        baseline_recognition_artifact_id: baselineRecognitionId,
+        baseline_detection_artifact_id: baselineDetectionId,
+        baseline_model_ref: baselineModelRef,
         skip_detection: true,
         auto_promote: false,
       }),
@@ -268,12 +308,68 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
                 key: "adv",
                 label: "Advanced settings (engineers)",
                 children: (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="System-controlled"
-                    description="Epochs, learning rate, batch size, experiment matrix, hard-case oversampling, E2E thresholds, and GPU settings are applied automatically from safe server defaults. They are intentionally not editable here."
-                  />
+                  <div className="space-y-3">
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="System-controlled training hyperparameters"
+                      description="Epochs, learning rate, batch size, and experiment matrix use safe server defaults."
+                    />
+                    <div>
+                      <Typography.Text strong>Baseline model ref</Typography.Text>
+                      <Select
+                        className="mt-1 w-full"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        value={baselineModelRef}
+                        onChange={setBaselineModelRef}
+                        placeholder="Production default"
+                        options={(refsQuery.data?.refs ?? []).map((r) => ({
+                          value: r.model_ref,
+                          label: `${r.model_ref}${r.is_default ? " (default)" : ""}`,
+                        }))}
+                      />
+                    </div>
+                    <div>
+                      <Typography.Text strong>
+                        Baseline detection artifact
+                      </Typography.Text>
+                      <Select
+                        className="mt-1 w-full"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        value={baselineDetectionId}
+                        onChange={setBaselineDetectionId}
+                        options={(baselineArtifactsQuery.data?.artifacts ?? [])
+                          .filter((a) => a.role === "detection")
+                          .map((a) => ({
+                            value: a.id,
+                            label: `${a.name} v${a.version}`,
+                          }))}
+                      />
+                    </div>
+                    <div>
+                      <Typography.Text strong>
+                        Baseline recognition artifact
+                      </Typography.Text>
+                      <Select
+                        className="mt-1 w-full"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        value={baselineRecognitionId}
+                        onChange={setBaselineRecognitionId}
+                        options={(baselineArtifactsQuery.data?.artifacts ?? [])
+                          .filter((a) => a.role === "recognition")
+                          .map((a) => ({
+                            value: a.id,
+                            label: `${a.name} v${a.version}`,
+                          }))}
+                      />
+                    </div>
+                  </div>
                 ),
               },
             ]}

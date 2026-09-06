@@ -13,6 +13,7 @@ import type {
   ListResultsResponse,
   ListSamplesResponse,
   StartEvaluationPayload,
+  EvaluationResult,
 } from "@/types/evaluation";
 
 export async function listDatasets(
@@ -331,6 +332,43 @@ export async function downloadCorrectCropsZip(
     }
     throw error;
   }
+}
+
+export async function exportTrainingDataset(
+  evaluationId: string,
+  payload: {
+    result_ids: string[];
+    pack: "recognition_crops" | "detection_full" | "eval_zip";
+    name?: string;
+    version?: string;
+  },
+) {
+  const { data } = await apiClient.post(
+    `/v1/evaluations/${evaluationId}/exports/training-dataset`,
+    payload,
+  );
+  return data;
+}
+
+/** Paginate through all evaluation results for an evaluation run. */
+export async function listAllEvaluationResults(
+  evaluationId: string,
+): Promise<EvaluationResult[]> {
+  const pageSize = 500;
+  let offset = 0;
+  let total = Infinity;
+  const all: EvaluationResult[] = [];
+  while (offset < total) {
+    const page = await listEvaluationResults(evaluationId, {
+      limit: pageSize,
+      offset,
+    });
+    all.push(...page.results);
+    total = page.total;
+    offset += pageSize;
+    if (page.results.length === 0) break;
+  }
+  return all;
 }
 
 export async function compareEvaluations(left: string, right: string) {

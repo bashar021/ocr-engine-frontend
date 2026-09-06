@@ -18,6 +18,8 @@ interface ModelFiltersProps {
   value: ModelFilterState;
   onChange: (next: ModelFilterState) => void;
   total?: number;
+  hideOcrType?: boolean;
+  hideRole?: boolean;
 }
 
 const OCR_TYPES = [
@@ -60,6 +62,8 @@ export function ModelFilters({
   value,
   onChange,
   total,
+  hideOcrType,
+  hideRole,
 }: ModelFiltersProps) {
   if (tab === "overview") return null;
 
@@ -82,24 +86,28 @@ export function ModelFilters({
             value={value.search}
             onChange={(search) => onChange({ ...value, search })}
           />
-          <Select
-            allowClear
-            placeholder="OCR type"
-            className="w-36"
-            options={OCR_TYPES}
-            value={value.ocr_type}
-            onChange={(ocr_type) => onChange({ ...value, ocr_type })}
-          />
+          {!hideOcrType ? (
+            <Select
+              allowClear
+              placeholder="OCR type"
+              className="w-36"
+              options={OCR_TYPES}
+              value={value.ocr_type}
+              onChange={(ocr_type) => onChange({ ...value, ocr_type })}
+            />
+          ) : null}
           {tab === "models" ? (
             <>
-              <Select
-                allowClear
-                placeholder="Role"
-                className="w-36"
-                options={ROLES}
-                value={value.role}
-                onChange={(role) => onChange({ ...value, role })}
-              />
+              {!hideRole ? (
+                <Select
+                  allowClear
+                  placeholder="Role"
+                  className="w-36"
+                  options={ROLES}
+                  value={value.role}
+                  onChange={(role) => onChange({ ...value, role })}
+                />
+              ) : null}
               <Select
                 allowClear
                 placeholder="Status"

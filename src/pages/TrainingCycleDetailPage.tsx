@@ -12,13 +12,16 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
+import { listArtifacts, markArtifactMainList } from "@/api/models";
 import {
   advanceTrainingCycle,
   cancelTrainingCycle,
   getTrainingCycle,
+  listTrainingExperiments,
   promoteTrainingCycle,
   type TrainingExperiment,
 } from "@/api/training";
@@ -113,6 +116,23 @@ export function TrainingCycleDetailPage() {
     onError: (e) => message.error(getApiErrorMessage(e)),
   });
 
+  const experimentsQuery = useQuery({
+    queryKey: ["training", "experiments", cycleId],
+    queryFn: () => listTrainingExperiments({ cycle_id: cycleId, limit: 100 }),
+    enabled: Boolean(cycleId),
+  });
+
+  const cycleModelsQuery = useQuery({
+    queryKey: ["models", "artifacts", "cycle-hidden", cycleId],
+    queryFn: () =>
+      listArtifacts({
+        include_cycle_hidden: true,
+        limit: 500,
+        include_metrics: false,
+      }),
+    enabled: Boolean(cycleId),
+  });
+
   const promoteMutation = useMutation({
     mutationFn: () => promoteTrainingCycle(cycleId),
     onSuccess: async () => {
@@ -122,8 +142,49 @@ export function TrainingCycleDetailPage() {
     onError: (e) => message.error(getApiErrorMessage(e)),
   });
 
+  const mainListMutation = useMutation({
+    mutationFn: (artifactId: string) => markArtifactMainList(artifactId, true),
+    onSuccess: async () => {
+      message.success("Marked applicable for main model list");
+      await queryClient.invalidateQueries({ queryKey: ["models", "artifacts"] });
+      await invalidate();
+    },
+    onError: (e) => message.error(getApiErrorMessage(e)),
+  });
+
   const cycle = query.data;
-  const experiments = cycle?.experiments ?? [];
+  const experiments =
+    (cycle?.experiments?.length
+      ? cycle.experiments
+      : experimentsQuery.data?.experiments) ?? [];
+
+  const cycleModels = useMemo(() => {
+    const arts = cycleModelsQuery.data?.artifacts ?? [];
+    return arts.filter(
+      (a) =>
+        (a.metadata as { training_cycle_id?: string } | null)
+          ?.training_cycle_id === cycleId ||
+        a.id === cycle?.candidate_recognition_artifact_id ||
+        a.id === cycle?.candidate_detection_artifact_id,
+    );
+  }, [
+    cycleModelsQuery.data?.artifacts,
+    cycleId,
+    cycle?.candidate_detection_artifact_id,
+    cycle?.candidate_recognition_artifact_id,
+  ]);
+
+  const candidateImproved = Boolean(
+    cycle?.mark_for_main_list ||
+      cycle?.candidate_improved ||
+      cycle?.gate_result?.status === "PASS" ||
+      (cycle?.comparison as { gate?: { status?: string } } | null)?.gate
+        ?.status === "PASS",
+  );
+
+  const candidateArtifactId =
+    cycle?.candidate_recognition_artifact_id ||
+    cycle?.candidate_detection_artifact_id;
 
   const expColumns: ColumnsType<TrainingExperiment> = [
     { title: "#", dataIndex: "experiment_index", width: 60 },
@@ -144,12 +205,29 @@ export function TrainingCycleDetailPage() {
       render: (v: number | null) => (v == null ? "—" : v.toFixed(2)),
     },
     {
-      title: "Config",
-      render: (_, r) => (
-        <Typography.Text className="font-mono text-xs" ellipsis>
-          {r.config_hash?.slice(0, 10) ?? "—"}
-        </Typography.Text>
-      ),
+      title: "Metrics",
+      key: "metrics",
+      render: (_, r) => {
+        const m = r.metrics as Record<string, unknown> | null | undefined;
+        if (!m) return "—";
+        const exact = m.exact_match_accuracy ?? m.recognition_exact_match;
+        return (
+          <span className="text-xs">
+            {exact != null ? `exact ${Number(exact).toFixed(3)}` : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      title: "Artifact",
+      key: "artifact",
+      width: 100,
+      render: (_, r) =>
+        r.output_artifact_id ? (
+          <Link to="/models/list">{r.output_artifact_id.slice(0, 8)}…</Link>
+        ) : (
+          "—"
+        ),
     },
     {
       title: "Run",
@@ -209,6 +287,15 @@ export function TrainingCycleDetailPage() {
             >
               Promote candidate
             </Button>
+            {candidateImproved && candidateArtifactId ? (
+              <Button
+                type="default"
+                loading={mainListMutation.isPending}
+                onClick={() => mainListMutation.mutate(candidateArtifactId)}
+              >
+                Mark applicable for main model list
+              </Button>
+            ) : null}
           </Space>
         }
       />
@@ -425,11 +512,49 @@ export function TrainingCycleDetailPage() {
               <Table
                 rowKey="id"
                 size="small"
+                loading={experimentsQuery.isLoading && experiments.length === 0}
                 columns={expColumns}
                 dataSource={experiments}
                 pagination={false}
+                locale={{ emptyText: "No experiments yet" }}
               />
             </Card>
+
+            {cycleModels.length > 0 ? (
+              <Card title="Cycle-created models">
+                <Table
+                  rowKey="id"
+                  size="small"
+                  dataSource={cycleModels}
+                  pagination={false}
+                  columns={[
+                    {
+                      title: "Name",
+                      render: (_, a) => `${a.name} v${a.version}`,
+                    },
+                    { title: "Role", dataIndex: "role", width: 110 },
+                    {
+                      title: "Status",
+                      dataIndex: "status",
+                      render: (s: string) => <StatusTag status={s} />,
+                    },
+                    {
+                      title: "Ground accuracy",
+                      render: (_, a) => {
+                        const acc = a.ground_accuracy ?? a.training_accuracy;
+                        return acc == null ? "—" : `${(acc * 100).toFixed(1)}%`;
+                      },
+                    },
+                    {
+                      title: "",
+                      render: () => (
+                        <Link to="/models/list">View in list</Link>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            ) : null}
           </>
         ) : null}
       </div>

@@ -6,7 +6,6 @@ import { DatabankListPage } from "@/pages/DatabankListPage";
 import { EvaluationDatasetsPage } from "@/pages/EvaluationDatasetsPage";
 import { EvaluationRunsPage } from "@/pages/EvaluationRunsPage";
 import { ModelListPage } from "@/pages/ModelListPage";
-import { ModelOverviewPage } from "@/pages/ModelOverviewPage";
 import { ModelRefsPage } from "@/pages/ModelRefsPage";
 import { OcrPlaygroundPage } from "@/pages/OcrPlaygroundPage";
 import { RecognitionConfigsPage } from "@/pages/RecognitionConfigsPage";
@@ -30,7 +29,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/models/list" replace />} />
+        <Route index element={<Navigate to="/ocr" replace />} />
         <Route
           path="/models"
           element={<Navigate to="/models/list" replace />}
@@ -41,7 +40,7 @@ export function AppRoutes() {
           path="/models/recognition-configs"
           element={<RecognitionConfigsPage />}
         />
-        <Route path="/models/overview" element={<ModelOverviewPage />} />
+        <Route path="/models/overview" element={<Navigate to="/models/list" replace />} />
         <Route
           path="/evaluation"
           element={<Navigate to="/evaluation/datasets" replace />}
@@ -89,7 +88,7 @@ export function AppRoutes() {
         <Route path="/training/curate" element={<TrainingCurationPage />} />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/models/list" replace />} />
+      <Route path="*" element={<Navigate to="/ocr" replace />} />
     </Routes>
   );
 }

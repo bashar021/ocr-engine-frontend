@@ -1,8 +1,8 @@
 import {
   CloudUploadOutlined,
-  PictureOutlined,
+  ScanOutlined,
   ThunderboltOutlined,
-} from '@ant-design/icons'
+} from "@ant-design/icons";
 import {
   Button,
   Empty,
@@ -12,94 +12,102 @@ import {
   Tag,
   Upload,
   message,
-} from 'antd'
-import { useMemo, useRef, useState } from 'react'
+} from "antd";
+import { useMemo, useRef, useState } from "react";
 
-import { getApiErrorMessage } from '@/api/client'
-import { runOdometerOcr } from '@/api/ocr'
-import { PageHeader } from '@/components/common/PageHeader'
-import { OcrImageViewer } from '@/components/ocr/OcrImageViewer'
-import { useModelRefsQuery } from '@/features/models/useModelRefsQuery'
-import type { OcrJobResult } from '@/types/ocr'
-import { formatPercent } from '@/utils/format'
+import { getApiErrorMessage } from "@/api/client";
+import { runOdometerOcr } from "@/api/ocr";
+import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
+import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
+import type { OcrJobResult } from "@/types/ocr";
+import { formatPercent } from "@/utils/format";
 
-type Mode = 'single' | 'batch'
+type Mode = "single" | "batch";
 
 function statusColor(status?: string) {
-  if (status === 'success') return 'green'
-  if (status === 'low_confidence') return 'gold'
-  if (status === 'failed') return 'red'
-  return 'default'
+  if (status === "success") return "green";
+  if (status === "low_confidence") return "gold";
+  if (status === "failed") return "red";
+  return "default";
 }
 
 export function OcrPlaygroundPage() {
-  const [mode, setMode] = useState<Mode>('single')
-  const [modelRef, setModelRef] = useState<string | undefined>()
-  const [jobs, setJobs] = useState<OcrJobResult[]>([])
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [running, setRunning] = useState(false)
-  const filesRef = useRef<File[]>([])
+  const [mode, setMode] = useState<Mode>("single");
+  const [modelRef, setModelRef] = useState<string | undefined>();
+  const [jobs, setJobs] = useState<OcrJobResult[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [running, setRunning] = useState(false);
+  const filesRef = useRef<File[]>([]);
 
-  const refsQuery = useModelRefsQuery({ include_metrics: false, ocr_type: 'odometer' })
+  const refsQuery = useModelRefsQuery({
+    include_metrics: false,
+    ocr_type: "odometer",
+  });
   const refOptions = useMemo(
     () =>
       (refsQuery.data?.refs ?? [])
-        .filter((r) => r.status === 'active')
+        .filter((r) => r.status === "active")
         .map((r) => ({
           value: r.model_ref,
-          label: `${r.model_ref}${r.is_default ? ' (default)' : ''}`,
+          label: `${r.model_ref}${r.is_default ? " (default)" : ""}`,
         })),
     [refsQuery.data?.refs],
-  )
+  );
 
-  const active = jobs[activeIndex]
+  const active = jobs[activeIndex];
 
   const progress = useMemo(() => {
-    if (!jobs.length) return 0
-    const done = jobs.filter((j) => !j.loading && (j.response || j.error)).length
-    return Math.round((done / jobs.length) * 100)
-  }, [jobs])
+    if (!jobs.length) return 0;
+    const done = jobs.filter(
+      (j) => !j.loading && (j.response || j.error),
+    ).length;
+    return Math.round((done / jobs.length) * 100);
+  }, [jobs]);
 
   const clearJobs = () => {
-    for (const job of jobs) URL.revokeObjectURL(job.previewUrl)
-    filesRef.current = []
-    setJobs([])
-    setActiveIndex(0)
-  }
+    for (const job of jobs) URL.revokeObjectURL(job.previewUrl);
+    filesRef.current = [];
+    setJobs([]);
+    setActiveIndex(0);
+  };
 
   const onFilesSelected = (files: File[]) => {
-    if (!files.length) return
-    clearJobs()
-    const selected = mode === 'single' ? files.slice(0, 1) : files
-    filesRef.current = selected
+    if (!files.length) return;
+    clearJobs();
+    const selected = mode === "single" ? files.slice(0, 1) : files;
+    filesRef.current = selected;
     setJobs(
       selected.map((file) => ({
         fileName: file.name,
         previewUrl: URL.createObjectURL(file),
       })),
-    )
-    setActiveIndex(0)
-  }
+    );
+    setActiveIndex(0);
+  };
 
   const runAll = async () => {
     if (!filesRef.current.length) {
-      message.warning('Select at least one image')
-      return
+      message.warning("Select at least one image");
+      return;
     }
-    setRunning(true)
+    setRunning(true);
     for (let i = 0; i < filesRef.current.length; i += 1) {
-      const file = filesRef.current[i]!
+      const file = filesRef.current[i]!;
       setJobs((prev) =>
-        prev.map((p, idx) => (idx === i ? { ...p, loading: true, error: undefined } : p)),
-      )
-      setActiveIndex(i)
+        prev.map((p, idx) =>
+          idx === i ? { ...p, loading: true, error: undefined } : p,
+        ),
+      );
+      setActiveIndex(i);
       try {
-        const response = await runOdometerOcr(file, modelRef)
+        const response = await runOdometerOcr(file, modelRef);
         setJobs((prev) =>
           prev.map((p, idx) =>
-            idx === i ? { ...p, loading: false, response, error: undefined } : p,
+            idx === i
+              ? { ...p, loading: false, response, error: undefined }
+              : p,
           ),
-        )
+        );
       } catch (error) {
         setJobs((prev) =>
           prev.map((p, idx) =>
@@ -107,68 +115,80 @@ export function OcrPlaygroundPage() {
               ? { ...p, loading: false, error: getApiErrorMessage(error) }
               : p,
           ),
-        )
+        );
       }
     }
-    setRunning(false)
-  }
+    setRunning(false);
+  };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        breadcrumbs={[
-          { title: 'Dashboard', path: '/' },
-          { title: 'OCR playground' },
-        ]}
-        actions={
-          <Button
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            loading={running}
-            onClick={() => void runAll()}
-            disabled={!jobs.length}
-          >
-            Run OCR
-          </Button>
-        }
-      />
+    <div className="ocr-landing-bg relative flex h-full min-h-0 flex-1 flex-col overflow-hidden text-slate-100">
+      <div className="ocr-grid-overlay pointer-events-none absolute inset-0" />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="relative mx-auto grid max-w-7xl gap-6 p-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-          <aside className="space-y-4">
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg">
-              <div className="flex items-center gap-2 text-sm font-medium text-teal-200">
-                <PictureOutlined />
-                Live OCR studio
-              </div>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-                Detect · Read · Review
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                Run odometer OCR on one image or a batch. Selected detections are drawn
-                as green boxes; all candidates appear in cyan.
+      <header className="relative z-10 flex shrink-0 items-center justify-between border-b border-white/10 px-6 py-4 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/15 ring-1 ring-cyan-400/30">
+            <ScanOutlined className="text-lg text-cyan-300" />
+          </div>
+          <div>
+            <div className="font-display text-lg font-bold tracking-tight text-white">
+              OCR Playground
+            </div>
+            <div className="text-xs text-slate-400">
+              Odometer detection & recognition studio
+            </div>
+          </div>
+        </div>
+        <Button
+          type="primary"
+          size="large"
+          icon={<ThunderboltOutlined />}
+          loading={running}
+          onClick={() => void runAll()}
+          disabled={!jobs.length}
+          className="!border-cyan-400/40 !bg-cyan-500 !shadow-lg !shadow-cyan-500/20 hover:!bg-cyan-400"
+        >
+          Run OCR
+        </Button>
+      </header>
+
+      <div className="relative z-10 min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto grid max-w-[1400px] gap-8 p-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:p-8">
+          <aside className="space-y-5">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+              <p className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300/90">
+                Live pipeline
+              </p>
+              <h1 className="font-display mt-2 text-3xl font-extrabold leading-tight text-white">
+                See the read.
+                <span className="block text-cyan-200">Trust the box.</span>
+              </h1>
+              <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                Drop dashboard photos, pick an active model ref, and inspect
+                detections plus digit confidence in one view.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4 backdrop-blur-sm">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Mode
               </div>
               <Radio.Group
                 value={mode}
                 onChange={(e) => {
-                  setMode(e.target.value)
-                  clearJobs()
+                  setMode(e.target.value);
+                  clearJobs();
                 }}
                 optionType="button"
                 buttonStyle="solid"
+                className="!flex w-full [&_.ant-radio-button-wrapper]:flex-1 [&_.ant-radio-button-wrapper]:text-center"
                 options={[
-                  { value: 'single', label: 'Single image' },
-                  { value: 'batch', label: 'Multiple images' },
+                  { value: "single", label: "Single" },
+                  { value: "batch", label: "Batch" },
                 ]}
               />
 
-              <div className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Model ref
               </div>
               <Select
@@ -182,39 +202,48 @@ export function OcrPlaygroundPage() {
               />
 
               <Upload.Dragger
-                className="mt-4"
-                multiple={mode === 'batch'}
+                className="mt-4 !border-white/15 !bg-white/5 hover:!border-cyan-400/40"
+                multiple={mode === "batch"}
                 accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                 showUploadList={false}
                 beforeUpload={(_, fileList) => {
-                  onFilesSelected([...fileList] as File[])
-                  return false
+                  onFilesSelected([...fileList] as File[]);
+                  return false;
                 }}
               >
-                <p className="ant-upload-drag-icon">
+                <p className="ant-upload-drag-icon !text-cyan-300">
                   <CloudUploadOutlined />
                 </p>
-                <p className="ant-upload-text">
-                  {mode === 'single' ? 'Drop one dashboard image' : 'Drop multiple images'}
+                <p className="ant-upload-text !text-slate-200">
+                  {mode === "single"
+                    ? "Drop one dashboard image"
+                    : "Drop multiple images"}
                 </p>
-                <p className="ant-upload-hint">JPEG / PNG / WebP</p>
+                <p className="ant-upload-hint !text-slate-500">
+                  JPEG / PNG / WebP
+                </p>
               </Upload.Dragger>
 
               {jobs.length > 0 ? (
                 <div className="mt-4">
-                  <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <div className="mb-1 flex justify-between text-xs text-slate-400">
                     <span>
-                      {jobs.length} image{jobs.length === 1 ? '' : 's'}
+                      {jobs.length} image{jobs.length === 1 ? "" : "s"}
                     </span>
                     <span>{progress}%</span>
                   </div>
-                  <Progress percent={progress} size="small" />
+                  <Progress
+                    percent={progress}
+                    size="small"
+                    strokeColor="#22d3ee"
+                    trailColor="rgba(255,255,255,0.08)"
+                  />
                 </div>
               ) : null}
             </div>
 
             {jobs.length > 1 ? (
-              <div className="max-h-64 space-y-2 overflow-auto rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="max-h-64 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-slate-950/40 p-3">
                 {jobs.map((job, idx) => (
                   <button
                     key={`${job.fileName}-${idx}`}
@@ -222,8 +251,8 @@ export function OcrPlaygroundPage() {
                     onClick={() => setActiveIndex(idx)}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
                       idx === activeIndex
-                        ? 'bg-teal-50 text-teal-900'
-                        : 'hover:bg-slate-50'
+                        ? "bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30"
+                        : "text-slate-300 hover:bg-white/5"
                     }`}
                   >
                     <span className="truncate">{job.fileName}</span>
@@ -246,18 +275,31 @@ export function OcrPlaygroundPage() {
 
           <section className="min-w-0">
             {!active ? (
-              <div className="flex h-full min-h-[420px] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white">
-                <Empty description="Upload an image to preview detections" />
+              <div className="flex h-full min-h-[480px] flex-col items-center justify-center rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center backdrop-blur-sm">
+                <ScanOutlined className="mb-4 text-5xl text-cyan-400/60" />
+                <h2 className="font-display text-2xl font-bold text-white">
+                  Upload to begin
+                </h2>
+                <p className="mt-2 max-w-md text-sm text-slate-400">
+                  Your image, bounding boxes, and recognized mileage appear here
+                  — tuned for quick visual QA before you ship a model ref.
+                </p>
+                <Empty
+                  className="mt-6 [&_.ant-empty-description]:!text-slate-500"
+                  description="Waiting for an image"
+                />
               </div>
             ) : (
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+                <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 backdrop-blur-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-semibold text-slate-900">
+                      <div className="text-sm font-medium text-white">
                         {active.fileName}
                       </div>
-                      <div className="text-xs text-slate-500">Bounding boxes overlay</div>
+                      <div className="text-xs text-slate-400">
+                        Bounding boxes overlay
+                      </div>
                     </div>
                     {active.response ? (
                       <Tag color={statusColor(active.response.status)}>
@@ -274,62 +316,66 @@ export function OcrPlaygroundPage() {
                   />
                 </div>
 
-                <div className="space-y-3">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Reading
                     </div>
-                    <div className="mt-2 font-mono text-3xl font-semibold tracking-wide text-slate-900">
-                      {active.response?.value ?? '—'}
+                    <div className="font-mono-brand mt-2 text-4xl font-semibold tracking-wider text-white">
+                      {active.response?.value ?? "—"}
                     </div>
-                    <div className="mt-2 text-sm text-slate-600">
-                      Overall confidence{' '}
-                      <span className="font-medium text-slate-900">
+                    <div className="mt-2 text-sm text-slate-300">
+                      Overall confidence{" "}
+                      <span className="font-medium text-cyan-200">
                         {formatPercent(active.response?.confidence ?? null)}
                       </span>
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      Model ref: {active.response?.model_ref ?? modelRef ?? 'default'}
+                      Model ref:{" "}
+                      {active.response?.model_ref ?? modelRef ?? "default"}
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Confidence breakdown
                     </div>
                     <div className="mt-3 space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Detection</span>
-                        <span className="font-medium">
+                        <span className="text-slate-400">Detection</span>
+                        <span className="font-medium text-slate-100">
                           {formatPercent(
-                            active.response?.confidence_breakdown?.detection_confidence ??
+                            active.response?.confidence_breakdown
+                              ?.detection_confidence ??
                               active.response?.selected_detection?.confidence ??
                               null,
                           )}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Recognition</span>
-                        <span className="font-medium">
+                        <span className="text-slate-400">Recognition</span>
+                        <span className="font-medium text-slate-100">
                           {formatPercent(
-                            active.response?.confidence_breakdown?.recognition_confidence ??
-                              null,
+                            active.response?.confidence_breakdown
+                              ?.recognition_confidence ?? null,
                           )}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Quality</span>
-                        <span className="font-medium">
+                        <span className="text-slate-400">Quality</span>
+                        <span className="font-medium text-slate-100">
                           {formatPercent(
-                            active.response?.confidence_breakdown?.quality_score ?? null,
+                            active.response?.confidence_breakdown
+                              ?.quality_score ?? null,
                           )}
                         </span>
                       </div>
-                      <div className="flex justify-between border-t border-slate-100 pt-2">
-                        <span className="text-slate-500">Final</span>
-                        <span className="font-medium">
+                      <div className="flex justify-between border-t border-white/10 pt-2">
+                        <span className="text-slate-400">Final</span>
+                        <span className="font-medium text-cyan-200">
                           {formatPercent(
-                            active.response?.confidence_breakdown?.final_confidence ??
+                            active.response?.confidence_breakdown
+                              ?.final_confidence ??
                               active.response?.confidence ??
                               null,
                           )}
@@ -338,24 +384,26 @@ export function OcrPlaygroundPage() {
                     </div>
                   </div>
 
-                  {active.response?.fail_stage || active.response?.status === 'failed' ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  {active.response?.fail_stage ||
+                  active.response?.status === "failed" ? (
+                    <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
                       <div className="font-semibold">
-                        Failed at:{' '}
-                        {active.response?.fail_stage ?? 'unknown stage'}
+                        Failed at:{" "}
+                        {active.response?.fail_stage ?? "unknown stage"}
                       </div>
-                      <div className="mt-1 text-amber-800">
-                        {active.response?.fail_stage === 'recognition'
-                          ? 'Detection succeeded — bounding box is still shown.'
-                          : active.response?.fail_stage === 'detection'
-                            ? 'No usable odometer region was found.'
-                            : active.response?.message || 'OCR did not complete successfully.'}
+                      <div className="mt-1 text-amber-200/90">
+                        {active.response?.fail_stage === "recognition"
+                          ? "Detection succeeded — bounding box is still shown."
+                          : active.response?.fail_stage === "detection"
+                            ? "No usable odometer region was found."
+                            : active.response?.message ||
+                              "OCR did not complete successfully."}
                       </div>
                     </div>
                   ) : null}
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Detection boxes
                     </div>
                     <div className="mt-2 space-y-2 text-sm">
@@ -365,10 +413,10 @@ export function OcrPlaygroundPage() {
                         (active.response?.detections ?? []).map((box, i) => (
                           <div
                             key={`${box.x1}-${i}`}
-                            className="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs"
+                            className="rounded-lg bg-white/5 px-3 py-2 font-mono-brand text-xs text-slate-300"
                           >
                             [{box.x1.toFixed(0)}, {box.y1.toFixed(0)}] → [
-                            {box.x2.toFixed(0)}, {box.y2.toFixed(0)}] ·{' '}
+                            {box.x2.toFixed(0)}, {box.y2.toFixed(0)}] ·{" "}
                             {(box.confidence * 100).toFixed(1)}%
                           </div>
                         ))
@@ -377,12 +425,13 @@ export function OcrPlaygroundPage() {
                   </div>
 
                   {active.error ||
-                  (active.response?.message && active.response.status === 'failed') ? (
-                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  (active.response?.message &&
+                    active.response.status === "failed") ? (
+                    <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
                       {active.error || active.response?.message}
                       {active.response?.error_code
                         ? ` (${active.response.error_code})`
-                        : ''}
+                        : ""}
                     </div>
                   ) : null}
                 </div>
@@ -392,5 +441,5 @@ export function OcrPlaygroundPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

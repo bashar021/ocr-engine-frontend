@@ -1,5 +1,5 @@
 import { ExperimentOutlined, PlayCircleOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Statistic, Table, Tag, message } from "antd";
+import { Button, Card, Statistic, Table, Tag, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -109,12 +109,6 @@ export function TrainingCenterOverviewPage() {
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
-        <Alert
-          type="info"
-          showIcon
-          message="Train without ML configuration"
-          description="Select a verified dataset and start. Experiments, hard cases, protected-test E2E, and quality gates run automatically. Production is never changed unless you promote a candidate."
-        />
         <div className="grid gap-3 sm:grid-cols-4">
           <Card>
             <Statistic title="Active cycles" value={active.length} />

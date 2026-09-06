@@ -379,21 +379,6 @@ export function TrainingDatasetsPage() {
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
-        <Alert
-          type="info"
-          showIcon
-          message="Training datasets from Curate failures"
-          description={
-            <>
-              These packs are created via{" "}
-              <Link to="/training/curate">Curate failures</Link> (and merges).
-              They cannot be used for evaluation until you click{" "}
-              <strong>Allow for eval</strong>. Merge small sets into one larger
-              training pack — lineage shows parents (A + B → C). Build
-              recognition packs for train/val/test crop fine-tuning.
-            </>
-          }
-        />
         {query.isError ? (
           <Alert
             type="error"

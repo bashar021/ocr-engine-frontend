@@ -6,13 +6,16 @@ import {
   InputNumber,
   Modal,
   Select,
+  Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
+import { suggestArtifactVersion } from "@/api/models";
 import { useUploadModel } from "@/features/models/useUploadModel";
 
 const OCR_TYPES = [
@@ -48,7 +51,6 @@ interface FormValues {
   ocr_type: string;
   role: string;
   name: string;
-  version: string;
   runtime: string;
   framework?: string;
   training_accuracy?: number;
@@ -59,6 +61,21 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const upload = useUploadModel();
   const runtime = Form.useWatch("runtime", form);
+  const ocrType = Form.useWatch("ocr_type", form);
+  const role = Form.useWatch("role", form);
+  const name = Form.useWatch("name", form);
+
+  const suggestQuery = useQuery({
+    queryKey: ["models", "artifacts", "suggest-version", ocrType, role, name],
+    queryFn: () =>
+      suggestArtifactVersion({
+        ocr_type: ocrType || "odometer",
+        role: role || "detection",
+        name: name || "model",
+        bump: "patch",
+      }),
+    enabled: open && Boolean(name?.trim()),
+  });
 
   const isPaddlePackage = runtime === "paddle_inference";
   const accept = useMemo(() => {
@@ -91,8 +108,8 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
           );
           return;
         }
-        const name = file.name?.toLowerCase() || "";
-        if (!name.endsWith(".zip")) {
+        const fileName = file.name?.toLowerCase() || "";
+        if (!fileName.endsWith(".zip")) {
           message.error(
             "Upload a .zip containing inference.pdiparams, inference.yml, inference.json",
           );
@@ -105,14 +122,15 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
         ocr_type: values.ocr_type,
         role: values.role,
         name: values.name,
-        version: values.version,
         runtime: values.runtime,
         framework:
           values.framework ||
           (values.runtime === "paddle_inference" ? "paddleocr" : undefined),
         training_accuracy: values.training_accuracy,
       });
-      message.success("Model uploaded successfully");
+      message.success(
+        `Model uploaded${suggestQuery.data?.suggested_version ? ` as v${suggestQuery.data.suggested_version}` : ""}`,
+      );
       reset();
       onClose();
     } catch (error) {
@@ -216,12 +234,21 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
               }
             />
           </Form.Item>
-          <Form.Item
-            name="version"
-            label="Version"
-            rules={[{ required: true, message: "Required" }]}
-          >
-            <Input placeholder="1.0.0" />
+          <Form.Item label="Version">
+            {suggestQuery.data?.suggested_version ? (
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <Typography.Text type="secondary" className="text-xs">
+                  Will be assigned
+                </Typography.Text>
+                <div className="font-mono font-medium">
+                  v{suggestQuery.data.suggested_version}
+                </div>
+              </div>
+            ) : (
+              <Typography.Text type="secondary" className="text-sm">
+                Auto-assigned on upload
+              </Typography.Text>
+            )}
           </Form.Item>
           <Form.Item
             name="runtime"
@@ -235,7 +262,7 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
               placeholder={isPaddlePackage ? "paddleocr" : "ultralytics"}
             />
           </Form.Item>
-          <Form.Item name="training_accuracy" label="Training accuracy">
+          <Form.Item name="training_accuracy" label="Ground / training accuracy">
             <InputNumber
               className="w-full"
               min={0}

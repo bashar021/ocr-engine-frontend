@@ -33,6 +33,7 @@ import {
   listRecognitionConfigs,
   listRecognitionPreviewCases,
   previewRecognitionConfig,
+  suggestModelRef,
   type RecognitionConfigArtifact,
   type RecognitionConfigBody,
   type RecognitionPreviewCase,
@@ -614,7 +615,6 @@ export function RecognitionConfigsPage() {
     useState<RecognitionConfigArtifact | null>(null);
   const [form] = Form.useForm<EditorForm>();
   const [refForm] = Form.useForm<{
-    model_ref: string;
     detection_artifact_id: string;
     activate: boolean;
     set_default: boolean;
@@ -665,10 +665,25 @@ export function RecognitionConfigsPage() {
     onError: (e) => message.error(getApiErrorMessage(e)),
   });
 
+  const refSuggestQuery = useQuery({
+    queryKey: ["models", "refs", "suggest", "odometer", refOpen],
+    queryFn: () => suggestModelRef("odometer"),
+    enabled: refOpen,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteRecognitionConfig(id),
-    onSuccess: async (art) => {
-      message.success(`Deleted ${art.name} v${art.version}`);
+    onSuccess: async (result) => {
+      if (result.deleted) {
+        message.success(`Deleted ${result.name} v${result.version}`);
+      } else if (result.retired) {
+        message.warning(
+          result.message ||
+            `Retired ${result.name} v${result.version} — still referenced elsewhere`,
+        );
+      } else {
+        message.info(result.message || "Recognition config removed");
+      }
       await queryClient.invalidateQueries({
         queryKey: ["models", "recognition-configs"],
       });
@@ -807,7 +822,6 @@ export function RecognitionConfigsPage() {
                 setSavedArtifact(r);
                 setRefOpen(true);
                 refForm.setFieldsValue({
-                  model_ref: "",
                   activate: true,
                   set_default: false,
                 });
@@ -887,7 +901,6 @@ export function RecognitionConfigsPage() {
                   onClick={() => {
                     setRefOpen(true);
                     refForm.setFieldsValue({
-                      model_ref: "",
                       activate: true,
                       set_default: false,
                     });
@@ -1138,7 +1151,6 @@ export function RecognitionConfigsPage() {
           const values = await refForm.validateFields();
           await refMutation.mutateAsync({
             ocr_type: "odometer",
-            model_ref: values.model_ref,
             detection_artifact_id: values.detection_artifact_id,
             recognition_artifact_id: savedArtifact.id,
             activate: values.activate,
@@ -1163,13 +1175,14 @@ export function RecognitionConfigsPage() {
           />
         ) : null}
         <Form form={refForm} layout="vertical">
-          <Form.Item
-            name="model_ref"
-            label="Model ref"
-            rules={[{ required: true }]}
-          >
-            <Input placeholder="e.g. v3" />
-          </Form.Item>
+          {refSuggestQuery.data?.suggested_model_ref ? (
+            <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+              <div className="text-xs text-slate-500">Will be assigned</div>
+              <div className="font-mono font-semibold text-sky-900">
+                {refSuggestQuery.data.suggested_model_ref}
+              </div>
+            </div>
+          ) : null}
           <Form.Item
             name="detection_artifact_id"
             label="Detection artifact"

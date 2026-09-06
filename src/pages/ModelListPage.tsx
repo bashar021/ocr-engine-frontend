@@ -1,5 +1,5 @@
 import { CloudUploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Tabs } from "antd";
+import { Alert, Button, Select, Tabs } from "antd";
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -14,13 +14,25 @@ import { useArtifactMutations } from "@/features/models/useArtifactMutations";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
 import { useDebounce } from "@/hooks/useDebounce";
 
+const OCR_TYPES = [
+  { value: "odometer", label: "Odometer" },
+  { value: "number_plate", label: "Number plate" },
+  { value: "bill", label: "Bill" },
+  { value: "vin", label: "VIN" },
+  { value: "document", label: "Document" },
+];
+
 const DEFAULT_FILTERS: ModelFilterState = { search: "" };
 
-type ModelTab = "activated" | "deactivated";
+type RoleTab = "detection" | "recognition";
+type ActivationFilter = "activated" | "deactivated";
 
 export function ModelListPage() {
   const [filters, setFilters] = useState<ModelFilterState>(DEFAULT_FILTERS);
-  const [modelTab, setModelTab] = useState<ModelTab>("activated");
+  const [ocrType, setOcrType] = useState("odometer");
+  const [roleTab, setRoleTab] = useState<RoleTab>("detection");
+  const [activationFilter, setActivationFilter] =
+    useState<ActivationFilter>("activated");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -28,7 +40,7 @@ export function ModelListPage() {
   const mutations = useArtifactMutations();
 
   const params = useMemo(() => {
-    const deactivated = modelTab === "deactivated";
+    const deactivated = activationFilter === "deactivated";
     const statusFilter = filters.status;
     const conflict =
       (deactivated && Boolean(statusFilter) && statusFilter !== "retired") ||
@@ -36,10 +48,9 @@ export function ModelListPage() {
 
     return {
       search: debouncedSearch || undefined,
-      ocr_type: filters.ocr_type,
-      role: filters.role,
+      ocr_type: ocrType,
+      role: roleTab,
       runtime: filters.runtime,
-      // Impossible combo yields empty list when filter conflicts with tab.
       status: conflict
         ? "retired"
         : deactivated
@@ -54,7 +65,16 @@ export function ModelListPage() {
       offset: (page - 1) * pageSize,
       include_metrics: false,
     };
-  }, [debouncedSearch, filters, modelTab, page, pageSize]);
+  }, [
+    debouncedSearch,
+    filters.runtime,
+    filters.status,
+    activationFilter,
+    ocrType,
+    roleTab,
+    page,
+    pageSize,
+  ]);
 
   const query = useModelsQuery(params);
 
@@ -87,36 +107,63 @@ export function ModelListPage() {
           { title: "Model list" },
         ]}
         actions={
-          <Button
-            type="primary"
-            icon={<CloudUploadOutlined />}
-            onClick={() => setUploadOpen(true)}
-          >
-            Upload model
-          </Button>
+          <>
+            <Select
+              value={ocrType}
+              onChange={(v) => {
+                setOcrType(v);
+                setPage(1);
+              }}
+              options={OCR_TYPES}
+              className="w-40"
+            />
+            <Button
+              type="primary"
+              icon={<CloudUploadOutlined />}
+              onClick={() => setUploadOpen(true)}
+            >
+              Upload model
+            </Button>
+          </>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
         <ModelFilters
           tab="models"
           value={filters}
+          hideOcrType
+          hideRole
           onChange={(next) => {
             setFilters(next);
             setPage(1);
           }}
           total={query.data?.total}
         />
-        <Tabs
-          activeKey={modelTab}
-          onChange={(key) => {
-            setModelTab(key as ModelTab);
-            setPage(1);
-          }}
-          items={[
-            { key: "activated", label: "Activated" },
-            { key: "deactivated", label: "Deactivated" },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <Tabs
+            activeKey={roleTab}
+            onChange={(key) => {
+              setRoleTab(key as RoleTab);
+              setPage(1);
+            }}
+            items={[
+              { key: "detection", label: "Detection" },
+              { key: "recognition", label: "Recognition" },
+            ]}
+          />
+          <Select
+            value={activationFilter}
+            onChange={(v: ActivationFilter) => {
+              setActivationFilter(v);
+              setPage(1);
+            }}
+            className="w-40"
+            options={[
+              { value: "activated", label: "Activated" },
+              { value: "deactivated", label: "Deactivated" },
+            ]}
+          />
+        </div>
         {query.isError ? (
           <Alert
             type="error"
@@ -137,7 +184,7 @@ export function ModelListPage() {
             total={query.data?.total ?? 0}
             page={page}
             pageSize={pageSize}
-            tab={modelTab}
+            tab={activationFilter}
             actionLoadingId={actionLoadingId}
             onPageChange={(p, s) => {
               setPage(p);

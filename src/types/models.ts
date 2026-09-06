@@ -37,6 +37,7 @@ export interface ModelArtifact {
   status: ArtifactStatus | string;
   metadata: Record<string, unknown> | null;
   training_accuracy: number | null;
+  ground_accuracy?: number | null;
   training_base_artifact_id?: string | null;
   training_run_id?: string | null;
   created_at: string | null;
@@ -55,6 +56,7 @@ export interface ListArtifactsParams {
   limit?: number;
   offset?: number;
   include_metrics?: boolean;
+  include_cycle_hidden?: boolean;
 }
 
 export interface ListArtifactsResponse {
@@ -69,7 +71,7 @@ export interface UploadArtifactPayload {
   ocr_type: string;
   role: string;
   name: string;
-  version: string;
+  version?: string;
   runtime: string;
   framework?: string;
   metadata?: string;
@@ -130,7 +132,7 @@ export interface ListPipelineRefsResponse {
 
 export interface CreatePipelineRefPayload {
   ocr_type: string;
-  model_ref: string;
+  model_ref?: string;
   detection_artifact_id: string;
   recognition_artifact_id: string;
   notes?: string;

@@ -694,13 +694,6 @@ export function DatabankListPage() {
       />
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto px-6 pb-6 pt-4">
-        <Alert
-          type="info"
-          showIcon
-          message="Single shared data bank"
-          description="Categories (blurry / dead / custom) stay after you save ground truth. Only reviewed images sync to Dataset tab — one fixed dataset per category (data-bank-reviewed, data-bank-blurry, data-bank-dead, …). Use “Move to Reviewed” to clear a category."
-        />
-
         {dataset?.error_message ? (
           <Alert type="error" showIcon message={dataset.error_message} />
         ) : null}

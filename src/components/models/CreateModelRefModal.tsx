@@ -1,7 +1,9 @@
-import { Alert, Checkbox, Form, Input, Modal, Select, message } from "antd";
+import { Alert, Checkbox, Form, Input, Modal, Select, Typography, message } from "antd";
 import { useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
+import { suggestModelRef } from "@/api/models";
 import { useCreateModelRef } from "@/features/models/useCreateModelRef";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
 
@@ -20,7 +22,6 @@ interface CreateModelRefModalProps {
 
 interface FormValues {
   ocr_type: string;
-  model_ref: string;
   detection_artifact_id: string;
   recognition_artifact_id: string;
   notes?: string;
@@ -46,6 +47,12 @@ export function CreateModelRefModal({
   const ocrType = Form.useWatch("ocr_type", form);
   const activate = Form.useWatch("activate", form);
 
+  const suggestQuery = useQuery({
+    queryKey: ["models", "refs", "suggest", ocrType || "odometer"],
+    queryFn: () => suggestModelRef(ocrType || "odometer"),
+    enabled: open,
+  });
+
   const artifactsQuery = useModelsQuery(
     {
       ocr_type: ocrType || "odometer",
@@ -56,7 +63,6 @@ export function CreateModelRefModal({
     open,
   );
 
-  // Re-fetch when modal opens / ocr type changes via query key already
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
@@ -90,6 +96,8 @@ export function CreateModelRefModal({
       }));
   }, [artifactsQuery.data?.artifacts]);
 
+  const suggestedRef = suggestQuery.data?.suggested_model_ref;
+
   const handleCancel = () => {
     form.resetFields();
     onClose();
@@ -100,7 +108,6 @@ export function CreateModelRefModal({
       const values = await form.validateFields();
       await create.mutateAsync({
         ocr_type: values.ocr_type,
-        model_ref: values.model_ref.trim(),
         detection_artifact_id: values.detection_artifact_id,
         recognition_artifact_id: values.recognition_artifact_id,
         notes: values.notes?.trim() || undefined,
@@ -109,8 +116,8 @@ export function CreateModelRefModal({
       });
       message.success(
         values.activate
-          ? "Model ref created and activated"
-          : "Model ref created as draft",
+          ? `Model ref ${suggestedRef ?? ""} created and activated`.trim()
+          : `Model ref ${suggestedRef ?? ""} created as draft`.trim(),
       );
       form.resetFields();
       onClose();
@@ -137,28 +144,28 @@ export function CreateModelRefModal({
         className="mt-4"
         initialValues={{ ocr_type: "odometer" }}
       >
-        <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-          <Form.Item
-            name="ocr_type"
-            label="OCR type"
-            rules={[{ required: true, message: "Required" }]}
-          >
-            <Select options={OCR_TYPES} />
-          </Form.Item>
-          <Form.Item
-            name="model_ref"
-            label="Model ref"
-            rules={[
-              { required: true, message: "Required" },
-              {
-                pattern: /^[^/\\]+$/,
-                message: "Cannot contain / or \\",
-              },
-            ]}
-          >
-            <Input placeholder="v1" />
-          </Form.Item>
-        </div>
+        <Form.Item
+          name="ocr_type"
+          label="OCR type"
+          rules={[{ required: true, message: "Required" }]}
+        >
+          <Select options={OCR_TYPES} />
+        </Form.Item>
+
+        {suggestedRef ? (
+          <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+            <Typography.Text type="secondary" className="text-xs">
+              Will be assigned
+            </Typography.Text>
+            <div className="font-mono text-base font-semibold text-sky-900">
+              {suggestedRef}
+            </div>
+          </div>
+        ) : suggestQuery.isLoading ? (
+          <Typography.Text type="secondary" className="mb-3 block text-xs">
+            Resolving next ref…
+          </Typography.Text>
+        ) : null}
 
         <Form.Item
           name="detection_artifact_id"
@@ -215,7 +222,7 @@ export function CreateModelRefModal({
           showIcon
           className="mt-3"
           message="Human promotion only"
-          description="Trained candidates stay inactive until you explicitly activate a model ref. Prefer comparing evaluations (same dataset version) before promoting."
+          description="Trained candidates stay inactive until you explicitly activate a model ref. Compare evaluations on the same dataset before promoting."
         />
       </Form>
     </Modal>

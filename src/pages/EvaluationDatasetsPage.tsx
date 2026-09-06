@@ -1,7 +1,6 @@
 import { ExperimentOutlined } from "@ant-design/icons";
 import { App, Alert, Button, Select } from "antd";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
@@ -151,29 +150,29 @@ export function EvaluationDatasetsPage() {
           { title: "Datasets" },
         ]}
         actions={
-          <Button
-            type="primary"
-            icon={<ExperimentOutlined />}
-            onClick={() => setUploadOpen(true)}
-          >
-            Upload dataset
-          </Button>
+          <>
+            <Select
+              allowClear
+              placeholder="OCR type"
+              className="w-36"
+              options={OCR_TYPES}
+              value={ocrType}
+              onChange={(v) => {
+                setOcrType(v);
+                setPage(1);
+              }}
+            />
+            <Button
+              type="primary"
+              icon={<ExperimentOutlined />}
+              onClick={() => setUploadOpen(true)}
+            >
+              Upload dataset
+            </Button>
+          </>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
-        <Alert
-          type="info"
-          showIcon
-          message="Evaluation datasets"
-          description={
-            <>
-              Uploaded packs and training datasets you have allowed for
-              evaluation. Curated hard cases stay under{" "}
-              <Link to="/evaluation/training-datasets">Training datasets</Link>{" "}
-              until allowed.
-            </>
-          }
-        />
         <DataTableToolbar
           left={
             <>
@@ -183,17 +182,6 @@ export function EvaluationDatasetsPage() {
                 value={search}
                 onChange={(v) => {
                   setSearch(v);
-                  setPage(1);
-                }}
-              />
-              <Select
-                allowClear
-                placeholder="OCR type"
-                className="w-36"
-                options={OCR_TYPES}
-                value={ocrType}
-                onChange={(v) => {
-                  setOcrType(v);
                   setPage(1);
                 }}
               />
