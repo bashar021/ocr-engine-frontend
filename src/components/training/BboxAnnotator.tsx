@@ -141,7 +141,7 @@ export function BboxAnnotator({
         }}
       />
       <div className="mt-2 flex gap-2 text-xs text-slate-500">
-        <span>Drag to draw odometer box. Coordinates are image pixels.</span>
+        <span>Drag to draw a detection box. Coordinates are image pixels.</span>
         {value ? (
           <button
             type="button"

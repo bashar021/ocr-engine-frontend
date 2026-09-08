@@ -54,7 +54,7 @@ export async function createPipelineRef(
 }
 
 export async function suggestModelRef(
-  ocrType = "odometer",
+  ocrType: string,
 ): Promise<{ suggested_model_ref: string; next_index?: number }> {
   const { data } = await apiClient.get("/v1/models/refs/suggest", {
     params: { ocr_type: ocrType },

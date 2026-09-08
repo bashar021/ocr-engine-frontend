@@ -11,20 +11,14 @@ import {
   message,
 } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
 import { suggestArtifactVersion } from "@/api/models";
 import { useUploadModel } from "@/features/models/useUploadModel";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
+import { useTaskContext } from "@/features/tasks/TaskContext";
+import { defaultArtifactName } from "@/features/tasks/taskOptions";
 
 const ROLES = [
   { value: "detection", label: "Detection" },
@@ -57,24 +51,35 @@ interface FormValues {
 }
 
 export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
+  const { activeTaskKey } = useTaskContext();
   const [form] = Form.useForm<FormValues>();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const upload = useUploadModel();
   const runtime = Form.useWatch("runtime", form);
-  const ocrType = Form.useWatch("ocr_type", form);
+  const ocrType = Form.useWatch("ocr_type", form) ?? activeTaskKey;
   const role = Form.useWatch("role", form);
   const name = Form.useWatch("name", form);
+
+  useEffect(() => {
+    if (open) {
+      form.setFieldsValue({
+        ocr_type: activeTaskKey,
+        role: "detection",
+        runtime: "pytorch",
+      });
+    }
+  }, [open, form, activeTaskKey]);
 
   const suggestQuery = useQuery({
     queryKey: ["models", "artifacts", "suggest-version", ocrType, role, name],
     queryFn: () =>
       suggestArtifactVersion({
-        ocr_type: ocrType || "odometer",
+        ocr_type: ocrType,
         role: role || "detection",
         name: name || "model",
         bump: "patch",
       }),
-    enabled: open && Boolean(name?.trim()),
+    enabled: open && Boolean(name?.trim()) && Boolean(ocrType),
   });
 
   const isPaddlePackage = runtime === "paddle_inference";
@@ -139,6 +144,9 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
     }
   };
 
+  const roleForPlaceholder =
+    role === "recognition" ? "recognition" : "detection";
+
   return (
     <Modal
       title="Upload model"
@@ -155,7 +163,7 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
         layout="vertical"
         className="mt-4"
         initialValues={{
-          ocr_type: "odometer",
+          ocr_type: activeTaskKey,
           role: "detection",
           runtime: "pytorch",
         }}
@@ -206,14 +214,11 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
           </Upload.Dragger>
         </Form.Item>
 
+        <Form.Item name="ocr_type" hidden>
+          <Input />
+        </Form.Item>
+
         <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-          <Form.Item
-            name="ocr_type"
-            label="OCR type"
-            rules={[{ required: true, message: "Required" }]}
-          >
-            <Select options={OCR_TYPES} />
-          </Form.Item>
           <Form.Item
             name="role"
             label="Role"
@@ -229,8 +234,8 @@ export function UploadModelModal({ open, onClose }: UploadModelModalProps) {
             <Input
               placeholder={
                 isPaddlePackage
-                  ? "odometer-recognition-v5"
-                  : "odometer-detector"
+                  ? `${activeTaskKey}-recognition-v5`
+                  : defaultArtifactName(activeTaskKey, roleForPlaceholder)
               }
             />
           </Form.Item>

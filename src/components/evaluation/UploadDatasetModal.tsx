@@ -1,18 +1,11 @@
 import { InboxOutlined } from "@ant-design/icons";
-import { Alert, Form, Input, Modal, Select, Upload, message } from "antd";
+import { Alert, Form, Input, Modal, Upload, message } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
 import { useUploadDataset } from "@/features/evaluation/useEvaluationMutations";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
+import { useTaskContext } from "@/features/tasks/TaskContext";
 
 interface UploadDatasetModalProps {
   open: boolean;
@@ -25,9 +18,16 @@ interface FormValues {
 }
 
 export function UploadDatasetModal({ open, onClose }: UploadDatasetModalProps) {
+  const { activeTaskKey } = useTaskContext();
   const [form] = Form.useForm<FormValues>();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const upload = useUploadDataset();
+
+  useEffect(() => {
+    if (open) {
+      form.setFieldsValue({ ocr_type: activeTaskKey });
+    }
+  }, [open, form, activeTaskKey]);
 
   const reset = () => {
     form.resetFields();
@@ -86,7 +86,7 @@ export function UploadDatasetModal({ open, onClose }: UploadDatasetModalProps) {
         form={form}
         layout="vertical"
         className="mt-2"
-        initialValues={{ ocr_type: "odometer" }}
+        initialValues={{ ocr_type: activeTaskKey }}
       >
         <Form.Item label="Dataset ZIP" required>
           <Upload.Dragger
@@ -105,12 +105,8 @@ export function UploadDatasetModal({ open, onClose }: UploadDatasetModalProps) {
             </p>
           </Upload.Dragger>
         </Form.Item>
-        <Form.Item
-          name="ocr_type"
-          label="OCR type"
-          rules={[{ required: true, message: "Required" }]}
-        >
-          <Select options={OCR_TYPES} />
+        <Form.Item name="ocr_type" hidden>
+          <Input />
         </Form.Item>
         <Form.Item name="description" label="Notes (optional)">
           <Input.TextArea rows={2} placeholder="Optional notes" />

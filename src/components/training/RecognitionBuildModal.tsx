@@ -19,6 +19,8 @@ import {
   getRecognitionBuildJob,
   type RecognitionBuildJob,
 } from "@/api/training";
+import { useTaskContext } from "@/features/tasks/TaskContext";
+import { defaultRecognitionCropName } from "@/features/tasks/taskOptions";
 
 interface RecognitionBuildModalProps {
   open: boolean;
@@ -31,10 +33,12 @@ interface RecognitionBuildModalProps {
 export function RecognitionBuildModal({
   open,
   onClose,
-  ocrType = "odometer",
+  ocrType: ocrTypeProp,
   databankDatasetId,
   datasetIds,
 }: RecognitionBuildModalProps) {
+  const { activeTaskKey } = useTaskContext();
+  const ocrType = ocrTypeProp ?? activeTaskKey;
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -51,7 +55,8 @@ export function RecognitionBuildModal({
       return;
     }
     form.resetFields();
-  }, [open, form]);
+    form.setFieldsValue({ name: defaultRecognitionCropName(ocrType) });
+  }, [open, form, ocrType]);
 
   const jobQuery = useQuery({
     queryKey: ["training", "recognition-build", jobId],
@@ -161,7 +166,7 @@ export function RecognitionBuildModal({
           val_ratio: 0.1,
           test_ratio: 0.1,
           seed: 42,
-          name: `${ocrType}-recognition-crops`,
+          name: defaultRecognitionCropName(ocrType),
         }}
       >
         <Form.Item name="name" label="Dataset name">

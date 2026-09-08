@@ -6,14 +6,7 @@ import { getApiErrorMessage } from "@/api/client";
 import { suggestModelRef } from "@/api/models";
 import { useCreateModelRef } from "@/features/models/useCreateModelRef";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
+import { useTaskContext } from "@/features/tasks/TaskContext";
 
 interface CreateModelRefModalProps {
   open: boolean;
@@ -42,36 +35,37 @@ export function CreateModelRefModal({
   open,
   onClose,
 }: CreateModelRefModalProps) {
+  const { activeTaskKey } = useTaskContext();
   const [form] = Form.useForm<FormValues>();
   const create = useCreateModelRef();
-  const ocrType = Form.useWatch("ocr_type", form);
+  const ocrType = Form.useWatch("ocr_type", form) ?? activeTaskKey;
   const activate = Form.useWatch("activate", form);
 
   const suggestQuery = useQuery({
-    queryKey: ["models", "refs", "suggest", ocrType || "odometer"],
-    queryFn: () => suggestModelRef(ocrType || "odometer"),
-    enabled: open,
+    queryKey: ["models", "refs", "suggest", ocrType],
+    queryFn: () => suggestModelRef(ocrType),
+    enabled: open && Boolean(ocrType),
   });
 
   const artifactsQuery = useModelsQuery(
     {
-      ocr_type: ocrType || "odometer",
+      ocr_type: ocrType,
       include_metrics: false,
       limit: 500,
       offset: 0,
     },
-    open,
+    open && Boolean(ocrType),
   );
 
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         activate: true,
         set_default: false,
       });
     }
-  }, [open, form]);
+  }, [open, form, activeTaskKey]);
 
   useEffect(() => {
     form.setFieldValue("detection_artifact_id", undefined);
@@ -142,14 +136,10 @@ export function CreateModelRefModal({
         form={form}
         layout="vertical"
         className="mt-4"
-        initialValues={{ ocr_type: "odometer" }}
+        initialValues={{ ocr_type: activeTaskKey }}
       >
-        <Form.Item
-          name="ocr_type"
-          label="OCR type"
-          rules={[{ required: true, message: "Required" }]}
-        >
-          <Select options={OCR_TYPES} />
+        <Form.Item name="ocr_type" hidden>
+          <Input />
         </Form.Item>
 
         {suggestedRef ? (

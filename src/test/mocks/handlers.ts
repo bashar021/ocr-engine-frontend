@@ -2,6 +2,26 @@ import { http, HttpResponse } from "msw";
 
 import type { EvaluationDataset, EvaluationRun } from "@/types/evaluation";
 import type { ModelArtifact, PipelineRef } from "@/types/models";
+import type { TaskDefinition } from "@/api/platform/tasks";
+
+export const mockTasks: TaskDefinition[] = [
+  {
+    id: "task-odometer",
+    key: "odometer",
+    display_name: "Odometer",
+    description: "Dashboard odometer OCR",
+    status: "active",
+    current_version: "1.0.0",
+    capabilities: [
+      "supports_live_ocr",
+      "api_serving",
+      "databank",
+      "evaluation",
+      "training",
+    ],
+    ui_config: {},
+  },
+];
 
 export const mockArtifacts: ModelArtifact[] = [
   {
@@ -472,5 +492,15 @@ export const handlers = [
       },
       note: "Operator settings are env-driven; mutate via deployment config, not this API.",
     });
+  }),
+
+  http.get("*/v1/tasks", () => {
+    return HttpResponse.json({ tasks: mockTasks });
+  }),
+
+  http.get("*/v1/tasks/:taskKey", ({ params }) => {
+    const task =
+      mockTasks.find((t) => t.key === params.taskKey) ?? mockTasks[0]!;
+    return HttpResponse.json(task);
   }),
 ];

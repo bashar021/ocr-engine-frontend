@@ -26,26 +26,26 @@ const { Sider } = Layout;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
+/**
+ * Product navigation is always visible so every tab renders for every task.
+ * Task-specific capability gating happens inside pages, not by hiding routes.
+ */
 export function AppSidebar() {
   const location = useLocation();
-  const { hasCapability, activeTask } = useTaskContext();
+  const { activeTask } = useTaskContext();
 
-  const navItems: MenuItem[] = useMemo(() => {
-    const items: MenuItem[] = [
+  const navItems: MenuItem[] = useMemo(
+    () => [
       {
         key: "/overview",
         icon: <DashboardOutlined />,
         label: <Link to="/overview">Overview</Link>,
       },
-    ];
-    if (hasCapability("supports_live_ocr") || hasCapability("api_serving")) {
-      items.push({
+      {
         key: "/ocr",
         icon: <ScanOutlined />,
         label: <Link to="/ocr">Live OCR</Link>,
-      });
-    }
-    items.push(
+      },
       {
         key: "models-group",
         icon: <ClusterOutlined />,
@@ -83,7 +83,7 @@ export function AppSidebar() {
       {
         key: "evaluation-group",
         icon: <DatabaseOutlined />,
-        label: "Dataset",
+        label: "Datasets",
         children: [
           {
             key: "/evaluation/datasets",
@@ -94,6 +94,16 @@ export function AppSidebar() {
             key: "/evaluation/dataset-list",
             icon: <DatabaseOutlined />,
             label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
+          },
+          {
+            key: "/data-explorer",
+            icon: <ExperimentOutlined />,
+            label: <Link to="/data-explorer">Data explorer</Link>,
+          },
+          {
+            key: "/annotation",
+            icon: <EditOutlined />,
+            label: <Link to="/annotation">Annotation review</Link>,
           },
           {
             key: "/evaluation/training-datasets",
@@ -107,35 +117,9 @@ export function AppSidebar() {
             icon: <PlayCircleOutlined />,
             label: <Link to="/evaluation/runs">Evaluation runs</Link>,
           },
-          {
-            key: "/data-explorer",
-            icon: <ExperimentOutlined />,
-            label: <Link to="/data-explorer">Data explorer</Link>,
-          },
         ],
       },
-    );
-    if (
-      hasCapability("supports_annotation") ||
-      hasCapability("annotations")
-    ) {
-      const datasetGroup = items.find(
-        (item) => item && "key" in item && item.key === "evaluation-group",
-      );
-      if (
-        datasetGroup &&
-        "children" in datasetGroup &&
-        Array.isArray(datasetGroup.children)
-      ) {
-        datasetGroup.children.push({
-          key: "/annotation",
-          icon: <EditOutlined />,
-          label: <Link to="/annotation">Annotation review</Link>,
-        });
-      }
-    }
-    if (hasCapability("supports_training")) {
-      items.push({
+      {
         key: "training-group",
         icon: <ThunderboltOutlined />,
         label: "Training",
@@ -146,9 +130,9 @@ export function AppSidebar() {
             label: <Link to="/training-center">Training Center</Link>,
           },
           {
-            key: "/training",
-            icon: <DashboardOutlined />,
-            label: <Link to="/training">Legacy overview</Link>,
+            key: "/training/runs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/training/runs">Runs</Link>,
           },
           {
             key: "/training/curate",
@@ -156,14 +140,12 @@ export function AppSidebar() {
             label: <Link to="/training/curate">Curate failures</Link>,
           },
           {
-            key: "/training/runs",
-            icon: <PlayCircleOutlined />,
-            label: <Link to="/training/runs">Runs</Link>,
+            key: "/training",
+            icon: <DashboardOutlined />,
+            label: <Link to="/training">Legacy overview</Link>,
           },
         ],
-      });
-    }
-    items.push(
+      },
       {
         key: "/clients",
         icon: <ApiOutlined />,
@@ -175,13 +157,23 @@ export function AppSidebar() {
         label: <Link to="/history">Audit / history</Link>,
       },
       {
+        key: "/jobs",
+        icon: <PlayCircleOutlined />,
+        label: <Link to="/jobs">Jobs</Link>,
+      },
+      {
+        key: "/import-export",
+        icon: <DatabaseOutlined />,
+        label: <Link to="/import-export">Import / Export</Link>,
+      },
+      {
         key: "/settings",
         icon: <SettingOutlined />,
         label: <Link to="/settings">Settings</Link>,
       },
-    );
-    return items;
-  }, [hasCapability, activeTask?.key]);
+    ],
+    [activeTask?.key],
+  );
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
@@ -190,6 +182,8 @@ export function AppSidebar() {
     if (path.startsWith("/deployments")) return "/deployments";
     if (path.startsWith("/clients")) return "/clients";
     if (path.startsWith("/history")) return "/history";
+    if (path.startsWith("/jobs")) return "/jobs";
+    if (path.startsWith("/import-export")) return "/import-export";
     if (path.startsWith("/ocr")) return "/ocr";
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
@@ -205,7 +199,6 @@ export function AppSidebar() {
       return "/evaluation/dataset-list";
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
     if (path.startsWith("/training-center")) return "/training-center";
-    if (path.startsWith("/training/runs/")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training";
@@ -219,7 +212,11 @@ export function AppSidebar() {
   ]);
 
   useEffect(() => {
-    if (location.pathname.startsWith("/models") || location.pathname.startsWith("/releases") || location.pathname.startsWith("/deployments")) {
+    if (
+      location.pathname.startsWith("/models") ||
+      location.pathname.startsWith("/releases") ||
+      location.pathname.startsWith("/deployments")
+    ) {
       setOpenKeys((keys) =>
         keys.includes("models-group") ? keys : [...keys, "models-group"],
       );
@@ -249,15 +246,20 @@ export function AppSidebar() {
     <Sider
       breakpoint="lg"
       collapsedWidth={64}
-      width={240}
+      width={248}
       className="!h-full !overflow-y-auto !bg-slate-950"
       theme="dark"
     >
       <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
         <ScanOutlined className="text-lg text-cyan-400" />
-        <span className="truncate text-sm font-semibold tracking-wide text-white">
-          OCR Platform
-        </span>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold tracking-wide text-white">
+            OCR Platform
+          </div>
+          <div className="truncate text-[11px] text-slate-400">
+            {activeTask?.display_name ?? "Select task"}
+          </div>
+        </div>
       </div>
       <TaskSwitcher />
       <Menu

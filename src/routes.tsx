@@ -7,6 +7,8 @@ import { DataExplorerPage } from "@/pages/DataExplorerPage";
 import { DatabankListPage } from "@/pages/DatabankListPage";
 import { EvaluationDatasetsPage } from "@/pages/EvaluationDatasetsPage";
 import { EvaluationRunsPage } from "@/pages/EvaluationRunsPage";
+import { ImportExportPage } from "@/pages/ImportExportPage";
+import { JobsPage } from "@/pages/JobsPage";
 import { ModelListPage } from "@/pages/ModelListPage";
 import { ModelRefsPage } from "@/pages/ModelRefsPage";
 import { OcrPlaygroundPage } from "@/pages/OcrPlaygroundPage";
@@ -89,6 +91,8 @@ export function AppRoutes() {
         />
         <Route path="/training/curate" element={<TrainingCurationPage />} />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
+        <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/import-export" element={<ImportExportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/overview" replace />} />

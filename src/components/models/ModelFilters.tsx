@@ -2,6 +2,8 @@ import { Select } from "antd";
 
 import { SearchInput } from "@/components/common/SearchInput";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
+import { useTaskContext } from "@/features/tasks/TaskContext";
+import { taskSelectOptions } from "@/features/tasks/taskOptions";
 
 export type ModelsPageTab = "models" | "refs" | "overview";
 
@@ -21,14 +23,6 @@ interface ModelFiltersProps {
   hideOcrType?: boolean;
   hideRole?: boolean;
 }
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 const ROLES = [
   { value: "detection", label: "Detection" },
@@ -65,6 +59,9 @@ export function ModelFilters({
   hideOcrType,
   hideRole,
 }: ModelFiltersProps) {
+  const { tasks } = useTaskContext();
+  const ocrTypeOptions = taskSelectOptions(tasks);
+
   if (tab === "overview") return null;
 
   const countLabel =
@@ -91,7 +88,7 @@ export function ModelFilters({
               allowClear
               placeholder="OCR type"
               className="w-36"
-              options={OCR_TYPES}
+              options={ocrTypeOptions}
               value={value.ocr_type}
               onChange={(ocr_type) => onChange({ ...value, ocr_type })}
             />

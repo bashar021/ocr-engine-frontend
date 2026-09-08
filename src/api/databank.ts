@@ -5,9 +5,7 @@ import type {
   ListDatabankSamplesResponse,
 } from "@/types/databank";
 
-export async function getDatabank(
-  ocrType: string = "odometer",
-): Promise<DatabankDataset> {
+export async function getDatabank(ocrType: string): Promise<DatabankDataset> {
   const { data } = await apiClient.get<DatabankDataset>("/v1/databank/bank", {
     params: { ocr_type: ocrType },
   });

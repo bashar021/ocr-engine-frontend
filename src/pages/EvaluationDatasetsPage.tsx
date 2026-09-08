@@ -16,17 +16,10 @@ import {
   useHardDeleteDataset,
 } from "@/features/evaluation/useEvaluationMutations";
 import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { EvaluationDataset } from "@/types/evaluation";
 import { getDatasetDeleteAvailability } from "@/utils/datasetDeleteAvailability";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 const DATASET_STATUSES = [
   { value: "uploading", label: "Uploading" },
@@ -38,9 +31,9 @@ const DATASET_STATUSES = [
 ];
 
 export function EvaluationDatasetsPage() {
+  const { activeTaskKey } = useTaskContext();
   const { modal, message } = App.useApp();
   const [search, setSearch] = useState("");
-  const [ocrType, setOcrType] = useState<string | undefined>();
   const [status, setStatus] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -59,13 +52,13 @@ export function EvaluationDatasetsPage() {
     () => ({
       scope: "evaluation" as const,
       search: debouncedSearch || undefined,
-      ocr_type: ocrType,
+      ocr_type: activeTaskKey,
       status,
       include_archived: status === "archived",
       limit: pageSize,
       offset: (page - 1) * pageSize,
     }),
-    [debouncedSearch, ocrType, status, page, pageSize],
+    [debouncedSearch, activeTaskKey, status, page, pageSize],
   );
 
   const query = useDatasetsQuery(params);
@@ -150,26 +143,13 @@ export function EvaluationDatasetsPage() {
           { title: "Datasets" },
         ]}
         actions={
-          <>
-            <Select
-              allowClear
-              placeholder="OCR type"
-              className="w-36"
-              options={OCR_TYPES}
-              value={ocrType}
-              onChange={(v) => {
-                setOcrType(v);
-                setPage(1);
-              }}
-            />
-            <Button
-              type="primary"
-              icon={<ExperimentOutlined />}
-              onClick={() => setUploadOpen(true)}
-            >
-              Upload dataset
-            </Button>
-          </>
+          <Button
+            type="primary"
+            icon={<ExperimentOutlined />}
+            onClick={() => setUploadOpen(true)}
+          >
+            Upload dataset
+          </Button>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">

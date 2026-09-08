@@ -43,7 +43,7 @@ export function OcrPlaygroundPage() {
 
   const refsQuery = useModelRefsQuery({
     include_metrics: false,
-    ocr_type: activeTaskKey || "odometer",
+    ocr_type: activeTaskKey,
   });
   const refOptions = useMemo(
     () =>

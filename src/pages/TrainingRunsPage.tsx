@@ -31,11 +31,14 @@ import {
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusTag } from "@/components/common/StatusTag";
 import { TrainingDataCountsPanel } from "@/components/training/TrainingDataCountsPanel";
+import { useTaskContext } from "@/features/tasks/TaskContext";
+import { defaultArtifactName } from "@/features/tasks/taskOptions";
 import type { TrainingRun } from "@/types/training";
 
 const POLL_MS = 3000;
 
 export function TrainingRunsPage() {
+  const { activeTaskKey } = useTaskContext();
   const queryClient = useQueryClient();
   const location = useLocation();
   const [role, setRole] = useState<"detection" | "recognition">("detection");
@@ -96,16 +99,23 @@ export function TrainingRunsPage() {
       listDatasets({ status: "ready", scope: "evaluation", limit: 100 }),
   });
   const artifactsQuery = useQuery({
-    queryKey: ["models", "artifacts", role],
-    queryFn: () => listArtifacts({ role, limit: 100 }),
+    queryKey: ["models", "artifacts", role, activeTaskKey],
+    queryFn: () =>
+      listArtifacts({ role, ocr_type: activeTaskKey, limit: 100 }),
   });
   const detectionArtsQuery = useQuery({
-    queryKey: ["models", "artifacts", "detection"],
-    queryFn: () => listArtifacts({ role: "detection", limit: 100 }),
+    queryKey: ["models", "artifacts", "detection", activeTaskKey],
+    queryFn: () =>
+      listArtifacts({ role: "detection", ocr_type: activeTaskKey, limit: 100 }),
   });
   const recognitionArtsQuery = useQuery({
-    queryKey: ["models", "artifacts", "recognition"],
-    queryFn: () => listArtifacts({ role: "recognition", limit: 100 }),
+    queryKey: ["models", "artifacts", "recognition", activeTaskKey],
+    queryFn: () =>
+      listArtifacts({
+        role: "recognition",
+        ocr_type: activeTaskKey,
+        limit: 100,
+      }),
   });
 
   const datasetOptions = useMemo(() => {
@@ -161,10 +171,18 @@ export function TrainingRunsPage() {
   }, [baseDatasetId, hardDatasetIds]);
 
   const suggestQuery = useQuery({
-    queryKey: ["training", "suggest-version", role, name, baseId, datasetRefs],
+    queryKey: [
+      "training",
+      "suggest-version",
+      activeTaskKey,
+      role,
+      name,
+      baseId,
+      datasetRefs,
+    ],
     queryFn: () =>
       suggestTrainingVersion({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         role,
         name: name || "model",
         training_base_artifact_id: baseId,
@@ -212,7 +230,7 @@ export function TrainingRunsPage() {
       }
       const isRec = values.role === "recognition";
       const run = await startTrainingRun({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         role: values.role,
         name: values.name,
         version: values.version,
@@ -405,7 +423,9 @@ export function TrainingRunsPage() {
                     form.setFieldsValue({
                       epochs: 20,
                       learning_rate: 0.000015,
-                      name: form.getFieldValue("name") || "odometer-recognizer",
+                      name:
+                        form.getFieldValue("name") ||
+                        defaultArtifactName(activeTaskKey, "recognition"),
                     });
                   }
                 }}
@@ -465,8 +485,8 @@ export function TrainingRunsPage() {
               <Input
                 placeholder={
                   role === "recognition"
-                    ? "odometer-recognizer"
-                    : "odometer-detector"
+                    ? defaultArtifactName(activeTaskKey, "recognition")
+                    : defaultArtifactName(activeTaskKey, "detection")
                 }
               />
             </Form.Item>

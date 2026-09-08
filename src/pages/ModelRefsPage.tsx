@@ -1,5 +1,5 @@
 import { LinkOutlined } from "@ant-design/icons";
-import { Alert, Button, Select, Tabs } from "antd";
+import { Alert, Button, Tabs } from "antd";
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -12,23 +12,16 @@ import {
 import { ModelRefsTable } from "@/components/models/ModelRefsTable";
 import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
 import { usePipelineRefMutations } from "@/features/models/usePipelineRefMutations";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import { useDebounce } from "@/hooks/useDebounce";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 const DEFAULT_FILTERS: ModelFilterState = { search: "" };
 
 type RefTab = "activated" | "deactivated";
 
 export function ModelRefsPage() {
+  const { activeTaskKey } = useTaskContext();
   const [filters, setFilters] = useState<ModelFilterState>(DEFAULT_FILTERS);
-  const [ocrType, setOcrType] = useState<string | undefined>();
   const [refTab, setRefTab] = useState<RefTab>("activated");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -39,10 +32,10 @@ export function ModelRefsPage() {
   const params = useMemo(
     () => ({
       search: debouncedSearch || undefined,
-      ocr_type: ocrType,
+      ocr_type: activeTaskKey,
       include_metrics: true,
     }),
-    [debouncedSearch, ocrType],
+    [debouncedSearch, activeTaskKey],
   );
 
   const query = useModelRefsQuery(params);
@@ -105,26 +98,13 @@ export function ModelRefsPage() {
           { title: "Model refs" },
         ]}
         actions={
-          <>
-            <Select
-              allowClear
-              placeholder="OCR type"
-              value={ocrType}
-              onChange={(v) => {
-                setOcrType(v);
-                setPage(1);
-              }}
-              options={OCR_TYPES}
-              className="w-40"
-            />
-            <Button
-              type="primary"
-              icon={<LinkOutlined />}
-              onClick={() => setCreateOpen(true)}
-            >
-              Create model ref
-            </Button>
-          </>
+          <Button
+            type="primary"
+            icon={<LinkOutlined />}
+            onClick={() => setCreateOpen(true)}
+          >
+            Create model ref
+          </Button>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">

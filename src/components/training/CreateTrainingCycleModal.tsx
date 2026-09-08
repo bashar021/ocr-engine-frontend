@@ -26,6 +26,7 @@ import {
   type CycleCreationOptions,
   type CyclePreflightResult,
 } from "@/api/training";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 
 const { TextArea } = Input;
 
@@ -36,6 +37,7 @@ type Props = {
 };
 
 export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
+  const { activeTaskKey } = useTaskContext();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [datasetId, setDatasetId] = useState<string | undefined>();
@@ -53,18 +55,18 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
   const [preflight, setPreflight] = useState<CyclePreflightResult | null>(null);
 
   const optionsQuery = useQuery({
-    queryKey: ["training", "cycle-options"],
-    queryFn: () => getCycleCreationOptions("odometer"),
+    queryKey: ["training", "cycle-options", activeTaskKey],
+    queryFn: () => getCycleCreationOptions(activeTaskKey),
     enabled: open,
   });
 
   const options: CycleCreationOptions | undefined = optionsQuery.data;
 
   const baselineArtifactsQuery = useQuery({
-    queryKey: ["models", "artifacts", "cycle-baseline", "odometer"],
+    queryKey: ["models", "artifacts", "cycle-baseline", activeTaskKey],
     queryFn: () =>
       listArtifacts({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         include_metrics: false,
         limit: 200,
       }),
@@ -72,8 +74,9 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
   });
 
   const refsQuery = useQuery({
-    queryKey: ["models", "refs", "cycle-baseline"],
-    queryFn: () => listPipelineRefs({ ocr_type: "odometer", include_metrics: false }),
+    queryKey: ["models", "refs", "cycle-baseline", activeTaskKey],
+    queryFn: () =>
+      listPipelineRefs({ ocr_type: activeTaskKey, include_metrics: false }),
     enabled: open,
   });
 
@@ -122,7 +125,7 @@ export function CreateTrainingCycleModal({ open, onClose, onCreated }: Props) {
   const createMutation = useMutation({
     mutationFn: () =>
       createTrainingCycle({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         recognition_dataset_id: datasetId!,
         training_type: trainingType,
         name: name || undefined,

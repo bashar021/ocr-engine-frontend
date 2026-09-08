@@ -41,6 +41,8 @@ import {
 } from "@/api/models";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusTag } from "@/components/common/StatusTag";
+import { useTaskContext } from "@/features/tasks/TaskContext";
+import { defaultRecognitionConfigName } from "@/features/tasks/taskOptions";
 import { truncateDigest } from "@/utils/format";
 
 const CANDIDATE_OPTIONS = [
@@ -104,7 +106,7 @@ function parseLookalike(raw: string): Record<string, string> {
 
 function configToForm(
   cfg: RecognitionConfigBody,
-  name = "odometer-recognizer-paddle",
+  name: string,
 ): EditorForm {
   const cs = (cfg.candidate_selection || {}) as Record<string, unknown>;
   const ip = (cfg.image_preprocessing || {}) as Record<string, unknown>;
@@ -601,6 +603,7 @@ function DraftPreviewDrawer({
 }
 
 export function RecognitionConfigsPage() {
+  const { activeTaskKey } = useTaskContext();
   const queryClient = useQueryClient();
   const [editorOpen, setEditorOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -621,15 +624,16 @@ export function RecognitionConfigsPage() {
   }>();
 
   const query = useQuery({
-    queryKey: ["models", "recognition-configs"],
-    queryFn: () => listRecognitionConfigs({ ocr_type: "odometer", limit: 100 }),
+    queryKey: ["models", "recognition-configs", activeTaskKey],
+    queryFn: () =>
+      listRecognitionConfigs({ ocr_type: activeTaskKey, limit: 100 }),
   });
 
   const detectionQuery = useQuery({
-    queryKey: ["models", "artifacts", "detection", "for-recog-ref"],
+    queryKey: ["models", "artifacts", "detection", "for-recog-ref", activeTaskKey],
     queryFn: () =>
       listArtifacts({
-        ocr_type: "odometer",
+        ocr_type: activeTaskKey,
         role: "detection",
         include_metrics: false,
         limit: 200,
@@ -666,8 +670,8 @@ export function RecognitionConfigsPage() {
   });
 
   const refSuggestQuery = useQuery({
-    queryKey: ["models", "refs", "suggest", "odometer", refOpen],
-    queryFn: () => suggestModelRef("odometer"),
+    queryKey: ["models", "refs", "suggest", activeTaskKey, refOpen],
+    queryFn: () => suggestModelRef(activeTaskKey),
     enabled: refOpen,
   });
 
@@ -701,9 +705,12 @@ export function RecognitionConfigsPage() {
     const source = cloneFrom?.config || defaults;
     if (!source) return;
     form.setFieldsValue(
-      configToForm(source, cloneFrom?.name || "odometer-recognizer-paddle"),
+      configToForm(
+        source,
+        cloneFrom?.name || defaultRecognitionConfigName(activeTaskKey),
+      ),
     );
-  }, [editorOpen, cloneFrom, defaults, form]);
+  }, [editorOpen, cloneFrom, defaults, form, activeTaskKey]);
 
   const openPreviewFromForm = async () => {
     try {
@@ -955,7 +962,7 @@ export function RecognitionConfigsPage() {
                   return;
                 }
                 await saveMutation.mutateAsync({
-                  ocr_type: "odometer",
+                  ocr_type: activeTaskKey,
                   name: values.name,
                   version: values.version || undefined,
                   bump: values.bump,
@@ -1150,7 +1157,7 @@ export function RecognitionConfigsPage() {
           if (!savedArtifact) return;
           const values = await refForm.validateFields();
           await refMutation.mutateAsync({
-            ocr_type: "odometer",
+            ocr_type: activeTaskKey,
             detection_artifact_id: values.detection_artifact_id,
             recognition_artifact_id: savedArtifact.id,
             activate: values.activate,

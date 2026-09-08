@@ -6,30 +6,36 @@ import {
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 
-const STEPS = [
-  {
-    icon: <ClusterOutlined className="text-teal-700" />,
-    title: "Upload model artifacts",
-    body: "Register immutable SemVer weights for detection and recognition (.pt, .onnx, .json, …). Each upload becomes a versioned artifact with digest and status.",
-  },
-  {
-    icon: <LinkOutlined className="text-teal-700" />,
-    title: "Create a model ref",
-    body: "Bind one detection artifact + one recognition artifact into a logical model_ref (e.g. v1). This is what OCR clients call at inference time.",
-  },
-  {
-    icon: <ApiOutlined className="text-teal-700" />,
-    title: "Activate for serving",
-    body: "Activate (and optionally set default) so /v1/ocr/odometer and /v1/ocr/odometer/{model_ref} load that pipeline. Disable to take it out of rotation without deleting artifacts.",
-  },
-  {
-    icon: <ExperimentOutlined className="text-teal-700" />,
-    title: "Evaluate offline",
-    body: "Use Dataset to upload ZIP datasets, poll ingest, run evaluations against a model_ref, and inspect metrics / sample results.",
-  },
-];
+import { useTaskContext } from "@/features/tasks/TaskContext";
 
 export function ModelsOverviewPanel() {
+  const { activeTaskKey } = useTaskContext();
+  const ocrPath = `/v1/ocr/${activeTaskKey}`;
+  const ocrRefPath = `/v1/ocr/${activeTaskKey}/{model_ref}`;
+
+  const STEPS = [
+    {
+      icon: <ClusterOutlined className="text-teal-700" />,
+      title: "Upload model artifacts",
+      body: "Register immutable SemVer weights for detection and recognition (.pt, .onnx, .json, …). Each upload becomes a versioned artifact with digest and status.",
+    },
+    {
+      icon: <LinkOutlined className="text-teal-700" />,
+      title: "Create a model ref",
+      body: "Bind one detection artifact + one recognition artifact into a logical model_ref (e.g. v1). This is what OCR clients call at inference time.",
+    },
+    {
+      icon: <ApiOutlined className="text-teal-700" />,
+      title: "Activate for serving",
+      body: `Activate (and optionally set default) so ${ocrPath} and ${ocrRefPath} load that pipeline. Disable to take it out of rotation without deleting artifacts.`,
+    },
+    {
+      icon: <ExperimentOutlined className="text-teal-700" />,
+      title: "Evaluate offline",
+      body: "Use Dataset to upload ZIP datasets, poll ingest, run evaluations against a model_ref, and inspect metrics / sample results.",
+    },
+  ];
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6">
       <div className="max-w-3xl">

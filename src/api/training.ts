@@ -296,7 +296,7 @@ export interface CyclePreflightResult {
 }
 
 export async function getCycleCreationOptions(
-  ocrType = "odometer",
+  ocrType: string,
 ): Promise<CycleCreationOptions> {
   const { data } = await apiClient.get<CycleCreationOptions>(
     "/v1/training/cycle-options",
@@ -361,7 +361,7 @@ export async function promoteTrainingCycle(
 }
 
 export async function rollbackTrainingPromotion(
-  ocrType = "odometer",
+  ocrType: string,
 ): Promise<unknown> {
   const { data } = await apiClient.post("/v1/training/rollback", null, {
     params: { ocr_type: ocrType },

@@ -10,15 +10,8 @@ import { EVALUATION_POLL_INTERVAL_MS } from "@/constants/polling";
 import { useCancelEvaluation } from "@/features/evaluation/useEvaluationMutations";
 import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
 import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import type { EvaluationRun } from "@/types/evaluation";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 const RUN_STATUSES = [
   { value: "queued", label: "Queued" },
@@ -29,7 +22,7 @@ const RUN_STATUSES = [
 ];
 
 export function EvaluationRunsPage() {
-  const [ocrType, setOcrType] = useState<string | undefined>("odometer");
+  const { activeTaskKey } = useTaskContext();
   const [modelRef, setModelRef] = useState<string | undefined>();
   const [datasetId, setDatasetId] = useState<string | undefined>();
   const [status, setStatus] = useState<string | undefined>();
@@ -40,14 +33,14 @@ export function EvaluationRunsPage() {
 
   const datasetsQuery = useDatasetsQuery({
     scope: "evaluation",
-    ocr_type: ocrType,
+    ocr_type: activeTaskKey,
     status: "ready",
     limit: 200,
   });
 
   const params = useMemo(
     () => ({
-      ocr_type: ocrType,
+      ocr_type: activeTaskKey,
       model_ref: modelRef,
       dataset_id: datasetId,
       status,
@@ -55,7 +48,7 @@ export function EvaluationRunsPage() {
       offset: (page - 1) * pageSize,
       include_metrics: true,
     }),
-    [ocrType, modelRef, datasetId, status, page, pageSize],
+    [activeTaskKey, modelRef, datasetId, status, page, pageSize],
   );
 
   const query = useEvaluationsQuery(params);
@@ -94,19 +87,6 @@ export function EvaluationRunsPage() {
           { title: "Dataset", path: "/evaluation/datasets" },
           { title: "Evaluation runs" },
         ]}
-        actions={
-          <Select
-            allowClear
-            placeholder="OCR type"
-            value={ocrType}
-            onChange={(v) => {
-              setOcrType(v);
-              setPage(1);
-            }}
-            options={OCR_TYPES}
-            className="w-40"
-          />
-        }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
         <DataTableToolbar

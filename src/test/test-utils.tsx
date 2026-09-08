@@ -4,6 +4,8 @@ import type { ReactElement, ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 
+import { TaskProvider } from '@/features/tasks/TaskContext'
+
 function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -23,7 +25,9 @@ export function renderWithProviders(
     return (
       <QueryClientProvider client={queryClient}>
         <ConfigProvider>
-          <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+          <TaskProvider>
+            <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+          </TaskProvider>
         </ConfigProvider>
       </QueryClientProvider>
     )

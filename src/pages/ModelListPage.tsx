@@ -12,15 +12,8 @@ import { ModelsTable } from "@/components/models/ModelsTable";
 import { UploadModelModal } from "@/components/models/UploadModelModal";
 import { useArtifactMutations } from "@/features/models/useArtifactMutations";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import { useDebounce } from "@/hooks/useDebounce";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 const DEFAULT_FILTERS: ModelFilterState = { search: "" };
 
@@ -28,8 +21,8 @@ type RoleTab = "detection" | "recognition";
 type ActivationFilter = "activated" | "deactivated";
 
 export function ModelListPage() {
+  const { activeTaskKey } = useTaskContext();
   const [filters, setFilters] = useState<ModelFilterState>(DEFAULT_FILTERS);
-  const [ocrType, setOcrType] = useState("odometer");
   const [roleTab, setRoleTab] = useState<RoleTab>("detection");
   const [activationFilter, setActivationFilter] =
     useState<ActivationFilter>("activated");
@@ -48,7 +41,7 @@ export function ModelListPage() {
 
     return {
       search: debouncedSearch || undefined,
-      ocr_type: ocrType,
+      ocr_type: activeTaskKey,
       role: roleTab,
       runtime: filters.runtime,
       status: conflict
@@ -70,7 +63,7 @@ export function ModelListPage() {
     filters.runtime,
     filters.status,
     activationFilter,
-    ocrType,
+    activeTaskKey,
     roleTab,
     page,
     pageSize,
@@ -107,24 +100,13 @@ export function ModelListPage() {
           { title: "Model list" },
         ]}
         actions={
-          <>
-            <Select
-              value={ocrType}
-              onChange={(v) => {
-                setOcrType(v);
-                setPage(1);
-              }}
-              options={OCR_TYPES}
-              className="w-40"
-            />
-            <Button
-              type="primary"
-              icon={<CloudUploadOutlined />}
-              onClick={() => setUploadOpen(true)}
-            >
-              Upload model
-            </Button>
-          </>
+          <Button
+            type="primary"
+            icon={<CloudUploadOutlined />}
+            onClick={() => setUploadOpen(true)}
+          >
+            Upload model
+          </Button>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">

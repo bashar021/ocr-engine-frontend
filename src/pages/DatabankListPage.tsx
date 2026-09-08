@@ -55,17 +55,10 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
 import { RecognitionBuildModal } from "@/components/training/RecognitionBuildModal";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { DatabankMetrics, DatabankSample } from "@/types/databank";
 import type { OcrBoundingBox } from "@/types/ocr";
-
-const OCR_TYPES = [
-  { value: "odometer", label: "Odometer" },
-  { value: "number_plate", label: "Number plate" },
-  { value: "bill", label: "Bill" },
-  { value: "vin", label: "VIN" },
-  { value: "document", label: "Document" },
-];
 
 type FilenameGtFilter = "all" | "yes" | "no";
 type PredictedFilter = "all" | "has" | "missing" | "error";
@@ -136,9 +129,9 @@ function toViewerBox(
 }
 
 export function DatabankListPage() {
+  const { activeTaskKey } = useTaskContext();
   const { modal, message: appMessage } = App.useApp();
   const queryClient = useQueryClient();
-  const [ocrType, setOcrType] = useState("odometer");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [reviewTab, setReviewTab] = useState<string>("unreviewed");
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
@@ -171,8 +164,8 @@ export function DatabankListPage() {
   }>();
 
   const bankQuery = useQuery({
-    queryKey: ["databank", "bank", ocrType],
-    queryFn: () => getDatabank(ocrType),
+    queryKey: ["databank", "bank", activeTaskKey],
+    queryFn: () => getDatabank(activeTaskKey),
     refetchInterval: (q) => {
       const data = q.state.data;
       const status = data?.status;
@@ -661,21 +654,6 @@ export function DatabankListPage() {
         ]}
         actions={
           <Space>
-            <Select
-              value={ocrType}
-              onChange={(v) => {
-                setOcrType(v);
-                setSamplePage(1);
-                setReviewTab("unreviewed");
-                setFilenameGtFilter("all");
-                setPredictedFilter("all");
-                setMatchFilter("all");
-                setFinalGtFilter("all");
-                setRerunFilter("all");
-              }}
-              options={OCR_TYPES}
-              style={{ width: 160 }}
-            />
             <Button
               type="primary"
               onClick={() => setUploadOpen(true)}
@@ -986,7 +964,7 @@ export function DatabankListPage() {
 
       <UploadDatabankModal
         open={uploadOpen}
-        ocrType={ocrType}
+        ocrType={activeTaskKey}
         confirmLoading={uploadMutation.isPending}
         onClose={() => setUploadOpen(false)}
         onSubmit={(values) => uploadMutation.mutate(values)}
@@ -1332,7 +1310,7 @@ export function DatabankListPage() {
       <RecognitionBuildModal
         open={recognitionBuildOpen}
         onClose={() => setRecognitionBuildOpen(false)}
-        ocrType={ocrType}
+        ocrType={activeTaskKey}
         databankDatasetId={datasetId}
       />
     </div>
