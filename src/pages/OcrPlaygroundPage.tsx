@@ -16,9 +16,10 @@ import {
 import { useMemo, useRef, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
-import { runOdometerOcr } from "@/api/ocr";
+import { runTaskOcr } from "@/api/ocr";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
 import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import type { OcrJobResult } from "@/types/ocr";
 import { formatPercent } from "@/utils/format";
 
@@ -32,6 +33,7 @@ function statusColor(status?: string) {
 }
 
 export function OcrPlaygroundPage() {
+  const { activeTaskKey } = useTaskContext();
   const [mode, setMode] = useState<Mode>("single");
   const [modelRef, setModelRef] = useState<string | undefined>();
   const [jobs, setJobs] = useState<OcrJobResult[]>([]);
@@ -41,7 +43,7 @@ export function OcrPlaygroundPage() {
 
   const refsQuery = useModelRefsQuery({
     include_metrics: false,
-    ocr_type: "odometer",
+    ocr_type: activeTaskKey || "odometer",
   });
   const refOptions = useMemo(
     () =>
@@ -100,7 +102,7 @@ export function OcrPlaygroundPage() {
       );
       setActiveIndex(i);
       try {
-        const response = await runOdometerOcr(file, modelRef);
+        const response = await runTaskOcr(activeTaskKey, file, { modelRef });
         setJobs((prev) =>
           prev.map((p, idx) =>
             idx === i

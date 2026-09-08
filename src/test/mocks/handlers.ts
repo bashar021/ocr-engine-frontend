@@ -354,4 +354,123 @@ export const handlers = [
       offset: 0,
     });
   }),
+
+  http.get("*/v1/explorer/samples", ({ request }) => {
+    const url = new URL(request.url);
+    const taskKey = url.searchParams.get("task_key");
+    const lifecycle = url.searchParams.get("lifecycle_state");
+    const reviewStatus = url.searchParams.get("review_status");
+
+    const item = {
+      source: "databank",
+      id: "sample-1",
+      dataset_id: "ds-1",
+      dataset_name: "data-bank",
+      task_key: taskKey ?? "odometer",
+      filename: "1-887512.jpg",
+      ground_truth: "887512",
+      prediction: "887511",
+      review_status: reviewStatus ?? "unreviewed",
+      lifecycle_state: lifecycle ?? "review_required",
+      quality_tag: "good",
+      annotation_purpose: "end_to_end",
+      match: false,
+      image_url: "/v1/databank/datasets/ds-1/samples/sample-1/image",
+      created_at: "2026-01-05T10:00:00+00:00",
+    };
+
+    return HttpResponse.json({
+      items: [item],
+      total_estimate: 1,
+      limit: Number(url.searchParams.get("limit") || 50),
+      offset: Number(url.searchParams.get("offset") || 0),
+      filters: {},
+      lifecycle_states: ["raw", "review_required", "verified"],
+      quality_tags: ["good", "blur"],
+    });
+  }),
+
+  http.get("*/v1/explorer/samples/:source/:id", ({ params }) => {
+    return HttpResponse.json({
+      source: String(params.source),
+      id: String(params.id),
+      dataset_id: "ds-1",
+      dataset_name: "data-bank",
+      task_key: "odometer",
+      filename: "1-887512.jpg",
+      ground_truth: "887512",
+      ground_truth_normalized: "887512",
+      corrected_gt: null,
+      final_gt: "887512",
+      predictions: [
+        {
+          kind: "upload",
+          value: "887511",
+          confidence: 0.92,
+          match: false,
+        },
+      ],
+      bbox: null,
+      lifecycle_state: "review_required",
+      quality_tag: "good",
+      annotation_purpose: "end_to_end",
+      review_status: "unreviewed",
+      review_notes: null,
+      image_url: "/v1/databank/datasets/ds-1/samples/sample-1/image",
+      provenance: { width: 100, height: 80 },
+    });
+  }),
+
+  http.patch(
+    "*/v1/databank/datasets/:datasetId/samples/:sampleId/lifecycle",
+    async ({ request }) => {
+      const body = (await request.json()) as { lifecycle_state: string };
+      return HttpResponse.json({
+        id: "sample-1",
+        dataset_id: "ds-1",
+        filename: "1-887512.jpg",
+        lifecycle_state: body.lifecycle_state,
+        review_status: "reviewed",
+      });
+    },
+  ),
+
+  http.patch(
+    "*/v1/databank/datasets/:datasetId/samples/:sampleId/quality-tag",
+    async ({ request }) => {
+      const body = (await request.json()) as { quality_tag: string };
+      return HttpResponse.json({
+        id: "sample-1",
+        dataset_id: "ds-1",
+        filename: "1-887512.jpg",
+        quality_tag: body.quality_tag,
+        review_status: "unreviewed",
+      });
+    },
+  ),
+
+  http.get("*/v1/settings", () => {
+    return HttpResponse.json({
+      inference: {
+        request_timeout_seconds: 30,
+        max_image_bytes: 10_000_000,
+      },
+      workers: {
+        training_worker_enabled: true,
+        evaluation_worker_enabled: true,
+        training_max_concurrency: 1,
+        evaluation_max_concurrency: 2,
+      },
+      training_gates: {
+        auto_promote: false,
+        auto_retrain_enabled: false,
+        min_exact_match: 0.95,
+        max_cer_regression: 0.02,
+      },
+      observability: {
+        metrics_enabled: true,
+      },
+      note: "Operator settings are env-driven; mutate via deployment config, not this API.",
+    });
+  }),
 ];

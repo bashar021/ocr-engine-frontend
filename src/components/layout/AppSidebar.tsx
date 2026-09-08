@@ -1,11 +1,15 @@
 import {
+  ApiOutlined,
   ClusterOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
+  ExperimentOutlined,
+  HistoryOutlined,
   LinkOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
+  RocketOutlined,
   ScanOutlined,
   SettingOutlined,
   ThunderboltOutlined,
@@ -15,107 +19,185 @@ import type { MenuProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+import { TaskSwitcher } from "@/features/tasks/TaskSwitcher";
+import { useTaskContext } from "@/features/tasks/TaskContext";
+
 const { Sider } = Layout;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
-const NAV_ITEMS: MenuItem[] = [
-  {
-    key: "/ocr",
-    icon: <ScanOutlined />,
-    label: <Link to="/ocr">OCR playground</Link>,
-  },
-  {
-    key: "models-group",
-    icon: <ClusterOutlined />,
-    label: "Models",
-    children: [
-      {
-        key: "/models/list",
-        icon: <OrderedListOutlined />,
-        label: <Link to="/models/list">Model list</Link>,
-      },
-      {
-        key: "/models/refs",
-        icon: <LinkOutlined />,
-        label: <Link to="/models/refs">Model refs</Link>,
-      },
-      {
-        key: "/models/recognition-configs",
-        icon: <SettingOutlined />,
-        label: (
-          <Link to="/models/recognition-configs">Recognition configs</Link>
-        ),
-      },
-    ],
-  },
-  {
-    key: "evaluation-group",
-    icon: <DatabaseOutlined />,
-    label: "Dataset",
-    children: [
-      {
-        key: "/evaluation/datasets",
-        icon: <OrderedListOutlined />,
-        label: <Link to="/evaluation/datasets">Datasets</Link>,
-      },
-      {
-        key: "/evaluation/dataset-list",
-        icon: <DatabaseOutlined />,
-        label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
-      },
-      {
-        key: "/evaluation/training-datasets",
-        icon: <ThunderboltOutlined />,
-        label: (
-          <Link to="/evaluation/training-datasets">Training datasets</Link>
-        ),
-      },
-      {
-        key: "/evaluation/runs",
-        icon: <PlayCircleOutlined />,
-        label: <Link to="/evaluation/runs">Evaluation runs</Link>,
-      },
-    ],
-  },
-  {
-    key: "training-group",
-    icon: <ThunderboltOutlined />,
-    label: "Training",
-    children: [
-      {
-        key: "/training-center",
-        icon: <DashboardOutlined />,
-        label: <Link to="/training-center">Training Center</Link>,
-      },
-      {
-        key: "/training",
-        icon: <DashboardOutlined />,
-        label: <Link to="/training">Legacy overview</Link>,
-      },
-      {
-        key: "/training/curate",
-        icon: <EditOutlined />,
-        label: <Link to="/training/curate">Curate failures</Link>,
-      },
-      {
-        key: "/training/runs",
-        icon: <PlayCircleOutlined />,
-        label: <Link to="/training/runs">Runs</Link>,
-      },
-    ],
-  },
-];
-
 export function AppSidebar() {
   const location = useLocation();
+  const { hasCapability, activeTask } = useTaskContext();
+
+  const navItems: MenuItem[] = useMemo(() => {
+    const items: MenuItem[] = [
+      {
+        key: "/overview",
+        icon: <DashboardOutlined />,
+        label: <Link to="/overview">Overview</Link>,
+      },
+    ];
+    if (hasCapability("supports_live_ocr") || hasCapability("api_serving")) {
+      items.push({
+        key: "/ocr",
+        icon: <ScanOutlined />,
+        label: <Link to="/ocr">Live OCR</Link>,
+      });
+    }
+    items.push(
+      {
+        key: "models-group",
+        icon: <ClusterOutlined />,
+        label: "Models",
+        children: [
+          {
+            key: "/models/list",
+            icon: <OrderedListOutlined />,
+            label: <Link to="/models/list">Model list</Link>,
+          },
+          {
+            key: "/models/refs",
+            icon: <LinkOutlined />,
+            label: <Link to="/models/refs">Model refs</Link>,
+          },
+          {
+            key: "/models/recognition-configs",
+            icon: <SettingOutlined />,
+            label: (
+              <Link to="/models/recognition-configs">Recognition configs</Link>
+            ),
+          },
+          {
+            key: "/releases",
+            icon: <RocketOutlined />,
+            label: <Link to="/releases">Releases</Link>,
+          },
+          {
+            key: "/deployments",
+            icon: <RocketOutlined />,
+            label: <Link to="/deployments">Deployments</Link>,
+          },
+        ],
+      },
+      {
+        key: "evaluation-group",
+        icon: <DatabaseOutlined />,
+        label: "Dataset",
+        children: [
+          {
+            key: "/evaluation/datasets",
+            icon: <OrderedListOutlined />,
+            label: <Link to="/evaluation/datasets">Datasets</Link>,
+          },
+          {
+            key: "/evaluation/dataset-list",
+            icon: <DatabaseOutlined />,
+            label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
+          },
+          {
+            key: "/evaluation/training-datasets",
+            icon: <ThunderboltOutlined />,
+            label: (
+              <Link to="/evaluation/training-datasets">Training datasets</Link>
+            ),
+          },
+          {
+            key: "/evaluation/runs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/evaluation/runs">Evaluation runs</Link>,
+          },
+          {
+            key: "/data-explorer",
+            icon: <ExperimentOutlined />,
+            label: <Link to="/data-explorer">Data explorer</Link>,
+          },
+        ],
+      },
+    );
+    if (
+      hasCapability("supports_annotation") ||
+      hasCapability("annotations")
+    ) {
+      const datasetGroup = items.find(
+        (item) => item && "key" in item && item.key === "evaluation-group",
+      );
+      if (
+        datasetGroup &&
+        "children" in datasetGroup &&
+        Array.isArray(datasetGroup.children)
+      ) {
+        datasetGroup.children.push({
+          key: "/annotation",
+          icon: <EditOutlined />,
+          label: <Link to="/annotation">Annotation review</Link>,
+        });
+      }
+    }
+    if (hasCapability("supports_training")) {
+      items.push({
+        key: "training-group",
+        icon: <ThunderboltOutlined />,
+        label: "Training",
+        children: [
+          {
+            key: "/training-center",
+            icon: <DashboardOutlined />,
+            label: <Link to="/training-center">Training Center</Link>,
+          },
+          {
+            key: "/training",
+            icon: <DashboardOutlined />,
+            label: <Link to="/training">Legacy overview</Link>,
+          },
+          {
+            key: "/training/curate",
+            icon: <EditOutlined />,
+            label: <Link to="/training/curate">Curate failures</Link>,
+          },
+          {
+            key: "/training/runs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/training/runs">Runs</Link>,
+          },
+        ],
+      });
+    }
+    items.push(
+      {
+        key: "/clients",
+        icon: <ApiOutlined />,
+        label: <Link to="/clients">API clients</Link>,
+      },
+      {
+        key: "/history",
+        icon: <HistoryOutlined />,
+        label: <Link to="/history">Audit / history</Link>,
+      },
+      {
+        key: "/settings",
+        icon: <SettingOutlined />,
+        label: <Link to="/settings">Settings</Link>,
+      },
+    );
+    return items;
+  }, [hasCapability, activeTask?.key]);
+
   const selectedKey = useMemo(() => {
     const path = location.pathname;
+    if (path.startsWith("/overview")) return "/overview";
+    if (path.startsWith("/releases")) return "/releases";
+    if (path.startsWith("/deployments")) return "/deployments";
+    if (path.startsWith("/clients")) return "/clients";
+    if (path.startsWith("/history")) return "/history";
     if (path.startsWith("/ocr")) return "/ocr";
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
     if (path.startsWith("/models")) return "/models/list";
+    if (path.startsWith("/data-explorer")) return "/data-explorer";
+    if (path.startsWith("/annotation")) return "/annotation";
+    if (path.startsWith("/settings")) return "/settings";
     if (path.startsWith("/evaluation/runs")) return "/evaluation/runs";
     if (path.startsWith("/evaluation/training-datasets"))
       return "/evaluation/training-datasets";
@@ -130,26 +212,23 @@ export function AppSidebar() {
     return path;
   }, [location.pathname]);
 
-  const [openKeys, setOpenKeys] = useState<string[]>(() => {
-    const keys: string[] = [];
-    if (location.pathname.startsWith("/models")) keys.push("models-group");
-    if (location.pathname.startsWith("/evaluation"))
-      keys.push("evaluation-group");
-    if (location.pathname.startsWith("/training")) keys.push("training-group");
-    if (location.pathname.startsWith("/training-center"))
-      keys.push("training-group");
-    return keys.length
-      ? keys
-      : ["models-group", "evaluation-group", "training-group"];
-  });
+  const [openKeys, setOpenKeys] = useState<string[]>(() => [
+    "models-group",
+    "evaluation-group",
+    "training-group",
+  ]);
 
   useEffect(() => {
-    if (location.pathname.startsWith("/models")) {
+    if (location.pathname.startsWith("/models") || location.pathname.startsWith("/releases") || location.pathname.startsWith("/deployments")) {
       setOpenKeys((keys) =>
         keys.includes("models-group") ? keys : [...keys, "models-group"],
       );
     }
-    if (location.pathname.startsWith("/evaluation")) {
+    if (
+      location.pathname.startsWith("/evaluation") ||
+      location.pathname.startsWith("/data-explorer") ||
+      location.pathname.startsWith("/annotation")
+    ) {
       setOpenKeys((keys) =>
         keys.includes("evaluation-group")
           ? keys
@@ -177,16 +256,17 @@ export function AppSidebar() {
       <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
         <ScanOutlined className="text-lg text-cyan-400" />
         <span className="truncate text-sm font-semibold tracking-wide text-white">
-          OCR Playground
+          OCR Platform
         </span>
       </div>
+      <TaskSwitcher />
       <Menu
         theme="dark"
         mode="inline"
         selectedKeys={[selectedKey]}
         openKeys={openKeys}
         onOpenChange={setOpenKeys}
-        items={NAV_ITEMS}
+        items={navItems}
         className="!border-none !bg-transparent pt-2"
       />
     </Sider>

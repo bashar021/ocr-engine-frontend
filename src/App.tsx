@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { BrowserRouter } from 'react-router-dom'
 
+import { TaskProvider } from '@/features/tasks/TaskContext'
 import { AppRoutes } from '@/routes'
 
 const queryClient = new QueryClient({
@@ -29,7 +30,9 @@ export default function App() {
       >
         <AntdApp>
           <BrowserRouter>
-            <AppRoutes />
+            <TaskProvider>
+              <AppRoutes />
+            </TaskProvider>
           </BrowserRouter>
         </AntdApp>
       </ConfigProvider>
