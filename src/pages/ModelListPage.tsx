@@ -93,22 +93,7 @@ export function ModelListPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        breadcrumbs={[
-          { title: "Dashboard", path: "/" },
-          { title: "Models", path: "/models/list" },
-          { title: "Model list" },
-        ]}
-        actions={
-          <Button
-            type="primary"
-            icon={<CloudUploadOutlined />}
-            onClick={() => setUploadOpen(true)}
-          >
-            Upload model
-          </Button>
-        }
-      />
+      <PageHeader title="Model list" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
         <ModelFilters
           tab="models"
@@ -120,32 +105,41 @@ export function ModelListPage() {
             setPage(1);
           }}
           total={query.data?.total}
+          extraFilters={
+            <Select
+              value={activationFilter}
+              onChange={(v: ActivationFilter) => {
+                setActivationFilter(v);
+                setPage(1);
+              }}
+              className="w-40"
+              options={[
+                { value: "activated", label: "Activated" },
+                { value: "deactivated", label: "Deactivated" },
+              ]}
+            />
+          }
+          rightActions={
+            <Button
+              type="primary"
+              icon={<CloudUploadOutlined />}
+              onClick={() => setUploadOpen(true)}
+            >
+              Upload model
+            </Button>
+          }
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <Tabs
-            activeKey={roleTab}
-            onChange={(key) => {
-              setRoleTab(key as RoleTab);
-              setPage(1);
-            }}
-            items={[
-              { key: "detection", label: "Detection" },
-              { key: "recognition", label: "Recognition" },
-            ]}
-          />
-          <Select
-            value={activationFilter}
-            onChange={(v: ActivationFilter) => {
-              setActivationFilter(v);
-              setPage(1);
-            }}
-            className="w-40"
-            options={[
-              { value: "activated", label: "Activated" },
-              { value: "deactivated", label: "Deactivated" },
-            ]}
-          />
-        </div>
+        <Tabs
+          activeKey={roleTab}
+          onChange={(key) => {
+            setRoleTab(key as RoleTab);
+            setPage(1);
+          }}
+          items={[
+            { key: "detection", label: "Detection" },
+            { key: "recognition", label: "Recognition" },
+          ]}
+        />
         {query.isError ? (
           <Alert
             type="error"

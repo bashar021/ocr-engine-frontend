@@ -2,9 +2,9 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "@/components/layout/AppLayout";
 import { TrainingCenterLayout } from "@/components/training/TrainingCenterLayout";
-import { AnnotationReviewPage } from "@/pages/AnnotationReviewPage";
-import { DataExplorerPage } from "@/pages/DataExplorerPage";
 import { DatabankListPage } from "@/pages/DatabankListPage";
+import { EvaluatedHardDatasetPage } from "@/pages/EvaluatedHardDatasetPage";
+import { EvaluationComparisonPage } from "@/pages/EvaluationComparisonPage";
 import { EvaluationDatasetsPage } from "@/pages/EvaluationDatasetsPage";
 import { EvaluationRunsPage } from "@/pages/EvaluationRunsPage";
 import { ImportExportPage } from "@/pages/ImportExportPage";
@@ -64,13 +64,27 @@ export function AppRoutes() {
         />
         <Route path="/evaluation/datasets" element={<EvaluationDatasetsPage />} />
         <Route path="/evaluation/dataset-list" element={<DatabankListPage />} />
-        <Route path="/data-explorer" element={<DataExplorerPage />} />
-        <Route path="/annotation" element={<AnnotationReviewPage />} />
+        <Route
+          path="/data-explorer"
+          element={<Navigate to="/evaluation/datasets" replace />}
+        />
+        <Route
+          path="/annotation"
+          element={<Navigate to="/evaluation/datasets" replace />}
+        />
         <Route
           path="/evaluation/training-datasets"
           element={<TrainingDatasetsPage />}
         />
         <Route path="/evaluation/runs" element={<EvaluationRunsPage />} />
+        <Route
+          path="/evaluation/comparison"
+          element={<EvaluationComparisonPage />}
+        />
+        <Route
+          path="/evaluation/hard-cases"
+          element={<EvaluatedHardDatasetPage />}
+        />
         <Route path="/training-center" element={<TrainingCenterLayout />}>
           <Route index element={<TrainingCenterOverviewPage />} />
           <Route path="detection" element={<TrainingCenterDetectionPage />} />

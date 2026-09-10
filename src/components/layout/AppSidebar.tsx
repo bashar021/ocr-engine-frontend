@@ -96,16 +96,6 @@ export function AppSidebar() {
             label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
           },
           {
-            key: "/data-explorer",
-            icon: <ExperimentOutlined />,
-            label: <Link to="/data-explorer">Data explorer</Link>,
-          },
-          {
-            key: "/annotation",
-            icon: <EditOutlined />,
-            label: <Link to="/annotation">Annotation review</Link>,
-          },
-          {
             key: "/evaluation/training-datasets",
             icon: <ThunderboltOutlined />,
             label: (
@@ -113,9 +103,30 @@ export function AppSidebar() {
             ),
           },
           {
+            key: "/evaluation/hard-cases",
+            icon: <ExperimentOutlined />,
+            label: (
+              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
+            ),
+          },
+        ],
+      },
+      {
+        key: "eval-runs-group",
+        icon: <PlayCircleOutlined />,
+        label: "Evaluation",
+        children: [
+          {
             key: "/evaluation/runs",
             icon: <PlayCircleOutlined />,
             label: <Link to="/evaluation/runs">Evaluation runs</Link>,
+          },
+          {
+            key: "/evaluation/comparison",
+            icon: <ExperimentOutlined />,
+            label: (
+              <Link to="/evaluation/comparison">Evaluation comparison</Link>
+            ),
           },
         ],
       },
@@ -125,11 +136,6 @@ export function AppSidebar() {
         label: "Training",
         children: [
           {
-            key: "/training-center",
-            icon: <DashboardOutlined />,
-            label: <Link to="/training-center">Training Center</Link>,
-          },
-          {
             key: "/training/runs",
             icon: <PlayCircleOutlined />,
             label: <Link to="/training/runs">Runs</Link>,
@@ -138,11 +144,6 @@ export function AppSidebar() {
             key: "/training/curate",
             icon: <EditOutlined />,
             label: <Link to="/training/curate">Curate failures</Link>,
-          },
-          {
-            key: "/training",
-            icon: <DashboardOutlined />,
-            label: <Link to="/training">Legacy overview</Link>,
           },
         ],
       },
@@ -189,25 +190,28 @@ export function AppSidebar() {
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
     if (path.startsWith("/models")) return "/models/list";
-    if (path.startsWith("/data-explorer")) return "/data-explorer";
-    if (path.startsWith("/annotation")) return "/annotation";
     if (path.startsWith("/settings")) return "/settings";
+    if (path.startsWith("/evaluation/comparison"))
+      return "/evaluation/comparison";
     if (path.startsWith("/evaluation/runs")) return "/evaluation/runs";
+    if (path.startsWith("/evaluation/hard-cases"))
+      return "/evaluation/hard-cases";
     if (path.startsWith("/evaluation/training-datasets"))
       return "/evaluation/training-datasets";
     if (path.startsWith("/evaluation/dataset-list"))
       return "/evaluation/dataset-list";
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
-    if (path.startsWith("/training-center")) return "/training-center";
+    if (path.startsWith("/training-center")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
     if (path.startsWith("/training/curate")) return "/training/curate";
-    if (path.startsWith("/training")) return "/training";
+    if (path.startsWith("/training")) return "/training/runs";
     return path;
   }, [location.pathname]);
 
   const [openKeys, setOpenKeys] = useState<string[]>(() => [
     "models-group",
     "evaluation-group",
+    "eval-runs-group",
     "training-group",
   ]);
 
@@ -222,14 +226,25 @@ export function AppSidebar() {
       );
     }
     if (
-      location.pathname.startsWith("/evaluation") ||
-      location.pathname.startsWith("/data-explorer") ||
-      location.pathname.startsWith("/annotation")
+      location.pathname.startsWith("/evaluation/datasets") ||
+      location.pathname.startsWith("/evaluation/dataset-list") ||
+      location.pathname.startsWith("/evaluation/training-datasets") ||
+      location.pathname.startsWith("/evaluation/hard-cases")
     ) {
       setOpenKeys((keys) =>
         keys.includes("evaluation-group")
           ? keys
           : [...keys, "evaluation-group"],
+      );
+    }
+    if (
+      location.pathname.startsWith("/evaluation/runs") ||
+      location.pathname.startsWith("/evaluation/comparison")
+    ) {
+      setOpenKeys((keys) =>
+        keys.includes("eval-runs-group")
+          ? keys
+          : [...keys, "eval-runs-group"],
       );
     }
     if (
@@ -250,18 +265,9 @@ export function AppSidebar() {
       className="!h-full !overflow-y-auto !bg-slate-950"
       theme="dark"
     >
-      <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
-        <ScanOutlined className="text-lg text-cyan-400" />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold tracking-wide text-white">
-            OCR Platform
-          </div>
-          <div className="truncate text-[11px] text-slate-400">
-            {activeTask?.display_name ?? "Select task"}
-          </div>
-        </div>
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950 px-4 py-3">
+        <TaskSwitcher variant="title" />
       </div>
-      <TaskSwitcher />
       <Menu
         theme="dark"
         mode="inline"

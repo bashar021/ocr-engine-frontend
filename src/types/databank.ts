@@ -8,6 +8,13 @@ export interface DatabankMetrics {
   computed_at?: string;
 }
 
+export interface DatabankTabMetricsEntry {
+  upload?: DatabankMetrics | null;
+  rerun?: DatabankMetrics | null;
+  latest?: DatabankMetrics | null;
+  latest_source?: "upload" | "rerun" | string | null;
+}
+
 export interface DatabankUploadProgress {
   id?: string;
   status: "running" | "completed" | "failed" | string;
@@ -42,6 +49,7 @@ export interface DatabankDataset {
   recognition_artifact_id?: string | null;
   upload_metrics?: DatabankMetrics | null;
   rerun_metrics?: DatabankMetrics | null;
+  tab_metrics?: Record<string, DatabankTabMetricsEntry>;
   last_predict_at?: string | null;
   last_rerun_at?: string | null;
   error_message?: string | null;

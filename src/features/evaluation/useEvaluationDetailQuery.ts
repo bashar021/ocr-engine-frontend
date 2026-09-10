@@ -7,10 +7,11 @@ import {
   listEvaluationResults,
 } from '@/api/evaluation'
 import { EVALUATION_POLL_INTERVAL_MS } from '@/constants/polling'
+import type { ListSamplesParams } from '@/types/evaluation'
 
 export function useDatasetSamplesQuery(
   datasetId: string | null,
-  params: { limit: number; offset: number },
+  params: ListSamplesParams,
 ) {
   return useQuery({
     queryKey: ['evaluation', 'samples', datasetId, params],

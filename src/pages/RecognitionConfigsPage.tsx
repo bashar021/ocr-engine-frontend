@@ -881,18 +881,6 @@ export function RecognitionConfigsPage() {
         }
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
-        <Alert
-          type="info"
-          showIcon
-          message="Immutable Paddle recognition configs"
-          description={
-            <>
-              Draft a config, try it on existing detections (no re-detect), then
-              save a SemVer when it looks good. Official metrics still come from{" "}
-              <Link to="/evaluation/runs">Evaluation runs</Link>.
-            </>
-          }
-        />
         {savedArtifact ? (
           <Alert
             type="success"

@@ -66,6 +66,16 @@ export interface EvaluationDataset {
   hard_delete_blocked_reason?: string | null;
 }
 
+export interface SampleEvalMetric {
+  model_ref: string;
+  predicted?: string | null;
+  is_correct?: boolean | null;
+  confidence?: number | null;
+  failure_type?: string | null;
+  detection_success?: boolean | null;
+  recognition_success?: boolean | null;
+}
+
 export interface DatasetSample {
   id: string;
   dataset_id: string;
@@ -79,8 +89,20 @@ export interface DatasetSample {
   height: number | null;
   status: string;
   split?: string | null;
+  databank_category?: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string | null;
+  latest_eval_metrics?: SampleEvalMetric[];
+}
+
+export interface ListSamplesParams {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  status?: string;
+  split?: string;
+  has_gt?: boolean;
+  include_eval_metrics?: boolean;
 }
 
 export interface EvaluationRun {
@@ -194,6 +216,12 @@ export interface ListSamplesResponse {
   total: number;
   limit: number;
   offset: number;
+  model_refs?: string[];
+  dataset?: {
+    id: string;
+    name: string;
+    ocr_type: string;
+  };
 }
 
 export interface ListEvaluationsParams {
@@ -244,4 +272,67 @@ export interface StartEvaluationPayload {
   detection_artifact_id?: string;
   recognition_artifact_id?: string;
   evaluation_type?: EvaluationType | string;
+  force?: boolean;
+  reevaluate?: boolean;
+}
+
+export interface HardFailuresParams {
+  dataset_id: string;
+  evaluation_id?: string;
+  model_ref?: string;
+  failure_type?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface HardFailuresResponse {
+  dataset_id: string;
+  evaluation_id: string;
+  model_ref: string | null;
+  results: EvaluationResult[];
+  total: number;
+  limit: number;
+  offset: number;
+  failure_type_counts: Record<string, number>;
+}
+
+export interface EvaluationComparisonResponse {
+  benchmark_compatible: boolean;
+  warning: string | null;
+  left: EvaluationRun;
+  right: EvaluationRun;
+  champion: string;
+  candidate: string;
+  matrix: {
+    CC: number;
+    CW: number;
+    WC: number;
+    WW: number;
+    definitions: Record<string, string>;
+  };
+  aggregates: {
+    left_end_to_end_accuracy: number | null;
+    right_end_to_end_accuracy: number | null;
+    improved: number;
+    regressed: number;
+    unchanged: number;
+    still_failing: number;
+    left_failure_type_counts: Record<string, number>;
+    right_failure_type_counts: Record<string, number>;
+  };
+  samples: Array<{
+    dataset_sample_id: string;
+    status: string;
+    matrix: string;
+    left_correct: boolean;
+    right_correct: boolean;
+    left_failure_type: string | null;
+    right_failure_type: string | null;
+    left_predicted: string | null;
+    right_predicted: string | null;
+    ground_truth: string | null;
+  }>;
+  promotion?: Record<string, unknown>;
+  comparison_id?: string;
 }

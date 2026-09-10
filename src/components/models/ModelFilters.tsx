@@ -1,4 +1,5 @@
 import { Select } from "antd";
+import type { ReactNode } from "react";
 
 import { SearchInput } from "@/components/common/SearchInput";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
@@ -22,6 +23,10 @@ interface ModelFiltersProps {
   total?: number;
   hideOcrType?: boolean;
   hideRole?: boolean;
+  /** Extra controls in the left filter row (e.g. activated/deactivated). */
+  extraFilters?: ReactNode;
+  /** Actions on the right of the toolbar (e.g. Upload / Create). */
+  rightActions?: ReactNode;
 }
 
 const ROLES = [
@@ -58,6 +63,8 @@ export function ModelFilters({
   total,
   hideOcrType,
   hideRole,
+  extraFilters,
+  rightActions,
 }: ModelFiltersProps) {
   const { tasks } = useTaskContext();
   const ocrTypeOptions = taskSelectOptions(tasks);
@@ -132,12 +139,16 @@ export function ModelFilters({
               onChange={(status) => onChange({ ...value, status })}
             />
           )}
+          {extraFilters}
         </>
       }
       right={
-        typeof total === "number" ? (
-          <span className="text-sm text-slate-500">{countLabel}</span>
-        ) : null
+        <>
+          {typeof total === "number" ? (
+            <span className="text-sm text-slate-500">{countLabel}</span>
+          ) : null}
+          {rightActions}
+        </>
       }
     />
   );

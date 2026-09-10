@@ -4,14 +4,19 @@ import {
   archiveDataset,
   cancelEvaluation,
   createDataset,
+  deleteAllEvaluations,
+  deleteEvaluation,
   hardDeleteDataset,
   mergeTrainingDatasets,
+  moveSampleToDatabankCategory,
+  reEvaluate,
   setDatasetEvaluationEligibility,
   startEvaluation,
   uploadDatasetZip,
 } from "@/api/evaluation";
 import type {
   CreateDatasetPayload,
+  EvaluationRun,
   StartEvaluationPayload,
 } from "@/types/evaluation";
 
@@ -55,6 +60,59 @@ export function useCancelEvaluation() {
     mutationFn: (id: string) => cancelEvaluation(id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["evaluation", "runs"] });
+    },
+  });
+}
+
+export function useDeleteEvaluation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteEvaluation(id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["evaluation", "runs"] });
+    },
+  });
+}
+
+export function useDeleteAllEvaluations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ocr_type?: string) => deleteAllEvaluations(ocr_type),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["evaluation", "runs"] });
+    },
+  });
+}
+
+export function useReEvaluate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (run: EvaluationRun) => reEvaluate(run),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["evaluation", "runs"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["evaluation", "datasets"],
+      });
+    },
+  });
+}
+
+export function useMoveSampleToDatabankCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      sampleId,
+      category,
+    }: {
+      datasetId: string;
+      sampleId: string;
+      category: string;
+    }) => moveSampleToDatabankCategory(datasetId, sampleId, category),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["evaluation", "samples", variables.datasetId],
+      });
     },
   });
 }

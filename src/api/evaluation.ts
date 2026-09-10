@@ -11,9 +11,13 @@ import type {
   ListEvaluationsParams,
   ListEvaluationsResponse,
   ListResultsResponse,
+  ListSamplesParams,
   ListSamplesResponse,
   StartEvaluationPayload,
   EvaluationResult,
+  HardFailuresParams,
+  HardFailuresResponse,
+  EvaluationComparisonResponse,
 } from "@/types/evaluation";
 
 export async function listDatasets(
@@ -58,11 +62,28 @@ export async function uploadDatasetZip(
 
 export async function listDatasetSamples(
   datasetId: string,
-  params: { limit?: number; offset?: number } = {},
+  params: ListSamplesParams = {},
 ): Promise<ListSamplesResponse> {
   const { data } = await apiClient.get<ListSamplesResponse>(
     `/v1/evaluation/datasets/${datasetId}/samples`,
-    { params },
+    {
+      params: {
+        ...params,
+        include_eval_metrics: params.include_eval_metrics ?? true,
+      },
+    },
+  );
+  return data;
+}
+
+export async function moveSampleToDatabankCategory(
+  datasetId: string,
+  sampleId: string,
+  category: string,
+): Promise<{ moved: boolean; category: string }> {
+  const { data } = await apiClient.post(
+    `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}/move-to-databank-category`,
+    { category },
   );
   return data;
 }
@@ -156,6 +177,42 @@ export async function startEvaluation(
 export async function cancelEvaluation(id: string): Promise<EvaluationRun> {
   const { data } = await apiClient.post<EvaluationRun>(
     `/v1/evaluations/${id}/cancel`,
+  );
+  return data;
+}
+
+export async function deleteEvaluation(id: string): Promise<void> {
+  await apiClient.delete(`/v1/evaluations/${id}`);
+}
+
+export async function deleteAllEvaluations(
+  ocr_type?: string,
+): Promise<{ deleted: number }> {
+  const { data } = await apiClient.delete<{ deleted: number }>(
+    "/v1/evaluations",
+    { params: ocr_type ? { ocr_type } : undefined },
+  );
+  return data;
+}
+
+export async function reEvaluate(run: EvaluationRun): Promise<EvaluationRun> {
+  return startEvaluation({
+    dataset_id: run.dataset_id,
+    ocr_type: run.ocr_type,
+    model_ref: run.model_ref ?? undefined,
+    detection_artifact_id: run.detection_artifact_id,
+    recognition_artifact_id: run.recognition_artifact_id,
+    evaluation_type: run.evaluation_type,
+    force: true,
+  });
+}
+
+export async function listEvaluationHardFailures(
+  params: HardFailuresParams,
+): Promise<HardFailuresResponse> {
+  const { data } = await apiClient.get<HardFailuresResponse>(
+    "/v1/evaluations/hard-failures",
+    { params },
   );
   return data;
 }
@@ -371,9 +428,15 @@ export async function listAllEvaluationResults(
   return all;
 }
 
-export async function compareEvaluations(left: string, right: string) {
-  const { data } = await apiClient.get("/v1/evaluations/compare", {
-    params: { left, right },
-  });
+export async function compareEvaluations(
+  left: string,
+  right: string,
+): Promise<EvaluationComparisonResponse> {
+  const { data } = await apiClient.get<EvaluationComparisonResponse>(
+    "/v1/evaluations/compare",
+    {
+      params: { left, right },
+    },
+  );
   return data;
 }

@@ -1,4 +1,4 @@
-import { Button, Progress, Space, Table } from "antd";
+import { Button, Popconfirm, Progress, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 
@@ -15,6 +15,10 @@ interface EvaluationsTableProps {
   onPageChange: (page: number, pageSize: number) => void;
   onViewResults: (run: EvaluationRun) => void;
   onCancel: (run: EvaluationRun) => void;
+  onDelete?: (run: EvaluationRun) => void;
+  onReEvaluate?: (run: EvaluationRun) => void;
+  deleteLoadingId?: string | null;
+  reEvaluateLoadingId?: string | null;
 }
 
 function metric(row: EvaluationRun, name: string): number | null {
@@ -31,6 +35,10 @@ export function EvaluationsTable({
   onPageChange,
   onViewResults,
   onCancel,
+  onDelete,
+  onReEvaluate,
+  deleteLoadingId,
+  reEvaluateLoadingId,
 }: EvaluationsTableProps) {
   const columns: ColumnsType<EvaluationRun> = [
     {
@@ -173,22 +181,57 @@ export function EvaluationsTable({
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 180,
-      render: (_, row) => (
-        <Space size="small">
-          <Button size="small" onClick={() => onViewResults(row)}>
-            Results
-          </Button>
-          <Button
-            size="small"
-            danger
-            disabled={row.status !== "queued" && row.status !== "running"}
-            onClick={() => onCancel(row)}
-          >
-            Cancel
-          </Button>
-        </Space>
-      ),
+      width: 320,
+      render: (_, row) => {
+        const canCancel =
+          row.status === "queued" || row.status === "running";
+        const canDelete =
+          row.status === "completed" ||
+          row.status === "failed" ||
+          row.status === "cancelled";
+        const canReEvaluate =
+          row.status === "completed" || row.status === "failed";
+        const deleteBusy = deleteLoadingId === row.id;
+        const reEvaluateBusy = reEvaluateLoadingId === row.id;
+
+        return (
+          <Space size="small" wrap>
+            <Button size="small" onClick={() => onViewResults(row)}>
+              Results
+            </Button>
+            {canCancel ? (
+              <Button size="small" danger onClick={() => onCancel(row)}>
+                Cancel
+              </Button>
+            ) : null}
+            {canReEvaluate && onReEvaluate ? (
+              <Popconfirm
+                title="Re-evaluate?"
+                description="Deletes the existing run for this dataset/pipeline and queues a new evaluation."
+                okText="Re-evaluate"
+                onConfirm={() => onReEvaluate(row)}
+              >
+                <Button size="small" loading={reEvaluateBusy}>
+                  Re-evaluate
+                </Button>
+              </Popconfirm>
+            ) : null}
+            {canDelete && onDelete ? (
+              <Popconfirm
+                title="Delete evaluation run?"
+                description="Permanently removes this run, its results, and metrics."
+                okText="Delete"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => onDelete(row)}
+              >
+                <Button size="small" danger loading={deleteBusy}>
+                  Delete
+                </Button>
+              </Popconfirm>
+            ) : null}
+          </Space>
+        );
+      },
     },
   ];
 

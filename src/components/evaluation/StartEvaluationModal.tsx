@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { Form, Modal, Select, message } from 'antd'
 import { useMemo } from 'react'
 
@@ -40,21 +41,54 @@ export function StartEvaluationModal({
     [refsQuery.data?.refs],
   )
 
+  const queueEvaluation = async (force = false) => {
+    if (!dataset) return
+    const values = await form.validateFields()
+    await start.mutateAsync({
+      dataset_id: dataset.id,
+      ocr_type: dataset.ocr_type,
+      model_ref: values.model_ref,
+      evaluation_type: values.evaluation_type,
+      force,
+    })
+    message.success(force ? 'Re-evaluation queued' : 'Evaluation queued')
+    form.resetFields()
+    onClose()
+  }
+
   const handleOk = async () => {
     if (!dataset) return
     try {
-      const values = await form.validateFields()
-      await start.mutateAsync({
-        dataset_id: dataset.id,
-        ocr_type: dataset.ocr_type,
-        model_ref: values.model_ref,
-        evaluation_type: values.evaluation_type,
-      })
-      message.success('Evaluation queued')
-      form.resetFields()
-      onClose()
+      await queueEvaluation(false)
     } catch (error) {
       if (error && typeof error === 'object' && 'errorFields' in error) return
+      const errorCode =
+        axios.isAxiosError(error) &&
+        (error.response?.data as { error_code?: string } | undefined)
+          ?.error_code
+      if (errorCode === 'EVALUATION_ALREADY_EXISTS') {
+        Modal.confirm({
+          title: 'Evaluation already exists',
+          content:
+            'An evaluation already exists for this dataset and pipeline. Re-evaluate by deleting the prior run and queueing a new one?',
+          okText: 'Re-evaluate',
+          onOk: async () => {
+            try {
+              await queueEvaluation(true)
+            } catch (retryError) {
+              if (
+                retryError &&
+                typeof retryError === 'object' &&
+                'errorFields' in retryError
+              ) {
+                return
+              }
+              message.error(getApiErrorMessage(retryError))
+            }
+          },
+        })
+        return
+      }
       message.error(getApiErrorMessage(error))
     }
   }

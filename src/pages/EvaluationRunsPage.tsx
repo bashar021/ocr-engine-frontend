@@ -1,4 +1,4 @@
-import { Alert, Button, Select, message } from "antd";
+import { Alert, App, Button, Popconfirm, Select } from "antd";
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -7,7 +7,12 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { EvaluationResultsDrawer } from "@/components/evaluation/EvaluationResultsDrawer";
 import { EvaluationsTable } from "@/components/evaluation/EvaluationsTable";
 import { EVALUATION_POLL_INTERVAL_MS } from "@/constants/polling";
-import { useCancelEvaluation } from "@/features/evaluation/useEvaluationMutations";
+import {
+  useCancelEvaluation,
+  useDeleteAllEvaluations,
+  useDeleteEvaluation,
+  useReEvaluate,
+} from "@/features/evaluation/useEvaluationMutations";
 import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
 import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
 import { useTaskContext } from "@/features/tasks/TaskContext";
@@ -22,6 +27,7 @@ const RUN_STATUSES = [
 ];
 
 export function EvaluationRunsPage() {
+  const { message } = App.useApp();
   const { activeTaskKey } = useTaskContext();
   const [modelRef, setModelRef] = useState<string | undefined>();
   const [datasetId, setDatasetId] = useState<string | undefined>();
@@ -30,6 +36,13 @@ export function EvaluationRunsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [resultsRunId, setResultsRunId] = useState<string | null>(null);
   const cancelMutation = useCancelEvaluation();
+  const deleteMutation = useDeleteEvaluation();
+  const deleteAllMutation = useDeleteAllEvaluations();
+  const reEvaluateMutation = useReEvaluate();
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+  const [reEvaluateLoadingId, setReEvaluateLoadingId] = useState<string | null>(
+    null,
+  );
 
   const datasetsQuery = useDatasetsQuery({
     scope: "evaluation",
@@ -79,14 +92,56 @@ export function EvaluationRunsPage() {
     }
   };
 
+  const handleDelete = async (run: EvaluationRun) => {
+    setDeleteLoadingId(run.id);
+    try {
+      await deleteMutation.mutateAsync(run.id);
+      message.success("Evaluation deleted");
+    } catch (error) {
+      message.error(getApiErrorMessage(error));
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  };
+
+  const handleReEvaluate = async (run: EvaluationRun) => {
+    setReEvaluateLoadingId(run.id);
+    try {
+      await reEvaluateMutation.mutateAsync(run);
+      message.success("Re-evaluation queued");
+    } catch (error) {
+      message.error(getApiErrorMessage(error));
+    } finally {
+      setReEvaluateLoadingId(null);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    try {
+      const result = await deleteAllMutation.mutateAsync(activeTaskKey);
+      message.success(`Deleted ${result.deleted} evaluation(s)`);
+    } catch (error) {
+      message.error(getApiErrorMessage(error));
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
-        breadcrumbs={[
-          { title: "Dashboard", path: "/" },
-          { title: "Dataset", path: "/evaluation/datasets" },
-          { title: "Evaluation runs" },
-        ]}
+        title="Evaluation runs"
+        actions={
+          <Popconfirm
+            title="Delete all evaluations?"
+            description="Cancels active runs and permanently removes all evaluation history for this task."
+            okText="Delete all"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => void handleDeleteAll()}
+          >
+            <Button danger loading={deleteAllMutation.isPending}>
+              Delete all evaluations
+            </Button>
+          </Popconfirm>
+        }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
         <DataTableToolbar
@@ -169,6 +224,10 @@ export function EvaluationRunsPage() {
             }}
             onViewResults={(run) => setResultsRunId(run.id)}
             onCancel={(run) => void handleCancel(run)}
+            onDelete={(run) => void handleDelete(run)}
+            onReEvaluate={(run) => void handleReEvaluate(run)}
+            deleteLoadingId={deleteLoadingId}
+            reEvaluateLoadingId={reEvaluateLoadingId}
           />
         </div>
       </div>

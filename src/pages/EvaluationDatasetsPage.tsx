@@ -30,14 +30,41 @@ const DATASET_STATUSES = [
   { value: "archived", label: "Archived" },
 ];
 
+const DATASET_ORIGINS = [
+  { value: "upload", label: "Uploaded" },
+  { value: "curated_hard_case", label: "System curated" },
+  { value: "merged_training", label: "Merged training" },
+  { value: "system", label: "System" },
+  { value: "databank_reviewed", label: "Databank reviewed" },
+  { value: "databank_blurry", label: "Databank blurry" },
+  { value: "databank_dead", label: "Databank dead" },
+];
+
+const SOURCE_TYPES = [
+  { value: "zip_upload", label: "ZIP upload" },
+  { value: "system", label: "System" },
+];
+
+function datasetOrigin(dataset: EvaluationDataset): string {
+  return (
+    dataset.origin ||
+    (typeof dataset.metadata?.origin === "string"
+      ? dataset.metadata.origin
+      : "upload")
+  );
+}
+
 export function EvaluationDatasetsPage() {
   const { activeTaskKey } = useTaskContext();
   const { modal, message } = App.useApp();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string | undefined>();
+  const [origin, setOrigin] = useState<string | undefined>();
+  const [sourceType, setSourceType] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const debouncedSearch = useDebounce(search, 300);
+  const hasClientFilters = Boolean(origin || sourceType);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [samplesDataset, setSamplesDataset] =
@@ -55,13 +82,34 @@ export function EvaluationDatasetsPage() {
       ocr_type: activeTaskKey,
       status,
       include_archived: status === "archived",
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
+      limit: hasClientFilters ? 500 : pageSize,
+      offset: hasClientFilters ? 0 : (page - 1) * pageSize,
     }),
-    [debouncedSearch, activeTaskKey, status, page, pageSize],
+    [debouncedSearch, activeTaskKey, status, page, pageSize, hasClientFilters],
   );
 
   const query = useDatasetsQuery(params);
+
+  const filteredDatasets = useMemo(() => {
+    let rows = query.data?.datasets ?? [];
+    if (origin) {
+      rows = rows.filter((d) => datasetOrigin(d) === origin);
+    }
+    if (sourceType) {
+      rows = rows.filter((d) => d.source_type === sourceType);
+    }
+    return rows;
+  }, [query.data?.datasets, origin, sourceType]);
+
+  const pagedDatasets = useMemo(() => {
+    if (!hasClientFilters) return filteredDatasets;
+    const start = (page - 1) * pageSize;
+    return filteredDatasets.slice(start, start + pageSize);
+  }, [filteredDatasets, hasClientFilters, page, pageSize]);
+
+  const displayTotal = hasClientFilters
+    ? filteredDatasets.length
+    : (query.data?.total ?? 0);
 
   const deletePending =
     archiveMutation.isPending || hardDeleteMutation.isPending;
@@ -176,6 +224,28 @@ export function EvaluationDatasetsPage() {
                   setPage(1);
                 }}
               />
+              <Select
+                allowClear
+                placeholder="Origin"
+                className="w-44"
+                options={DATASET_ORIGINS}
+                value={origin}
+                onChange={(v) => {
+                  setOrigin(v);
+                  setPage(1);
+                }}
+              />
+              <Select
+                allowClear
+                placeholder="Source type"
+                className="w-36"
+                options={SOURCE_TYPES}
+                value={sourceType}
+                onChange={(v) => {
+                  setSourceType(v);
+                  setPage(1);
+                }}
+              />
               <span className="text-xs text-slate-400">
                 Polling every {EVALUATION_POLL_INTERVAL_MS / 1000}s while active
               </span>
@@ -197,10 +267,10 @@ export function EvaluationDatasetsPage() {
         ) : null}
         <div className="min-h-0 flex-1 overflow-auto">
           <DatasetsTable
-            data={query.data?.datasets ?? []}
+            data={pagedDatasets}
             loading={query.isLoading || query.isFetching}
             deletePending={deletePending}
-            total={query.data?.total ?? 0}
+            total={displayTotal}
             page={page}
             pageSize={pageSize}
             onPageChange={(p, s) => {

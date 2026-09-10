@@ -2,6 +2,89 @@ import { useEffect, useRef } from "react";
 
 import type { OcrBoundingBox } from "@/types/ocr";
 
+export type ImageEnhancePreset =
+  | "identity"
+  | "invert"
+  | "grayscale"
+  | "clarity"
+  | "contrast_stretch"
+  | "denoise"
+  | "custom";
+
+export interface ImageEnhanceState {
+  brightness: number;
+  contrast: number;
+  zoom: number;
+  sharpen: number;
+  invert: boolean;
+  grayscale: boolean;
+  saturate: number;
+  blur: number;
+}
+
+export const DEFAULT_ENHANCE: ImageEnhanceState = {
+  brightness: 1,
+  contrast: 1.15,
+  zoom: 1,
+  sharpen: 0.2,
+  invert: false,
+  grayscale: false,
+  saturate: 1,
+  blur: 0,
+};
+
+export function enhanceFromPreset(preset: ImageEnhancePreset): ImageEnhanceState {
+  switch (preset) {
+    case "identity":
+      return {
+        brightness: 1,
+        contrast: 1,
+        zoom: 1,
+        sharpen: 0,
+        invert: false,
+        grayscale: false,
+        saturate: 1,
+        blur: 0,
+      };
+    case "invert":
+      return { ...DEFAULT_ENHANCE, invert: true, contrast: 1.3, sharpen: 0.35 };
+    case "grayscale":
+      return {
+        ...DEFAULT_ENHANCE,
+        grayscale: true,
+        contrast: 1.4,
+        saturate: 0,
+        sharpen: 0.4,
+      };
+    case "clarity":
+      return {
+        ...DEFAULT_ENHANCE,
+        brightness: 1.1,
+        contrast: 1.55,
+        sharpen: 0.7,
+        saturate: 1.15,
+      };
+    case "contrast_stretch":
+      return {
+        ...DEFAULT_ENHANCE,
+        brightness: 1.05,
+        contrast: 2.1,
+        sharpen: 0.25,
+        saturate: 1.05,
+      };
+    case "denoise":
+      return {
+        ...DEFAULT_ENHANCE,
+        blur: 0.6,
+        contrast: 1.25,
+        sharpen: 0.15,
+        brightness: 1.05,
+      };
+    default:
+      return { ...DEFAULT_ENHANCE };
+  }
+}
+
 interface OcrImageViewerProps {
   src: string;
   boxes?: OcrBoundingBox[];
@@ -9,16 +92,14 @@ interface OcrImageViewerProps {
   imageWidth?: number | null;
   imageHeight?: number | null;
   className?: string;
-  /** Brightness multiplier (1 = normal). */
   brightness?: number;
-  /** Contrast multiplier (1 = normal). */
   contrast?: number;
-  /** Zoom scale (1 = fit). */
   zoom?: number;
-  /** Extra sharpening via canvas filter (0–1). */
   sharpen?: number;
-  /** Invert colors — can help read dark/blurry digits. */
   invert?: boolean;
+  grayscale?: boolean;
+  saturate?: number;
+  blur?: number;
 }
 
 export function OcrImageViewer({
@@ -33,6 +114,9 @@ export function OcrImageViewer({
   zoom = 1,
   sharpen = 0,
   invert = false,
+  grayscale = false,
+  saturate = 1,
+  blur = 0,
 }: OcrImageViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -57,12 +141,14 @@ export function OcrImageViewer({
       const filters: string[] = [
         `brightness(${brightness})`,
         `contrast(${contrast})`,
+        `saturate(${grayscale ? 0 : saturate})`,
       ];
+      if (grayscale) filters.push("grayscale(1)");
       if (invert) filters.push("invert(1)");
-      // CSS contrast bump approximates light sharpening for OCR readability.
+      if (blur > 0) filters.push(`blur(${blur}px)`);
       if (sharpen > 0) {
         filters.push(`contrast(${1 + sharpen * 0.8})`);
-        filters.push(`saturate(${1 + sharpen * 0.3})`);
+        if (!grayscale) filters.push(`saturate(${1 + sharpen * 0.3})`);
       }
       ctx.filter = filters.join(" ");
       ctx.clearRect(0, 0, w, h);
@@ -106,6 +192,9 @@ export function OcrImageViewer({
     zoom,
     sharpen,
     invert,
+    grayscale,
+    saturate,
+    blur,
   ]);
 
   return (

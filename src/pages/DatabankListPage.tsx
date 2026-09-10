@@ -53,11 +53,20 @@ import {
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
-import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
+import {
+  DEFAULT_ENHANCE,
+  enhanceFromPreset,
+  OcrImageViewer,
+  type ImageEnhancePreset,
+} from "@/components/ocr/OcrImageViewer";
 import { RecognitionBuildModal } from "@/components/training/RecognitionBuildModal";
 import { useTaskContext } from "@/features/tasks/TaskContext";
 import { useDebounce } from "@/hooks/useDebounce";
-import type { DatabankMetrics, DatabankSample } from "@/types/databank";
+import type {
+  DatabankDataset,
+  DatabankMetrics,
+  DatabankSample,
+} from "@/types/databank";
 import type { OcrBoundingBox } from "@/types/ocr";
 
 type FilenameGtFilter = "all" | "yes" | "no";
@@ -65,12 +74,52 @@ type PredictedFilter = "all" | "has" | "missing" | "error";
 type MatchFilter = "all" | "yes" | "no" | "none";
 type FinalGtFilter = "all" | "yes" | "no";
 type RerunFilter = "all" | "has" | "missing" | "ok" | "miss";
+type WithinReviewStatusFilter = "all" | "reviewed" | "unreviewed";
+
+const ENHANCE_PRESETS: { key: ImageEnhancePreset; label: string }[] = [
+  { key: "identity", label: "Identity" },
+  { key: "invert", label: "Invert" },
+  { key: "grayscale", label: "Grayscale" },
+  { key: "clarity", label: "Clarity" },
+  { key: "contrast_stretch", label: "Contrast stretch" },
+  { key: "denoise", label: "Denoise" },
+];
 
 function asStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter(
     (v): v is string => typeof v === "string" && v.length > 0,
   );
+}
+
+function tabCategoryScope(tabKey: string): string {
+  return tabKey === "general" ? "" : tabKey;
+}
+
+function tabDisplayName(tabKey: string): string {
+  if (tabKey === "general") return "General";
+  if (tabKey === "blurry") return "Blurry";
+  if (tabKey === "dead") return "Dead";
+  return tabKey;
+}
+
+function pickTabMetrics(
+  dataset: DatabankDataset | undefined,
+  tabKey: string,
+): DatabankMetrics | null | undefined {
+  const fromTab = dataset?.tab_metrics?.[tabKey]?.latest;
+  if (fromTab && Number(fromTab.comparable_samples ?? 0) > 0) {
+    return fromTab;
+  }
+  const upload = dataset?.upload_metrics;
+  const rerun = dataset?.rerun_metrics;
+  if (!upload && !rerun) return fromTab ?? null;
+  const uploadAt = upload?.computed_at ?? dataset?.last_predict_at ?? "";
+  const rerunAt = rerun?.computed_at ?? dataset?.last_rerun_at ?? "";
+  if (rerunAt && (!uploadAt || rerunAt >= uploadAt)) {
+    return rerun ?? fromTab ?? null;
+  }
+  return upload ?? fromTab ?? null;
 }
 
 function MetricsStrip({
@@ -133,7 +182,9 @@ export function DatabankListPage() {
   const { modal, message: appMessage } = App.useApp();
   const queryClient = useQueryClient();
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [reviewTab, setReviewTab] = useState<string>("unreviewed");
+  const [reviewTab, setReviewTab] = useState<string>("general");
+  const [withinReviewStatus, setWithinReviewStatus] =
+    useState<WithinReviewStatusFilter>("all");
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [recognitionBuildOpen, setRecognitionBuildOpen] = useState(false);
@@ -152,16 +203,22 @@ export function DatabankListPage() {
   const debouncedSampleSearch = useDebounce(sampleSearch, 300);
   const [reviewSample, setReviewSample] = useState<DatabankSample | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [imgBrightness, setImgBrightness] = useState(1);
-  const [imgContrast, setImgContrast] = useState(1.15);
-  const [imgZoom, setImgZoom] = useState(1);
-  const [imgSharpen, setImgSharpen] = useState(0.2);
-  const [imgInvert, setImgInvert] = useState(false);
+  const [imgBrightness, setImgBrightness] = useState(
+    DEFAULT_ENHANCE.brightness,
+  );
+  const [imgContrast, setImgContrast] = useState(DEFAULT_ENHANCE.contrast);
+  const [imgZoom, setImgZoom] = useState(DEFAULT_ENHANCE.zoom);
+  const [imgSharpen, setImgSharpen] = useState(DEFAULT_ENHANCE.sharpen);
+  const [imgInvert, setImgInvert] = useState(DEFAULT_ENHANCE.invert);
+  const [imgGrayscale, setImgGrayscale] = useState(DEFAULT_ENHANCE.grayscale);
+  const [imgSaturate, setImgSaturate] = useState(DEFAULT_ENHANCE.saturate);
+  const [imgBlur, setImgBlur] = useState(DEFAULT_ENHANCE.blur);
   const [hideBbox, setHideBbox] = useState(false);
   const [reviewForm] = Form.useForm<{
     corrected_gt: string;
     review_notes?: string;
   }>();
+  const [showUploadSuccess, setShowUploadSuccess] = useState(false);
 
   const bankQuery = useQuery({
     queryKey: ["databank", "bank", activeTaskKey],
@@ -190,15 +247,25 @@ export function DatabankListPage() {
   );
 
   useEffect(() => {
-    const known = new Set([
-      "unreviewed",
-      "reviewed",
-      "blurry",
-      "dead",
-      ...customCategories,
-    ]);
-    if (!known.has(reviewTab)) {
-      setReviewTab("unreviewed");
+    if (
+      uploadProgress?.status === "completed" &&
+      uploadProgress.message
+    ) {
+      setShowUploadSuccess(true);
+      const timer = window.setTimeout(() => setShowUploadSuccess(false), 4500);
+      return () => window.clearTimeout(timer);
+    }
+    setShowUploadSuccess(false);
+  }, [uploadProgress?.status, uploadProgress?.message]);
+
+  useEffect(() => {
+    const known = new Set(["general", "blurry", "dead", ...customCategories]);
+    if (
+      reviewTab === "unreviewed" ||
+      reviewTab === "reviewed" ||
+      !known.has(reviewTab)
+    ) {
+      setReviewTab("general");
       setSamplePage(1);
     }
   }, [customCategories, reviewTab]);
@@ -209,6 +276,7 @@ export function DatabankListPage() {
       "samples",
       datasetId,
       reviewTab,
+      withinReviewStatus,
       debouncedSampleSearch,
       filenameGtFilter,
       predictedFilter,
@@ -221,6 +289,8 @@ export function DatabankListPage() {
     queryFn: () =>
       listDatabankSamples(datasetId!, {
         review_status: reviewTab,
+        within_review_status:
+          withinReviewStatus === "all" ? undefined : withinReviewStatus,
         search: debouncedSampleSearch || undefined,
         has_filename_gt:
           filenameGtFilter === "all" ? undefined : filenameGtFilter === "yes",
@@ -261,13 +331,28 @@ export function DatabankListPage() {
     };
   }, [datasetId, reviewSample]);
 
+  const applyEnhancePreset = (preset: ImageEnhancePreset) => {
+    const s = enhanceFromPreset(preset);
+    setImgBrightness(s.brightness);
+    setImgContrast(s.contrast);
+    setImgZoom(s.zoom);
+    setImgSharpen(s.sharpen);
+    setImgInvert(s.invert);
+    setImgGrayscale(s.grayscale);
+    setImgSaturate(s.saturate);
+    setImgBlur(s.blur);
+  };
+
   useEffect(() => {
     if (!reviewSample) return;
-    setImgBrightness(1);
-    setImgContrast(1.15);
-    setImgZoom(1);
-    setImgSharpen(0.2);
-    setImgInvert(false);
+    setImgBrightness(DEFAULT_ENHANCE.brightness);
+    setImgContrast(DEFAULT_ENHANCE.contrast);
+    setImgZoom(DEFAULT_ENHANCE.zoom);
+    setImgSharpen(DEFAULT_ENHANCE.sharpen);
+    setImgInvert(DEFAULT_ENHANCE.invert);
+    setImgGrayscale(DEFAULT_ENHANCE.grayscale);
+    setImgSaturate(DEFAULT_ENHANCE.saturate);
+    setImgBlur(DEFAULT_ENHANCE.blur);
     setHideBbox(Boolean(reviewSample.bbox_cleared));
     reviewForm.setFieldsValue({
       corrected_gt:
@@ -278,6 +363,24 @@ export function DatabankListPage() {
       review_notes: reviewSample.review_notes || "",
     });
   }, [reviewSample, reviewForm]);
+
+  const tabScopeCategory = tabCategoryScope(reviewTab);
+
+  const tabUnreviewedCount =
+    reviewTab === "general"
+      ? (dataset?.unreviewed_count ?? 0)
+      : Math.max(
+          0,
+          (dataset?.category_counts?.[reviewTab]?.total ?? 0) -
+            (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0),
+        );
+
+  const tabReviewedCount =
+    reviewTab === "general"
+      ? (dataset?.reviewed_count ?? 0)
+      : (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0);
+
+  const currentTabMetrics = pickTabMetrics(dataset, reviewTab);
 
   const uploadMutation = useMutation({
     mutationFn: (payload: { ocr_type: string; file: File }) =>
@@ -326,19 +429,30 @@ export function DatabankListPage() {
   });
 
   const rerunMutation = useMutation({
-    mutationFn: () => rerunDatabankReviewed(datasetId!),
+    mutationFn: () =>
+      rerunDatabankReviewed(datasetId!, { category: tabScopeCategory }),
     onSuccess: () => {
-      message.success("Re-running default model on reviewed samples");
+      message.success(
+        tabScopeCategory
+          ? `Re-running default model on reviewed ${tabDisplayName(reviewTab)} samples`
+          : "Re-running default model on reviewed samples",
+      );
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
     },
     onError: (error) => message.error(getApiErrorMessage(error)),
   });
 
   const syncReviewedMutation = useMutation({
-    mutationFn: (chunkCount: number) =>
-      syncDatabankReviewedEval(datasetId!, {
+    mutationFn: (chunkCount: number) => {
+      if (tabScopeCategory) {
+        return syncDatabankReviewedEval(datasetId!, {
+          category: tabScopeCategory,
+        });
+      }
+      return syncDatabankReviewedEval(datasetId!, {
         reviewed_chunk_count: chunkCount,
-      }),
+      });
+    },
     onSuccess: (ds) => {
       const parts: string[] = [];
       for (const [key, v] of Object.entries(ds ?? {})) {
@@ -412,7 +526,7 @@ export function DatabankListPage() {
     mutationFn: (sampleId: string) =>
       moveDatabankSampleToReviewed(datasetId!, sampleId),
     onSuccess: () => {
-      message.success("Moved to Reviewed (cleared category)");
+      message.success("Moved to General (cleared category)");
       setReviewSample(null);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       window.setTimeout(() => {
@@ -438,10 +552,14 @@ export function DatabankListPage() {
   });
 
   const reanalyzeMutation = useMutation({
-    mutationFn: () => reanalyzeDatabankUnreviewed(datasetId!),
+    mutationFn: () =>
+      reanalyzeDatabankUnreviewed(datasetId!, { category: tabScopeCategory }),
     onSuccess: (ds) => {
       message.success(
-        ds.message ?? "Re-analyzing unreviewed samples with default model",
+        ds.message ??
+          (tabScopeCategory
+            ? `Re-analyzing unreviewed ${tabDisplayName(reviewTab)} samples`
+            : "Re-analyzing unreviewed samples with default model"),
       );
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
     },
@@ -470,7 +588,6 @@ export function DatabankListPage() {
       return;
     }
     const id = datasetId;
-    setReviewSample(null);
     modal.confirm({
       title: "Permanently delete image?",
       content: (
@@ -554,85 +671,12 @@ export function DatabankListPage() {
     {
       title: "",
       key: "actions",
-      width: 320,
-      render: (_, row) => {
-        const cat = row.category || (row.is_blurry ? "blurry" : "");
-        const customCats = customCategories.filter((c) => c !== cat);
-        return (
-          <Space size={4} wrap>
-            <Button size="small" onClick={() => setReviewSample(row)}>
-              {row.review_status === "reviewed" ? "View" : "Review"}
-            </Button>
-            {cat !== "blurry" ? (
-              <Button
-                size="small"
-                icon={<EyeInvisibleOutlined />}
-                loading={categoryMutation.isPending}
-                onClick={() =>
-                  categoryMutation.mutate({
-                    sampleId: row.id,
-                    category: "blurry",
-                  })
-                }
-              >
-                Blurry
-              </Button>
-            ) : null}
-            {cat !== "dead" ? (
-              <Button
-                size="small"
-                loading={categoryMutation.isPending}
-                onClick={() =>
-                  categoryMutation.mutate({
-                    sampleId: row.id,
-                    category: "dead",
-                  })
-                }
-              >
-                Dead
-              </Button>
-            ) : null}
-            {customCats.length ? (
-              <Dropdown
-                menu={{
-                  items: customCats.map((c) => ({
-                    key: c,
-                    label: `Mark ${c}`,
-                    onClick: () =>
-                      categoryMutation.mutate({
-                        sampleId: row.id,
-                        category: c,
-                      }),
-                  })),
-                }}
-              >
-                <Button size="small">More…</Button>
-              </Dropdown>
-            ) : null}
-            {cat ? (
-              <Button
-                size="small"
-                type="primary"
-                loading={moveToReviewedMutation.isPending}
-                onClick={() => moveToReviewedMutation.mutate(row.id)}
-              >
-                Move to Reviewed
-              </Button>
-            ) : null}
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                confirmDelete(row);
-              }}
-            >
-              Delete
-            </Button>
-          </Space>
-        );
-      },
+      width: 100,
+      render: (_, row) => (
+        <Button size="small" onClick={() => setReviewSample(row)}>
+          {row.review_status === "reviewed" ? "View" : "Review"}
+        </Button>
+      ),
     },
   ];
 
@@ -644,16 +688,15 @@ export function DatabankListPage() {
     jobRunning ||
     ["predicting", "processing", "rerunning"].includes(dataset?.status ?? "");
 
+  const reviewSampleCategory =
+    reviewSample?.category || (reviewSample?.is_blurry ? "blurry" : "");
+
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden ">
       <PageHeader
-        breadcrumbs={[
-          { title: "Dashboard", path: "/" },
-          { title: "Dataset", path: "/evaluation/datasets" },
-          { title: "Dataset list" },
-        ]}
+        title={"Model ref in use: " + dataset?.model_ref}
         actions={
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               onClick={() => setUploadOpen(true)}
@@ -661,6 +704,73 @@ export function DatabankListPage() {
             >
               Upload to data bank
             </Button>
+            <Button
+              disabled={!datasetId}
+              onClick={() => setAddCategoryOpen(true)}
+            >
+              Add category
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              disabled={!datasetId}
+              onClick={async () => {
+                try {
+                  const { blob, filename } = await downloadDatabankCsv(
+                    datasetId!,
+                  );
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                } catch (error) {
+                  message.error(getApiErrorMessage(error));
+                }
+              }}
+            >
+              Download CSV
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={syncReviewedMutation.isPending}
+              disabled={!datasetId}
+              onClick={() => {
+                setSyncChunkCount(
+                  Math.max(1, dataset?.reviewed_eval_chunk_count ?? 1),
+                );
+                setSyncOpen(true);
+              }}
+            >
+              {tabScopeCategory
+                ? `Sync ${tabDisplayName(reviewTab)} to Dataset tab`
+                : "Sync to Dataset tab"}
+            </Button>
+            {tabUnreviewedCount > 0 ? (
+              <Button
+                icon={<ReloadOutlined />}
+                loading={
+                  reanalyzeMutation.isPending ||
+                  dataset?.status === "predicting"
+                }
+                disabled={busy}
+                onClick={() => reanalyzeMutation.mutate()}
+              >
+                Re-analyze
+              </Button>
+            ) : null}
+            {tabReviewedCount > 0 ? (
+              <Button
+                icon={<ReloadOutlined />}
+                loading={
+                  rerunMutation.isPending || dataset?.status === "rerunning"
+                }
+                disabled={busy}
+                onClick={() => rerunMutation.mutate()}
+              >
+                Re-run
+              </Button>
+            ) : null}
             <Button
               disabled={!datasetId || busy}
               onClick={() => setRecognitionBuildOpen(true)}
@@ -690,12 +800,13 @@ export function DatabankListPage() {
           />
         ) : null}
 
-        {uploadProgress?.status === "completed" && uploadProgress.message ? (
+        {showUploadSuccess && uploadProgress?.message ? (
           <Alert
             type="success"
             showIcon
             closable
             message={uploadProgress.message}
+            onClose={() => setShowUploadSuccess(false)}
           />
         ) : null}
 
@@ -729,136 +840,25 @@ export function DatabankListPage() {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Space wrap>
-            <Tag>{dataset?.status ?? "loading"}</Tag>
-            <Typography.Text type="secondary">
-              {dataset?.sample_count ?? 0} total ·{" "}
-              {dataset?.reviewed_count ?? 0} reviewed ·{" "}
-              {dataset?.unreviewed_count ?? 0} unreviewed ·{" "}
-              {dataset?.blurry_count ?? 0} blurry
-            </Typography.Text>
-            <Typography.Text type="secondary">
-              Model ref in use:{" "}
-              <Tag color="teal">
-                {dataset?.model_ref ?? "default (resolving…)"}
-              </Tag>
-            </Typography.Text>
-          </Space>
-          <Button
-            icon={<DownloadOutlined />}
-            disabled={!datasetId}
-            onClick={async () => {
-              try {
-                const { blob, filename } = await downloadDatabankCsv(
-                  datasetId!,
-                );
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = filename;
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (error) {
-                message.error(getApiErrorMessage(error));
-              }
-            }}
-          >
-            Download CSV
-          </Button>
-        </div>
+        {/* <div className="flex flex-wrap items-center gap-3">
+          <Tag>{dataset?.status ?? "loading"}</Tag>
+          <Typography.Text type="secondary">
+            {dataset?.sample_count ?? 0} total · {dataset?.reviewed_count ?? 0}{" "}
+            reviewed · {dataset?.unreviewed_count ?? 0} unreviewed ·{" "}
+            {dataset?.blurry_count ?? 0} blurry
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            Model ref in use:{" "}
+            <Tag color="teal">
+              {dataset?.model_ref ?? "default (resolving…)"}
+            </Tag>
+          </Typography.Text>
+        </div> */}
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <MetricsStrip
-            title="Upload prediction vs final GR (after review)"
-            metrics={dataset?.upload_metrics}
-            emptyHint="Review samples to compute upload-time accuracy against final ground truth."
-          />
-          <MetricsStrip
-            title="Manual re-run on reviewed data"
-            metrics={dataset?.rerun_metrics}
-            emptyHint="Use “Re-run default model” on the Reviewed tab to measure accuracy again."
-          />
-        </div>
-
-        <Tabs
-          activeKey={reviewTab}
-          onChange={(key) => {
-            setReviewTab(key);
-            setSamplePage(1);
-          }}
-          tabBarExtraContent={
-            <Space wrap>
-              <Button
-                icon={<ReloadOutlined />}
-                loading={syncReviewedMutation.isPending}
-                disabled={!datasetId}
-                onClick={() => {
-                  setSyncChunkCount(
-                    Math.max(1, dataset?.reviewed_eval_chunk_count ?? 1),
-                  );
-                  setSyncOpen(true);
-                }}
-              >
-                Sync categories to Dataset tab
-              </Button>
-              {reviewTab === "unreviewed" ? (
-                <Button
-                  type="primary"
-                  icon={<ReloadOutlined />}
-                  loading={
-                    reanalyzeMutation.isPending ||
-                    dataset?.status === "predicting"
-                  }
-                  disabled={(dataset?.unreviewed_count ?? 0) === 0 || busy}
-                  onClick={() => reanalyzeMutation.mutate()}
-                >
-                  Re-analyze unreviewed
-                </Button>
-              ) : null}
-              {reviewTab === "reviewed" ? (
-                <Button
-                  type="primary"
-                  icon={<ReloadOutlined />}
-                  loading={
-                    rerunMutation.isPending || dataset?.status === "rerunning"
-                  }
-                  disabled={(dataset?.reviewed_count ?? 0) === 0}
-                  onClick={() => rerunMutation.mutate()}
-                >
-                  Re-run default model
-                </Button>
-              ) : null}
-              <Button
-                disabled={!datasetId}
-                onClick={() => setAddCategoryOpen(true)}
-              >
-                Add category
-              </Button>
-            </Space>
-          }
-          items={[
-            {
-              key: "unreviewed",
-              label: `Unreviewed (${dataset?.unreviewed_count ?? 0})`,
-            },
-            {
-              key: "reviewed",
-              label: `Reviewed (${dataset?.reviewed_count ?? 0})`,
-            },
-            {
-              key: "blurry",
-              label: `Blurry (${dataset?.category_counts?.blurry?.reviewed ?? 0}/${dataset?.category_counts?.blurry?.total ?? dataset?.blurry_count ?? 0})`,
-            },
-            {
-              key: "dead",
-              label: `Dead (${dataset?.category_counts?.dead?.reviewed ?? 0}/${dataset?.category_counts?.dead?.total ?? 0})`,
-            },
-            ...customCategories.map((c) => ({
-              key: c,
-              label: `${c} (${dataset?.category_counts?.[c]?.reviewed ?? 0}/${dataset?.category_counts?.[c]?.total ?? 0})`,
-            })),
-          ]}
+        <MetricsStrip
+          title={`Latest accuracy — ${tabDisplayName(reviewTab)}`}
+          metrics={currentTabMetrics}
+          emptyHint="Review samples or run re-analyze / re-run to compute accuracy for this tab."
         />
 
         <DataTableToolbar
@@ -871,6 +871,19 @@ export function DatabankListPage() {
                   setSamplePage(1);
                 }}
                 placeholder="Filter file / GT / prediction…"
+              />
+              <Select
+                value={withinReviewStatus}
+                onChange={(v: WithinReviewStatusFilter) => {
+                  setWithinReviewStatus(v);
+                  setSamplePage(1);
+                }}
+                style={{ width: 160 }}
+                options={[
+                  { value: "all", label: "Review status: all" },
+                  { value: "reviewed", label: "Review status: reviewed" },
+                  { value: "unreviewed", label: "Review status: unreviewed" },
+                ]}
               />
               <Select
                 value={filenameGtFilter}
@@ -945,6 +958,32 @@ export function DatabankListPage() {
           }
         />
 
+        <Tabs
+          activeKey={reviewTab}
+          onChange={(key) => {
+            setReviewTab(key);
+            setSamplePage(1);
+          }}
+          items={[
+            {
+              key: "general",
+              label: `General (${dataset?.reviewed_count ?? 0}/${dataset?.unreviewed_count ?? 0})`,
+            },
+            {
+              key: "blurry",
+              label: `Blurry (${dataset?.category_counts?.blurry?.reviewed ?? 0}/${dataset?.category_counts?.blurry?.total ?? dataset?.blurry_count ?? 0})`,
+            },
+            {
+              key: "dead",
+              label: `Dead (${dataset?.category_counts?.dead?.reviewed ?? 0}/${dataset?.category_counts?.dead?.total ?? 0})`,
+            },
+            ...customCategories.map((c) => ({
+              key: c,
+              label: `${c} (${dataset?.category_counts?.[c]?.reviewed ?? 0}/${dataset?.category_counts?.[c]?.total ?? 0})`,
+            })),
+          ]}
+        />
+
         <Table
           rowKey="id"
           loading={bankQuery.isLoading || samplesQuery.isLoading}
@@ -976,125 +1015,21 @@ export function DatabankListPage() {
         }
         open={!!reviewSample}
         onCancel={() => setReviewSample(null)}
-        width={880}
+        width="100%"
+        style={{ top: 0, padding: 0, maxWidth: "100vw" }}
+        classNames={{
+          content: "!h-screen !max-h-screen flex flex-col !p-0",
+          body: "flex-1 min-h-0 overflow-hidden !p-0",
+        }}
         destroyOnHidden
-        footer={
-          <Space wrap>
-            <Button onClick={() => setReviewSample(null)}>Close</Button>
-            {reviewSample ? (
-              <>
-                {(reviewSample.category ||
-                  (reviewSample.is_blurry ? "blurry" : "")) !== "blurry" ? (
-                  <Button
-                    icon={<EyeInvisibleOutlined />}
-                    loading={categoryMutation.isPending}
-                    onClick={() =>
-                      categoryMutation.mutate({
-                        sampleId: reviewSample.id,
-                        category: "blurry",
-                      })
-                    }
-                  >
-                    Mark blurry
-                  </Button>
-                ) : null}
-                {(reviewSample.category || "") !== "dead" ? (
-                  <Button
-                    loading={categoryMutation.isPending}
-                    onClick={() =>
-                      categoryMutation.mutate({
-                        sampleId: reviewSample.id,
-                        category: "dead",
-                      })
-                    }
-                  >
-                    Mark dead
-                  </Button>
-                ) : null}
-                {customCategories.filter(
-                  (c) => c !== (reviewSample.category || ""),
-                ).length ? (
-                  <Dropdown
-                    menu={{
-                      items: customCategories
-                        .filter((c) => c !== (reviewSample.category || ""))
-                        .map((c) => ({
-                          key: c,
-                          label: `Mark ${c}`,
-                          onClick: () =>
-                            categoryMutation.mutate({
-                              sampleId: reviewSample.id,
-                              category: c,
-                            }),
-                        })),
-                    }}
-                  >
-                    <Button loading={categoryMutation.isPending}>
-                      Mark category…
-                    </Button>
-                  </Dropdown>
-                ) : null}
-                {reviewSample.category || reviewSample.is_blurry ? (
-                  <Button
-                    type="primary"
-                    ghost
-                    loading={moveToReviewedMutation.isPending}
-                    onClick={() =>
-                      moveToReviewedMutation.mutate(reviewSample.id)
-                    }
-                  >
-                    Move to Reviewed
-                  </Button>
-                ) : null}
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  loading={deleteMutation.isPending}
-                  onClick={() => confirmDelete(reviewSample)}
-                >
-                  Delete
-                </Button>
-              </>
-            ) : null}
-            {reviewSample && reviewSample.review_status !== "reviewed" ? (
-              <>
-                <Button
-                  icon={<CheckOutlined />}
-                  onClick={() =>
-                    reviewMutation.mutate({
-                      accept_prediction: true,
-                      review_notes: reviewForm.getFieldValue("review_notes"),
-                      clear_bbox: hideBbox,
-                    })
-                  }
-                  loading={reviewMutation.isPending}
-                >
-                  Accept prediction
-                </Button>
-                <Button
-                  type="primary"
-                  loading={reviewMutation.isPending}
-                  onClick={async () => {
-                    const values = await reviewForm.validateFields();
-                    reviewMutation.mutate({
-                      corrected_gt: values.corrected_gt,
-                      review_notes: values.review_notes,
-                      clear_bbox: hideBbox,
-                    });
-                  }}
-                >
-                  Save corrected GR
-                </Button>
-              </>
-            ) : null}
-          </Space>
-        }
+        footer={null}
       >
         {reviewSample ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-3">
+          <div className="flex h-full min-h-0">
+            <div className="flex min-w-0 flex-1 flex-col bg-slate-100 p-4">
               {previewUrl ? (
                 <OcrImageViewer
+                  className="h-full"
                   src={previewUrl}
                   selected={selectedBox}
                   boxes={selectedBox ? [selectedBox] : []}
@@ -1105,15 +1040,99 @@ export function DatabankListPage() {
                   zoom={imgZoom}
                   sharpen={imgSharpen}
                   invert={imgInvert}
+                  grayscale={imgGrayscale}
+                  saturate={imgSaturate}
+                  blur={imgBlur}
                 />
               ) : (
-                <div className="rounded-lg bg-slate-100 p-8 text-center text-slate-500">
+                <div className="flex flex-1 items-center justify-center rounded-lg bg-slate-200 text-slate-500">
                   Loading image…
                 </div>
               )}
+            </div>
+
+            <div
+              className="flex shrink-0 flex-col gap-3 overflow-y-auto border-l border-slate-200 bg-white p-4"
+              style={{ width: "40%" }}
+            >
+              <div className="text-sm">
+                <div>
+                  <Typography.Text type="secondary">
+                    Filename GR:{" "}
+                  </Typography.Text>
+                  {reviewSample.has_ground_truth
+                    ? reviewSample.ground_truth_normalized
+                    : "— (none)"}
+                </div>
+                <div>
+                  <Typography.Text type="secondary">
+                    Predicted:{" "}
+                  </Typography.Text>
+                  {reviewSample.upload_predicted ?? "—"}
+                  {reviewSample.upload_confidence != null
+                    ? ` (${(reviewSample.upload_confidence * 100).toFixed(0)}%)`
+                    : ""}
+                </div>
+                {reviewSample.rerun_predicted ? (
+                  <div>
+                    <Typography.Text type="secondary">Re-run: </Typography.Text>
+                    {reviewSample.rerun_predicted}
+                  </div>
+                ) : null}
+                {reviewSample.upload_error ? (
+                  <Alert
+                    className="mt-2"
+                    type="warning"
+                    showIcon
+                    message={reviewSample.upload_error}
+                  />
+                ) : null}
+              </div>
+
+              <Space wrap>
+                <Button size="small" onClick={() => setHideBbox((v) => !v)}>
+                  {hideBbox ? "Show bbox" : "Hide bbox"}
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  loading={clearBboxMutation.isPending}
+                  disabled={!selectedBox && !reviewSample.display_bbox}
+                  onClick={() => clearBboxMutation.mutate()}
+                >
+                  Clear bbox
+                </Button>
+              </Space>
+
+              <Form form={reviewForm} layout="vertical">
+                <Form.Item
+                  name="corrected_gt"
+                  label="Ground truth (final)"
+                  rules={[
+                    { required: true, message: "Enter the correct value" },
+                  ]}
+                >
+                  <Input placeholder="e.g. 887512" />
+                </Form.Item>
+                <Form.Item name="review_notes" label="Notes">
+                  <Input.TextArea rows={2} />
+                </Form.Item>
+              </Form>
+
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                 <div className="mb-2 font-medium text-slate-700">
                   Image quality (helps read blurry digits)
+                </div>
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {ENHANCE_PRESETS.map(({ key, label }) => (
+                    <Button
+                      key={key}
+                      size="small"
+                      onClick={() => applyEnhancePreset(key)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
                 </div>
                 <div className="space-y-2">
                   <div>
@@ -1156,6 +1175,26 @@ export function DatabankListPage() {
                       onChange={setImgSharpen}
                     />
                   </div>
+                  <div>
+                    <div className="mb-1 text-slate-500">Saturate</div>
+                    <Slider
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={imgSaturate}
+                      onChange={setImgSaturate}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-slate-500">Blur</div>
+                    <Slider
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={imgBlur}
+                      onChange={setImgBlur}
+                    />
+                  </div>
                   <div className="flex flex-wrap items-center gap-3 pt-1">
                     <span className="text-slate-500">Invert</span>
                     <Switch
@@ -1163,84 +1202,126 @@ export function DatabankListPage() {
                       onChange={setImgInvert}
                       size="small"
                     />
+                    <span className="text-slate-500">Grayscale</span>
+                    <Switch
+                      checked={imgGrayscale}
+                      onChange={setImgGrayscale}
+                      size="small"
+                    />
                     <Button
                       size="small"
-                      onClick={() => {
-                        setImgBrightness(1);
-                        setImgContrast(1.15);
-                        setImgZoom(1);
-                        setImgSharpen(0.2);
-                        setImgInvert(false);
-                      }}
+                      onClick={() => applyEnhancePreset("identity")}
                     >
                       Reset view
                     </Button>
                   </div>
                 </div>
               </div>
-            </div>
-            <div className="space-y-3">
-              <div className="text-sm">
-                <div>
-                  <Typography.Text type="secondary">
-                    Filename GR:{" "}
-                  </Typography.Text>
-                  {reviewSample.has_ground_truth
-                    ? reviewSample.ground_truth_normalized
-                    : "— (none)"}
-                </div>
-                <div>
-                  <Typography.Text type="secondary">
-                    Predicted:{" "}
-                  </Typography.Text>
-                  {reviewSample.upload_predicted ?? "—"}
-                  {reviewSample.upload_confidence != null
-                    ? ` (${(reviewSample.upload_confidence * 100).toFixed(0)}%)`
-                    : ""}
-                </div>
-                {reviewSample.rerun_predicted ? (
-                  <div>
-                    <Typography.Text type="secondary">Re-run: </Typography.Text>
-                    {reviewSample.rerun_predicted}
-                  </div>
+
+              <Space wrap className="mt-auto border-t border-slate-200 pt-3">
+                <Button onClick={() => setReviewSample(null)}>Close</Button>
+                {reviewSampleCategory !== "blurry" ? (
+                  <Button
+                    icon={<EyeInvisibleOutlined />}
+                    loading={categoryMutation.isPending}
+                    onClick={() =>
+                      categoryMutation.mutate({
+                        sampleId: reviewSample.id,
+                        category: "blurry",
+                      })
+                    }
+                  >
+                    Mark blurry
+                  </Button>
                 ) : null}
-                {reviewSample.upload_error ? (
-                  <Alert
-                    className="mt-2"
-                    type="warning"
-                    showIcon
-                    message={reviewSample.upload_error}
-                  />
+                {reviewSampleCategory !== "dead" ? (
+                  <Button
+                    loading={categoryMutation.isPending}
+                    onClick={() =>
+                      categoryMutation.mutate({
+                        sampleId: reviewSample.id,
+                        category: "dead",
+                      })
+                    }
+                  >
+                    Mark dead
+                  </Button>
                 ) : null}
-              </div>
-              <Space wrap>
-                <Button size="small" onClick={() => setHideBbox((v) => !v)}>
-                  {hideBbox ? "Show bbox" : "Hide bbox"}
-                </Button>
+                {customCategories.filter((c) => c !== reviewSampleCategory)
+                  .length ? (
+                  <Dropdown
+                    menu={{
+                      items: customCategories
+                        .filter((c) => c !== reviewSampleCategory)
+                        .map((c) => ({
+                          key: c,
+                          label: `Mark ${c}`,
+                          onClick: () =>
+                            categoryMutation.mutate({
+                              sampleId: reviewSample.id,
+                              category: c,
+                            }),
+                        })),
+                    }}
+                  >
+                    <Button loading={categoryMutation.isPending}>
+                      Mark category…
+                    </Button>
+                  </Dropdown>
+                ) : null}
+                {reviewSampleCategory ? (
+                  <Button
+                    type="primary"
+                    ghost
+                    loading={moveToReviewedMutation.isPending}
+                    onClick={() =>
+                      moveToReviewedMutation.mutate(reviewSample.id)
+                    }
+                  >
+                    Move to General
+                  </Button>
+                ) : null}
                 <Button
-                  size="small"
                   danger
-                  loading={clearBboxMutation.isPending}
-                  disabled={!selectedBox && !reviewSample.display_bbox}
-                  onClick={() => clearBboxMutation.mutate()}
+                  icon={<DeleteOutlined />}
+                  loading={deleteMutation.isPending}
+                  onClick={() => confirmDelete(reviewSample)}
                 >
-                  Clear bbox
+                  Delete
                 </Button>
+                {reviewSample.review_status !== "reviewed" ? (
+                  <>
+                    <Button
+                      icon={<CheckOutlined />}
+                      onClick={() =>
+                        reviewMutation.mutate({
+                          accept_prediction: true,
+                          review_notes:
+                            reviewForm.getFieldValue("review_notes"),
+                          clear_bbox: hideBbox,
+                        })
+                      }
+                      loading={reviewMutation.isPending}
+                    >
+                      Accept prediction
+                    </Button>
+                    <Button
+                      type="primary"
+                      loading={reviewMutation.isPending}
+                      onClick={async () => {
+                        const values = await reviewForm.validateFields();
+                        reviewMutation.mutate({
+                          corrected_gt: values.corrected_gt,
+                          review_notes: values.review_notes,
+                          clear_bbox: hideBbox,
+                        });
+                      }}
+                    >
+                      Save corrected GR
+                    </Button>
+                  </>
+                ) : null}
               </Space>
-              <Form form={reviewForm} layout="vertical">
-                <Form.Item
-                  name="corrected_gt"
-                  label="Ground truth (final)"
-                  rules={[
-                    { required: true, message: "Enter the correct value" },
-                  ]}
-                >
-                  <Input placeholder="e.g. 887512" />
-                </Form.Item>
-                <Form.Item name="review_notes" label="Notes">
-                  <Input.TextArea rows={2} />
-                </Form.Item>
-              </Form>
             </div>
           </div>
         ) : null}
@@ -1281,30 +1362,44 @@ export function DatabankListPage() {
       </Modal>
 
       <Modal
-        title="Sync to Dataset tab"
+        title={
+          tabScopeCategory
+            ? `Sync ${tabDisplayName(reviewTab)} to Dataset tab`
+            : "Sync to Dataset tab"
+        }
         open={syncOpen}
         onCancel={() => setSyncOpen(false)}
         okText="Sync now"
         confirmLoading={syncReviewedMutation.isPending}
         onOk={() => syncReviewedMutation.mutate(syncChunkCount)}
       >
-        <Typography.Paragraph type="secondary" className="!mb-3">
-          Blurry / dead / custom categories stay as one dataset each. Normal
-          reviewed images can be split into N evaluation datasets (e.g.{" "}
-          <code>data-bank-reviewed-01</code> …{" "}
-          <code>data-bank-reviewed-0N</code>). Use 1 for a single{" "}
-          <code>data-bank-reviewed</code> mirror.
-        </Typography.Paragraph>
-        <div className="mb-1 text-sm text-slate-600">
-          Reviewed images chunks
-        </div>
-        <InputNumber
-          min={1}
-          max={50}
-          value={syncChunkCount}
-          onChange={(v) => setSyncChunkCount(Math.max(1, Number(v) || 1))}
-          className="w-full"
-        />
+        {tabScopeCategory ? (
+          <Typography.Paragraph type="secondary" className="!mb-0">
+            Rebuilds the evaluation mirror for reviewed samples in the{" "}
+            <strong>{tabDisplayName(reviewTab)}</strong> category (
+            <code>data-bank-{tabScopeCategory}@1.0.0</code>).
+          </Typography.Paragraph>
+        ) : (
+          <>
+            <Typography.Paragraph type="secondary" className="!mb-3">
+              Blurry / dead / custom categories stay as one dataset each. Normal
+              reviewed images can be split into N evaluation datasets (e.g.{" "}
+              <code>data-bank-reviewed-01</code> …{" "}
+              <code>data-bank-reviewed-0N</code>). Use 1 for a single{" "}
+              <code>data-bank-reviewed</code> mirror.
+            </Typography.Paragraph>
+            <div className="mb-1 text-sm text-slate-600">
+              Reviewed images chunks
+            </div>
+            <InputNumber
+              min={1}
+              max={50}
+              value={syncChunkCount}
+              onChange={(v) => setSyncChunkCount(Math.max(1, Number(v) || 1))}
+              className="w-full"
+            />
+          </>
+        )}
       </Modal>
 
       <RecognitionBuildModal

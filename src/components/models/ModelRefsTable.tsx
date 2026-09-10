@@ -12,6 +12,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import type { MenuProps } from "antd";
@@ -217,7 +218,15 @@ export function ModelRefsTable({
       {
         accessorKey: "notes",
         header: "Notes",
-        cell: ({ getValue }) => getValue<string | null>() || "—",
+        cell: ({ getValue }) => {
+          const notes = getValue<string | null>();
+          if (!notes) return "—";
+          return (
+            <Tooltip title={notes}>
+              <span className="block max-w-[180px] truncate">{notes}</span>
+            </Tooltip>
+          );
+        },
       },
       {
         accessorKey: "updated_at",

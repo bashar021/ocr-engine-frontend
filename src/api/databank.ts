@@ -38,6 +38,7 @@ export async function listDatabankSamples(
   params: {
     review_status?: string;
     category?: string;
+    within_review_status?: "all" | "reviewed" | "unreviewed";
     search?: string;
     has_filename_gt?: boolean;
     has_prediction?: "has" | "missing" | "error";
@@ -76,13 +77,17 @@ export type DatabankSyncResponse = Record<
 
 export async function syncDatabankReviewedEval(
   datasetId: string,
-  options?: { reviewed_chunk_count?: number },
+  options?: { category?: string; reviewed_chunk_count?: number },
 ): Promise<DatabankSyncResponse> {
+  const body: { category?: string; reviewed_chunk_count?: number } = {};
+  if (options?.category) {
+    body.category = options.category;
+  } else {
+    body.reviewed_chunk_count = options?.reviewed_chunk_count ?? 1;
+  }
   const { data } = await apiClient.post<DatabankSyncResponse>(
     `/v1/databank/datasets/${datasetId}/sync-reviewed-eval`,
-    {
-      reviewed_chunk_count: options?.reviewed_chunk_count ?? 1,
-    },
+    body,
   );
   return data;
 }
@@ -173,9 +178,11 @@ export async function addDatabankCategory(
 
 export async function reanalyzeDatabankUnreviewed(
   datasetId: string,
+  options?: { category?: string },
 ): Promise<DatabankDataset> {
   const { data } = await apiClient.post<DatabankDataset>(
     `/v1/databank/datasets/${datasetId}/reanalyze-unreviewed`,
+    { category: options?.category ?? "" },
   );
   return data;
 }
@@ -193,9 +200,11 @@ export async function deleteDatabankSample(
 
 export async function rerunDatabankReviewed(
   datasetId: string,
+  options?: { category?: string },
 ): Promise<DatabankDataset> {
   const { data } = await apiClient.post<DatabankDataset>(
     `/v1/databank/datasets/${datasetId}/rerun`,
+    { category: options?.category ?? "" },
   );
   return data;
 }
