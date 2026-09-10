@@ -1,4 +1,4 @@
-import { Alert, App, Button, Popconfirm, Select } from "antd";
+import { Alert, App, Button, Modal, Popconfirm, Select, Space } from "antd";
 import { useMemo, useState } from "react";
 
 import { getApiErrorMessage } from "@/api/client";
@@ -17,6 +17,12 @@ import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
 import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
 import { useTaskContext } from "@/features/tasks/TaskContext";
 import type { EvaluationRun } from "@/types/evaluation";
+import {
+  EVALUATION_SORT_OPTIONS,
+  canReEvaluateRun,
+  sortEvaluations,
+  type EvaluationSortKey,
+} from "@/utils/evaluationSort";
 
 const RUN_STATUSES = [
   { value: "queued", label: "Queued" },
@@ -43,6 +49,9 @@ export function EvaluationRunsPage() {
   const [reEvaluateLoadingId, setReEvaluateLoadingId] = useState<string | null>(
     null,
   );
+  const [sortKey, setSortKey] = useState<EvaluationSortKey>("created_desc");
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [bulkReEvaluateLoading, setBulkReEvaluateLoading] = useState(false);
 
   const datasetsQuery = useDatasetsQuery({
     scope: "evaluation",
@@ -65,6 +74,20 @@ export function EvaluationRunsPage() {
   );
 
   const query = useEvaluationsQuery(params);
+
+  const sortedEvaluations = useMemo(
+    () => sortEvaluations(query.data?.evaluations ?? [], sortKey),
+    [query.data?.evaluations, sortKey],
+  );
+
+  const selectedRuns = useMemo(
+    () => sortedEvaluations.filter((r) => selectedRowKeys.includes(r.id)),
+    [sortedEvaluations, selectedRowKeys],
+  );
+
+  const canBulkReEvaluate =
+    selectedRuns.length > 0 &&
+    selectedRuns.every((r) => canReEvaluateRun(r));
 
   const modelRefOptions = useMemo(() => {
     const refs = new Set<string>();
@@ -125,22 +148,61 @@ export function EvaluationRunsPage() {
     }
   };
 
+  const handleReEvaluateSelected = () => {
+    if (!canBulkReEvaluate) return;
+    Modal.confirm({
+      title: `Re-evaluate ${selectedRuns.length} run(s)?`,
+      content:
+        "Deletes each existing run for its dataset/pipeline and queues a new evaluation.",
+      okText: "Re-evaluate",
+      onOk: async () => {
+        setBulkReEvaluateLoading(true);
+        try {
+          const results = await Promise.allSettled(
+            selectedRuns.map((run) => reEvaluateMutation.mutateAsync(run)),
+          );
+          const ok = results.filter((r) => r.status === "fulfilled").length;
+          const failed = results.length - ok;
+          if (failed === 0) {
+            message.success(`Queued ${ok} re-evaluation(s)`);
+          } else {
+            message.warning(`Queued ${ok}; ${failed} failed`);
+          }
+          setSelectedRowKeys([]);
+        } catch (error) {
+          message.error(getApiErrorMessage(error));
+        } finally {
+          setBulkReEvaluateLoading(false);
+        }
+      },
+    });
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
         title="Evaluation runs"
         actions={
-          <Popconfirm
-            title="Delete all evaluations?"
-            description="Cancels active runs and permanently removes all evaluation history for this task."
-            okText="Delete all"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => void handleDeleteAll()}
-          >
-            <Button danger loading={deleteAllMutation.isPending}>
-              Delete all evaluations
+          <Space wrap>
+            <Button
+              disabled={!canBulkReEvaluate}
+              loading={bulkReEvaluateLoading}
+              onClick={handleReEvaluateSelected}
+            >
+              Re-evaluate selected
             </Button>
-          </Popconfirm>
+            <Popconfirm
+              title="Delete all evaluations?"
+              description="Cancels active runs and permanently removes all evaluation history for this task."
+              okText="Delete all"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void handleDeleteAll()}
+            >
+              <Button danger loading={deleteAllMutation.isPending}>
+                Delete all evaluations
+              </Button>
+            </Popconfirm>
+          </Space>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
@@ -185,6 +247,12 @@ export function EvaluationRunsPage() {
                   setPage(1);
                 }}
               />
+              <Select
+                className="min-w-[200px]"
+                value={sortKey}
+                options={EVALUATION_SORT_OPTIONS}
+                onChange={(v: EvaluationSortKey) => setSortKey(v)}
+              />
               <span className="text-xs text-slate-400">
                 Polling every {EVALUATION_POLL_INTERVAL_MS / 1000}s while active
               </span>
@@ -213,7 +281,7 @@ export function EvaluationRunsPage() {
         ) : null}
         <div className="min-h-0 flex-1 overflow-auto">
           <EvaluationsTable
-            data={query.data?.evaluations ?? []}
+            data={sortedEvaluations}
             loading={query.isLoading || query.isFetching}
             total={query.data?.total ?? 0}
             page={page}
@@ -228,6 +296,8 @@ export function EvaluationRunsPage() {
             onReEvaluate={(run) => void handleReEvaluate(run)}
             deleteLoadingId={deleteLoadingId}
             reEvaluateLoadingId={reEvaluateLoadingId}
+            selectedRowKeys={selectedRowKeys}
+            onSelectedRowKeysChange={setSelectedRowKeys}
           />
         </div>
       </div>

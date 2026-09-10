@@ -1,5 +1,5 @@
 import { Button, Popconfirm, Progress, Space, Table } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import type { ColumnsType, TableRowSelection } from "antd/es/table/interface";
 import dayjs from "dayjs";
 
 import { StatusTag } from "@/components/common/StatusTag";
@@ -19,6 +19,8 @@ interface EvaluationsTableProps {
   onReEvaluate?: (run: EvaluationRun) => void;
   deleteLoadingId?: string | null;
   reEvaluateLoadingId?: string | null;
+  selectedRowKeys?: string[];
+  onSelectedRowKeysChange?: (keys: string[]) => void;
 }
 
 function metric(row: EvaluationRun, name: string): number | null {
@@ -39,7 +41,16 @@ export function EvaluationsTable({
   onReEvaluate,
   deleteLoadingId,
   reEvaluateLoadingId,
+  selectedRowKeys,
+  onSelectedRowKeysChange,
 }: EvaluationsTableProps) {
+  const rowSelection: TableRowSelection<EvaluationRun> | undefined =
+    onSelectedRowKeysChange
+      ? {
+          selectedRowKeys,
+          onChange: (keys) => onSelectedRowKeysChange(keys as string[]),
+        }
+      : undefined;
   const columns: ColumnsType<EvaluationRun> = [
     {
       title: "Run",
@@ -240,6 +251,7 @@ export function EvaluationsTable({
       rowKey="id"
       size="middle"
       className="rounded-lg border border-slate-200 bg-white"
+      rowSelection={rowSelection}
       columns={columns}
       dataSource={data}
       loading={loading}

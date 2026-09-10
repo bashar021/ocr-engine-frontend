@@ -2,7 +2,6 @@ import {
   CheckOutlined,
   DeleteOutlined,
   DownloadOutlined,
-  EyeInvisibleOutlined,
   InboxOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
@@ -10,7 +9,6 @@ import {
   App,
   Alert,
   Button,
-  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -101,6 +99,11 @@ function tabDisplayName(tabKey: string): string {
   if (tabKey === "blurry") return "Blurry";
   if (tabKey === "dead") return "Dead";
   return tabKey;
+}
+
+function sampleCategoryLabel(category: string): string {
+  if (!category) return "General";
+  return tabDisplayName(category);
 }
 
 function pickTabMetrics(
@@ -402,11 +405,14 @@ export function DatabankListPage() {
       review_notes?: string;
       clear_bbox?: boolean;
     }) => reviewDatabankSample(datasetId!, reviewSample!.id, body),
-    onSuccess: () => {
+    onSuccess: (sample) => {
+      const wasReviewed = reviewSample?.review_status === "reviewed";
       message.success(
-        "Ground truth saved — category kept (use Move to Reviewed to clear)",
+        wasReviewed
+          ? "Ground truth updated"
+          : "Ground truth saved — category kept (use Dataset category to move)",
       );
-      setReviewSample(null);
+      setReviewSample(sample);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       window.setTimeout(() => {
         void queryClient.invalidateQueries({
@@ -505,13 +511,9 @@ export function DatabankListPage() {
   const categoryMutation = useMutation({
     mutationFn: (payload: { sampleId: string; category: string }) =>
       setDatabankSampleCategory(datasetId!, payload.sampleId, payload.category),
-    onSuccess: (_data, vars) => {
-      message.success(
-        vars.category
-          ? `Moved to ${vars.category}`
-          : "Cleared category (normal)",
-      );
-      if (reviewSample?.id === vars.sampleId) setReviewSample(null);
+    onSuccess: (sample, vars) => {
+      message.success(`Moved to ${sampleCategoryLabel(vars.category)}`);
+      if (reviewSample?.id === vars.sampleId) setReviewSample(sample);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       window.setTimeout(() => {
         void queryClient.invalidateQueries({
@@ -525,9 +527,9 @@ export function DatabankListPage() {
   const moveToReviewedMutation = useMutation({
     mutationFn: (sampleId: string) =>
       moveDatabankSampleToReviewed(datasetId!, sampleId),
-    onSuccess: () => {
+    onSuccess: (sample) => {
       message.success("Moved to General (cleared category)");
-      setReviewSample(null);
+      setReviewSample(sample);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       window.setTimeout(() => {
         void queryClient.invalidateQueries({
@@ -690,6 +692,19 @@ export function DatabankListPage() {
 
   const reviewSampleCategory =
     reviewSample?.category || (reviewSample?.is_blurry ? "blurry" : "");
+
+  const categorySelectOptions = useMemo(
+    () => [
+      { value: "", label: "General" },
+      { value: "blurry", label: "Blurry" },
+      { value: "dead", label: "Dead" },
+      ...customCategories.map((c) => ({ value: c, label: c })),
+    ],
+    [customCategories],
+  );
+
+  const categoryMutationBusy =
+    categoryMutation.isPending || moveToReviewedMutation.isPending;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden ">
@@ -1087,6 +1102,42 @@ export function DatabankListPage() {
                     message={reviewSample.upload_error}
                   />
                 ) : null}
+                <div className="mt-2">
+                  <Typography.Text type="secondary">Category: </Typography.Text>
+                  <Tag
+                    color={
+                      reviewSampleCategory === "dead"
+                        ? "red"
+                        : reviewSampleCategory
+                          ? "orange"
+                          : "default"
+                    }
+                  >
+                    {sampleCategoryLabel(reviewSampleCategory)}
+                  </Tag>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-slate-600">Dataset category</div>
+                <Select
+                  className="w-full"
+                  value={reviewSampleCategory}
+                  loading={categoryMutationBusy}
+                  disabled={categoryMutationBusy}
+                  options={categorySelectOptions}
+                  onChange={(value: string) => {
+                    if (value === reviewSampleCategory) return;
+                    if (!value) {
+                      moveToReviewedMutation.mutate(reviewSample.id);
+                      return;
+                    }
+                    categoryMutation.mutate({
+                      sampleId: reviewSample.id,
+                      category: value,
+                    });
+                  }}
+                />
               </div>
 
               <Space wrap>
@@ -1220,67 +1271,6 @@ export function DatabankListPage() {
 
               <Space wrap className="mt-auto border-t border-slate-200 pt-3">
                 <Button onClick={() => setReviewSample(null)}>Close</Button>
-                {reviewSampleCategory !== "blurry" ? (
-                  <Button
-                    icon={<EyeInvisibleOutlined />}
-                    loading={categoryMutation.isPending}
-                    onClick={() =>
-                      categoryMutation.mutate({
-                        sampleId: reviewSample.id,
-                        category: "blurry",
-                      })
-                    }
-                  >
-                    Mark blurry
-                  </Button>
-                ) : null}
-                {reviewSampleCategory !== "dead" ? (
-                  <Button
-                    loading={categoryMutation.isPending}
-                    onClick={() =>
-                      categoryMutation.mutate({
-                        sampleId: reviewSample.id,
-                        category: "dead",
-                      })
-                    }
-                  >
-                    Mark dead
-                  </Button>
-                ) : null}
-                {customCategories.filter((c) => c !== reviewSampleCategory)
-                  .length ? (
-                  <Dropdown
-                    menu={{
-                      items: customCategories
-                        .filter((c) => c !== reviewSampleCategory)
-                        .map((c) => ({
-                          key: c,
-                          label: `Mark ${c}`,
-                          onClick: () =>
-                            categoryMutation.mutate({
-                              sampleId: reviewSample.id,
-                              category: c,
-                            }),
-                        })),
-                    }}
-                  >
-                    <Button loading={categoryMutation.isPending}>
-                      Mark category…
-                    </Button>
-                  </Dropdown>
-                ) : null}
-                {reviewSampleCategory ? (
-                  <Button
-                    type="primary"
-                    ghost
-                    loading={moveToReviewedMutation.isPending}
-                    onClick={() =>
-                      moveToReviewedMutation.mutate(reviewSample.id)
-                    }
-                  >
-                    Move to General
-                  </Button>
-                ) : null}
                 <Button
                   danger
                   icon={<DeleteOutlined />}
@@ -1289,38 +1279,33 @@ export function DatabankListPage() {
                 >
                   Delete
                 </Button>
-                {reviewSample.review_status !== "reviewed" ? (
-                  <>
-                    <Button
-                      icon={<CheckOutlined />}
-                      onClick={() =>
-                        reviewMutation.mutate({
-                          accept_prediction: true,
-                          review_notes:
-                            reviewForm.getFieldValue("review_notes"),
-                          clear_bbox: hideBbox,
-                        })
-                      }
-                      loading={reviewMutation.isPending}
-                    >
-                      Accept prediction
-                    </Button>
-                    <Button
-                      type="primary"
-                      loading={reviewMutation.isPending}
-                      onClick={async () => {
-                        const values = await reviewForm.validateFields();
-                        reviewMutation.mutate({
-                          corrected_gt: values.corrected_gt,
-                          review_notes: values.review_notes,
-                          clear_bbox: hideBbox,
-                        });
-                      }}
-                    >
-                      Save corrected GR
-                    </Button>
-                  </>
-                ) : null}
+                <Button
+                  icon={<CheckOutlined />}
+                  onClick={() =>
+                    reviewMutation.mutate({
+                      accept_prediction: true,
+                      review_notes: reviewForm.getFieldValue("review_notes"),
+                      clear_bbox: hideBbox,
+                    })
+                  }
+                  loading={reviewMutation.isPending}
+                >
+                  Accept prediction
+                </Button>
+                <Button
+                  type="primary"
+                  loading={reviewMutation.isPending}
+                  onClick={async () => {
+                    const values = await reviewForm.validateFields();
+                    reviewMutation.mutate({
+                      corrected_gt: values.corrected_gt,
+                      review_notes: values.review_notes,
+                      clear_bbox: hideBbox,
+                    });
+                  }}
+                >
+                  Save corrected GR
+                </Button>
               </Space>
             </div>
           </div>

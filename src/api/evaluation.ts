@@ -132,6 +132,13 @@ export function datasetSampleImagePath(
   return `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}/image`;
 }
 
+export function evaluationResultImagePath(
+  evaluationId: string,
+  resultId: string,
+): string {
+  return `/v1/evaluations/${evaluationId}/results/${resultId}/image`;
+}
+
 /** Fetch sample image as an object URL (revokes previous if provided). */
 export async function fetchSampleImageObjectUrl(
   datasetId: string,
@@ -139,6 +146,18 @@ export async function fetchSampleImageObjectUrl(
 ): Promise<string> {
   const { data } = await apiClient.get<Blob>(
     datasetSampleImagePath(datasetId, sampleId),
+    { responseType: "blob" },
+  );
+  return URL.createObjectURL(data);
+}
+
+/** Prefer result-scoped image endpoint (handles unlinked samples). */
+export async function fetchEvaluationResultImageObjectUrl(
+  evaluationId: string,
+  resultId: string,
+): Promise<string> {
+  const { data } = await apiClient.get<Blob>(
+    evaluationResultImagePath(evaluationId, resultId),
     { responseType: "blob" },
   );
   return URL.createObjectURL(data);

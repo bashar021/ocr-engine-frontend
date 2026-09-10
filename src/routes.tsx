@@ -24,6 +24,7 @@ import {
   TrainingCenterRecognitionPage,
 } from "@/pages/TrainingCenterSections";
 import { TrainingCycleDetailPage } from "@/pages/TrainingCycleDetailPage";
+import { AugmentationDatasetPage } from "@/pages/AugmentationDatasetPage";
 import { TrainingCurationPage } from "@/pages/TrainingCurationPage";
 import { TrainingDatasetsPage } from "@/pages/TrainingDatasetsPage";
 import { TrainingOverviewPage } from "@/pages/TrainingOverviewPage";
@@ -104,6 +105,10 @@ export function AppRoutes() {
           element={<Navigate to="/evaluation/training-datasets" replace />}
         />
         <Route path="/training/curate" element={<TrainingCurationPage />} />
+        <Route
+          path="/training/augmentation"
+          element={<AugmentationDatasetPage />}
+        />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/import-export" element={<ImportExportPage />} />

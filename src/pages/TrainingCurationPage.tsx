@@ -27,6 +27,7 @@ import {
   reviewEvaluationResult,
 } from "@/api/evaluation";
 import { PageHeader } from "@/components/common/PageHeader";
+import { useTaskContext } from "@/features/tasks/TaskContext";
 import {
   BboxAnnotator,
   type DrawnBox,
@@ -49,6 +50,8 @@ interface LocalLabel {
 
 export function TrainingCurationPage() {
   const queryClient = useQueryClient();
+  const { activeTaskKey } = useTaskContext();
+  const [modelRef, setModelRef] = useState<string | undefined>();
   const [evaluationId, setEvaluationId] = useState<string | undefined>();
   const [failureFilter, setFailureFilter] = useState<string | undefined>();
   const [failStageFilter, setFailStageFilter] = useState<string | undefined>();
@@ -60,14 +63,56 @@ export function TrainingCurationPage() {
   const [saving, setSaving] = useState(false);
 
   const evalsQuery = useQuery({
-    queryKey: ["evaluation", "runs", "completed-for-curation"],
+    queryKey: ["evaluation", "runs", "completed-for-curation", activeTaskKey],
     queryFn: () =>
       listEvaluations({
+        ocr_type: activeTaskKey,
         status: "completed",
-        limit: 100,
+        limit: 200,
         include_metrics: true,
       }),
   });
+
+  const completedEvals = evalsQuery.data?.evaluations ?? [];
+
+  const modelRefOptions = useMemo(() => {
+    const refs = new Set<string>();
+    for (const e of completedEvals) {
+      if (e.model_ref) refs.add(e.model_ref);
+    }
+    return [...refs].sort().map((r) => ({ value: r, label: r }));
+  }, [completedEvals]);
+
+  const evaluationsForModel = useMemo(() => {
+    if (!modelRef) return [];
+    return completedEvals.filter((e) => e.model_ref === modelRef);
+  }, [completedEvals, modelRef]);
+
+  const evaluationOptions = useMemo(
+    () =>
+      evaluationsForModel.map((e: EvaluationRun) => {
+        const ds =
+          e.dataset_name != null
+            ? `${e.dataset_name}${e.dataset_version ? ` v${e.dataset_version}` : ""}`
+            : e.dataset_id.slice(0, 8);
+        return {
+          value: e.id,
+          label: `${ds}${e.completed_at ? ` · ${e.completed_at.slice(0, 10)}` : ""}`,
+        };
+      }),
+    [evaluationsForModel],
+  );
+
+  useEffect(() => {
+    if (!modelRef) {
+      setEvaluationId(undefined);
+      return;
+    }
+    const match = evaluationsForModel.find((e) => e.id === evaluationId);
+    if (!match) {
+      setEvaluationId(evaluationsForModel[0]?.id);
+    }
+  }, [modelRef, evaluationsForModel, evaluationId]);
 
   const resultsQuery = useQuery({
     queryKey: ["evaluation", "results", evaluationId, "curation"],
@@ -333,19 +378,6 @@ export function TrainingCurationPage() {
     },
   ];
 
-  const evalOptions = (evalsQuery.data?.evaluations ?? []).map(
-    (e: EvaluationRun) => {
-      const ds =
-        e.dataset_name != null
-          ? `${e.dataset_name}${e.dataset_version ? ` v${e.dataset_version}` : ""}`
-          : e.dataset_id.slice(0, 8);
-      return {
-        value: e.id,
-        label: `${ds} · ${e.model_ref ?? "eval"} · ${e.id.slice(0, 8)}`,
-      };
-    },
-  );
-
   const currentLabel = active ? labels[active.id] : null;
 
   return (
@@ -373,16 +405,37 @@ export function TrainingCurationPage() {
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
         <div className="flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="min-w-[200px] flex-1">
+            <div className="mb-1 text-xs text-slate-500">Model ref</div>
+            <Select
+              className="w-full"
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select model ref"
+              options={modelRefOptions}
+              value={modelRef}
+              loading={evalsQuery.isLoading}
+              onChange={(v) => {
+                setModelRef(v);
+                setEvaluationId(undefined);
+                setActive(null);
+                setLabels({});
+              }}
+            />
+          </div>
           <div className="min-w-[280px] flex-1">
             <div className="mb-1 text-xs text-slate-500">
-              Source evaluation (completed)
+              Dataset evaluation
             </div>
             <Select
               className="w-full"
               showSearch
               optionFilterProp="label"
-              placeholder="Select evaluation run"
-              options={evalOptions}
+              placeholder={
+                modelRef ? "Select dataset evaluation" : "Choose model ref first"
+              }
+              disabled={!modelRef}
+              options={evaluationOptions}
               value={evaluationId}
               onChange={(v) => {
                 setEvaluationId(v);

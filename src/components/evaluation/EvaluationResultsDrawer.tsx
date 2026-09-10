@@ -25,6 +25,7 @@ import {
   downloadFilteredCropsZip,
   exportHardCases,
   exportTrainingDataset,
+  fetchEvaluationResultImageObjectUrl,
   fetchSampleImageObjectUrl,
   listAllEvaluationResults,
   reviewEvaluationResult,
@@ -218,18 +219,49 @@ export function EvaluationResultsDrawer({
     let createdUrl: string | null = null;
 
     async function load() {
-      if (!preview?.dataset_id || !preview.dataset_sample_id) {
+      if (!preview) {
         setPreviewUrl(null);
-        setPreviewError(preview ? "Missing sample reference" : null);
+        setPreviewError(null);
         return;
       }
       setPreviewLoading(true);
       setPreviewError(null);
       try {
-        const url = await fetchSampleImageObjectUrl(
-          preview.dataset_id,
-          preview.dataset_sample_id,
-        );
+        let url: string;
+        if (preview.evaluation_id && preview.id) {
+          try {
+            url = await fetchEvaluationResultImageObjectUrl(
+              preview.evaluation_id,
+              preview.id,
+            );
+          } catch (primaryError) {
+            if (
+              preview.dataset_id &&
+              preview.dataset_sample_id &&
+              preview.dataset_sample_id !== "None"
+            ) {
+              url = await fetchSampleImageObjectUrl(
+                preview.dataset_id,
+                preview.dataset_sample_id,
+              );
+            } else {
+              throw primaryError;
+            }
+          }
+        } else if (
+          preview.dataset_id &&
+          preview.dataset_sample_id &&
+          preview.dataset_sample_id !== "None"
+        ) {
+          url = await fetchSampleImageObjectUrl(
+            preview.dataset_id,
+            preview.dataset_sample_id,
+          );
+        } else {
+          setPreviewUrl(null);
+          setPreviewError("Missing sample reference");
+          return;
+        }
         if (cancelled) {
           URL.revokeObjectURL(url);
           return;
@@ -326,7 +358,7 @@ export function EvaluationResultsDrawer({
           size="small"
           icon={<EyeOutlined />}
           onClick={() => setPreview(row)}
-          disabled={!row.dataset_id}
+          disabled={!row.image_available && !row.dataset_sample_id}
         >
           View
         </Button>

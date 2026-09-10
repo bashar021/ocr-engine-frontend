@@ -96,17 +96,36 @@ export function AppSidebar() {
             label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
           },
           {
+            key: "/evaluation/hard-cases",
+            icon: <ExperimentOutlined />,
+            label: (
+              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
+            ),
+          },
+        ],
+      },
+      {
+        key: "training-dataset-group",
+        icon: <ThunderboltOutlined />,
+        label: "Training Dataset",
+        children: [
+          {
             key: "/evaluation/training-datasets",
-            icon: <ThunderboltOutlined />,
+            icon: <DatabaseOutlined />,
             label: (
               <Link to="/evaluation/training-datasets">Training datasets</Link>
             ),
           },
           {
-            key: "/evaluation/hard-cases",
+            key: "/training/curate",
+            icon: <EditOutlined />,
+            label: <Link to="/training/curate">Curate failures</Link>,
+          },
+          {
+            key: "/training/augmentation",
             icon: <ExperimentOutlined />,
             label: (
-              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
+              <Link to="/training/augmentation">Augmentation Dataset</Link>
             ),
           },
         ],
@@ -124,9 +143,7 @@ export function AppSidebar() {
           {
             key: "/evaluation/comparison",
             icon: <ExperimentOutlined />,
-            label: (
-              <Link to="/evaluation/comparison">Evaluation comparison</Link>
-            ),
+            label: <Link to="/evaluation/comparison">Comparison</Link>,
           },
         ],
       },
@@ -139,11 +156,6 @@ export function AppSidebar() {
             key: "/training/runs",
             icon: <PlayCircleOutlined />,
             label: <Link to="/training/runs">Runs</Link>,
-          },
-          {
-            key: "/training/curate",
-            icon: <EditOutlined />,
-            label: <Link to="/training/curate">Curate failures</Link>,
           },
         ],
       },
@@ -203,6 +215,7 @@ export function AppSidebar() {
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
     if (path.startsWith("/training-center")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
+    if (path.startsWith("/training/augmentation")) return "/training/augmentation";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training/runs";
     return path;
@@ -211,6 +224,7 @@ export function AppSidebar() {
   const [openKeys, setOpenKeys] = useState<string[]>(() => [
     "models-group",
     "evaluation-group",
+    "training-dataset-group",
     "eval-runs-group",
     "training-group",
   ]);
@@ -228,13 +242,23 @@ export function AppSidebar() {
     if (
       location.pathname.startsWith("/evaluation/datasets") ||
       location.pathname.startsWith("/evaluation/dataset-list") ||
-      location.pathname.startsWith("/evaluation/training-datasets") ||
       location.pathname.startsWith("/evaluation/hard-cases")
     ) {
       setOpenKeys((keys) =>
         keys.includes("evaluation-group")
           ? keys
           : [...keys, "evaluation-group"],
+      );
+    }
+    if (
+      location.pathname.startsWith("/evaluation/training-datasets") ||
+      location.pathname.startsWith("/training/curate") ||
+      location.pathname.startsWith("/training/augmentation")
+    ) {
+      setOpenKeys((keys) =>
+        keys.includes("training-dataset-group")
+          ? keys
+          : [...keys, "training-dataset-group"],
       );
     }
     if (

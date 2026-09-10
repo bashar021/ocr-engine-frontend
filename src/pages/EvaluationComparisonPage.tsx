@@ -1,4 +1,14 @@
-import { Alert, Card, Radio, Select, Spin, Statistic, Table, Tag } from "antd";
+import {
+  Alert,
+  Button,
+  Card,
+  Drawer,
+  Select,
+  Spin,
+  Statistic,
+  Table,
+  Tag,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,9 +22,14 @@ import type {
   EvaluationComparisonResponse,
   EvaluationRun,
 } from "@/types/evaluation";
+import {
+  buildComparisonMetricRows,
+  compareMetricDelta,
+  deltaIndicatorLabel,
+  formatMetricDelta,
+  type ComparisonMetricRow,
+} from "@/utils/evaluationComparisonMetrics";
 import { formatPercent } from "@/utils/format";
-
-type CompareMode = "models" | "datasets";
 
 function evalLabel(run: EvaluationRun): string {
   const ds = run.dataset_name
@@ -25,11 +40,10 @@ function evalLabel(run: EvaluationRun): string {
 
 export function EvaluationComparisonPage() {
   const { activeTaskKey } = useTaskContext();
-  const [mode, setMode] = useState<CompareMode>("models");
-  const [anchorDatasetId, setAnchorDatasetId] = useState<string | undefined>();
-  const [anchorModelRef, setAnchorModelRef] = useState<string | undefined>();
+  const [datasetId, setDatasetId] = useState<string | undefined>();
   const [leftId, setLeftId] = useState<string | undefined>();
   const [rightId, setRightId] = useState<string | undefined>();
+  const [samplesOpen, setSamplesOpen] = useState(false);
 
   const completedQuery = useEvaluationsQuery(
     {
@@ -52,32 +66,28 @@ export function EvaluationComparisonPage() {
         : run.dataset_id.slice(0, 8);
       seen.set(run.dataset_id, label);
     }
-    return [...seen.entries()].map(([value, label]) => ({ value, label }));
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [completed]);
 
-  const modelRefOptions = useMemo(() => {
-    const refs = new Set<string>();
-    for (const run of completed) {
-      if (run.model_ref) refs.add(run.model_ref);
-    }
-    return [...refs].sort().map((r) => ({ value: r, label: r }));
-  }, [completed]);
+  const datasetRuns = useMemo(
+    () => (datasetId ? completed.filter((r) => r.dataset_id === datasetId) : []),
+    [completed, datasetId],
+  );
 
-  const leftOptions = useMemo(() => {
-    let pool = completed;
-    if (mode === "models") {
-      if (!anchorDatasetId) return [];
-      pool = pool.filter((r) => r.dataset_id === anchorDatasetId);
-    } else {
-      if (!anchorModelRef) return [];
-      pool = pool.filter((r) => r.model_ref === anchorModelRef);
-    }
-    return pool.map((r) => ({ value: r.id, label: evalLabel(r) }));
-  }, [completed, mode, anchorDatasetId, anchorModelRef]);
+  const evalOptions = useMemo(
+    () => datasetRuns.map((r) => ({ value: r.id, label: evalLabel(r) })),
+    [datasetRuns],
+  );
 
-  const rightOptions = useMemo(() => {
-    return leftOptions.filter((o) => o.value !== leftId);
-  }, [leftOptions, leftId]);
+  const rightOptions = useMemo(
+    () => evalOptions.filter((o) => o.value !== leftId),
+    [evalOptions, leftId],
+  );
+
+  const leftRun = completed.find((r) => r.id === leftId);
+  const rightRun = completed.find((r) => r.id === rightId);
 
   const compareQuery = useQuery({
     queryKey: ["evaluation", "compare", leftId, rightId],
@@ -88,131 +98,156 @@ export function EvaluationComparisonPage() {
   type CompareSample = EvaluationComparisonResponse["samples"][number];
 
   const sampleColumns: ColumnsType<CompareSample> = useMemo(
-      () => [
-        {
-          title: "Status",
-          dataIndex: "status",
-          width: 120,
-          render: (v: string) => {
-            const color =
-              v === "improved"
-                ? "green"
-                : v === "regressed"
-                  ? "red"
-                  : v === "still_failing"
-                    ? "orange"
-                    : "default";
-            return <Tag color={color}>{v}</Tag>;
-          },
+    () => [
+      {
+        title: "Status",
+        dataIndex: "status",
+        width: 120,
+        render: (v: string) => {
+          const color =
+            v === "improved"
+              ? "green"
+              : v === "regressed"
+                ? "red"
+                : v === "still_failing"
+                  ? "orange"
+                  : "default";
+          return <Tag color={color}>{v}</Tag>;
         },
-        { title: "Matrix", dataIndex: "matrix", width: 80 },
-        {
-          title: "Ground truth",
-          dataIndex: "ground_truth",
-          ellipsis: true,
-        },
-        {
-          title: "Left pred.",
-          dataIndex: "left_predicted",
-          ellipsis: true,
-        },
-        {
-          title: "Right pred.",
-          dataIndex: "right_predicted",
-          ellipsis: true,
-        },
-        {
-          title: "Left failure",
-          dataIndex: "left_failure_type",
-          width: 140,
-        },
-        {
-          title: "Right failure",
-          dataIndex: "right_failure_type",
-          width: 140,
-        },
-      ],
-      [],
-    );
+      },
+      { title: "Matrix", dataIndex: "matrix", width: 80 },
+      {
+        title: "Ground truth",
+        dataIndex: "ground_truth",
+        ellipsis: true,
+      },
+      {
+        title: "Left pred.",
+        dataIndex: "left_predicted",
+        ellipsis: true,
+      },
+      {
+        title: "Right pred.",
+        dataIndex: "right_predicted",
+        ellipsis: true,
+      },
+      {
+        title: "Left failure",
+        dataIndex: "left_failure_type",
+        width: 140,
+      },
+      {
+        title: "Right failure",
+        dataIndex: "right_failure_type",
+        width: 140,
+      },
+    ],
+    [],
+  );
 
   const changedSamples = useMemo(() => {
     const samples = compareQuery.data?.samples ?? [];
     return samples.filter((s) => s.status !== "unchanged");
   }, [compareQuery.data?.samples]);
 
+  const metricRows = useMemo(() => {
+    if (!compareQuery.data) return [];
+    return buildComparisonMetricRows(
+      compareQuery.data,
+      leftRun,
+      rightRun,
+    );
+  }, [compareQuery.data, leftRun, rightRun]);
+
+  const leftModelLabel = leftRun?.model_ref ?? compareQuery.data?.left.model_ref ?? "Left";
+  const rightModelLabel =
+    rightRun?.model_ref ?? compareQuery.data?.right.model_ref ?? "Right";
+
+  const metricsTableColumns: ColumnsType<ComparisonMetricRow> = useMemo(
+    () => [
+      { title: "Metric", dataIndex: "label", width: 220 },
+      {
+        title: leftModelLabel,
+        key: "left",
+        width: 120,
+        render: (_, row) => row.format(row.left),
+      },
+      {
+        title: rightModelLabel,
+        key: "right",
+        width: 120,
+        render: (_, row) => row.format(row.right),
+      },
+      {
+        title: "Delta",
+        key: "delta",
+        width: 100,
+        render: (_, row) =>
+          formatMetricDelta(row.left, row.right, row.format),
+      },
+      {
+        title: "Indicator",
+        key: "indicator",
+        width: 80,
+        align: "center",
+        render: (_, row) => {
+          const { indicator } = compareMetricDelta(
+            row.left,
+            row.right,
+            row.direction,
+          );
+          const label = deltaIndicatorLabel(indicator);
+          const color =
+            indicator === "better"
+              ? "text-green-600"
+              : indicator === "worse"
+                ? "text-red-600"
+                : "text-slate-400";
+          return <span className={`font-semibold ${color}`}>{label}</span>;
+        },
+      },
+    ],
+    [leftModelLabel, rightModelLabel],
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader title="Evaluation comparison" />
+      <PageHeader title="Comparison" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-        <Card size="small" title="Compare mode">
-          <Radio.Group
-            value={mode}
-            onChange={(e) => {
-              setMode(e.target.value as CompareMode);
-              setAnchorDatasetId(undefined);
-              setAnchorModelRef(undefined);
-              setLeftId(undefined);
-              setRightId(undefined);
-            }}
-          >
-            <Radio.Button value="models">By model refs (same dataset)</Radio.Button>
-            <Radio.Button value="datasets">
-              By datasets (same model ref)
-            </Radio.Button>
-          </Radio.Group>
-        </Card>
-
         <Card size="small" title="Select evaluations">
           <div className="flex flex-wrap items-center gap-3">
-            {mode === "models" ? (
-              <Select
-                placeholder="Dataset"
-                className="min-w-[220px]"
-                showSearch
-                optionFilterProp="label"
-                value={anchorDatasetId}
-                options={datasetOptions}
-                loading={completedQuery.isLoading}
-                onChange={(v) => {
-                  setAnchorDatasetId(v);
-                  setLeftId(undefined);
-                  setRightId(undefined);
-                }}
-              />
-            ) : (
-              <Select
-                placeholder="Model ref"
-                className="w-48"
-                showSearch
-                optionFilterProp="label"
-                value={anchorModelRef}
-                options={modelRefOptions}
-                loading={completedQuery.isLoading}
-                onChange={(v) => {
-                  setAnchorModelRef(v);
-                  setLeftId(undefined);
-                  setRightId(undefined);
-                }}
-              />
-            )}
             <Select
-              placeholder="Left (champion)"
+              placeholder="Dataset"
+              className="min-w-[220px]"
+              showSearch
+              optionFilterProp="label"
+              value={datasetId}
+              options={datasetOptions}
+              loading={completedQuery.isLoading}
+              onChange={(v) => {
+                setDatasetId(v);
+                setLeftId(undefined);
+                setRightId(undefined);
+              }}
+            />
+            <Select
+              placeholder="Left model / evaluation"
               className="min-w-[280px]"
               showSearch
               optionFilterProp="label"
               value={leftId}
-              options={leftOptions}
-              disabled={leftOptions.length === 0}
+              options={evalOptions}
+              disabled={!datasetId || evalOptions.length === 0}
               onChange={setLeftId}
             />
             <Select
-              placeholder="Right (candidate)"
+              placeholder="Right model / evaluation"
               className="min-w-[280px]"
               showSearch
               optionFilterProp="label"
               value={rightId}
               options={rightOptions}
-              disabled={rightOptions.length === 0}
+              disabled={!datasetId || rightOptions.length === 0}
               onChange={setRightId}
             />
           </div>
@@ -236,7 +271,11 @@ export function EvaluationComparisonPage() {
         {compareQuery.data ? (
           <>
             {!compareQuery.data.benchmark_compatible ? (
-              <Alert type="warning" showIcon message={compareQuery.data.warning} />
+              <Alert
+                type="warning"
+                showIcon
+                message={compareQuery.data.warning}
+              />
             ) : null}
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -294,14 +333,26 @@ export function EvaluationComparisonPage() {
               </div>
             </Card>
 
-            <Card size="small" title="Changed samples">
+            <div className="flex justify-end">
+              <Button
+                disabled={changedSamples.length === 0}
+                onClick={() => setSamplesOpen(true)}
+              >
+                View sample differences
+                {changedSamples.length > 0
+                  ? ` (${changedSamples.length})`
+                  : ""}
+              </Button>
+            </div>
+
+            <Card size="small" title="Metrics comparison">
               <Table
-                rowKey="dataset_sample_id"
+                rowKey="key"
                 size="small"
-                columns={sampleColumns}
-                dataSource={changedSamples}
-                pagination={{ pageSize: 20, showSizeChanger: true }}
-                scroll={{ x: 900 }}
+                pagination={false}
+                columns={metricsTableColumns}
+                dataSource={metricRows}
+                scroll={{ x: 640 }}
               />
             </Card>
           </>
@@ -319,6 +370,23 @@ export function EvaluationComparisonPage() {
           />
         ) : null}
       </div>
+
+      <Drawer
+        title="Sample differences"
+        width={960}
+        open={samplesOpen}
+        onClose={() => setSamplesOpen(false)}
+        destroyOnClose
+      >
+        <Table
+          rowKey="dataset_sample_id"
+          size="small"
+          columns={sampleColumns}
+          dataSource={changedSamples}
+          pagination={{ pageSize: 20, showSizeChanger: true }}
+          scroll={{ x: 900 }}
+        />
+      </Drawer>
     </div>
   );
 }

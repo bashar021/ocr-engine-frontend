@@ -56,6 +56,31 @@ export async function listClients() {
   return data.clients
 }
 
+export type OcrRequestLog = {
+  request_id: string
+  ocr_type: string
+  model_ref: string
+  status: string
+  error_code: string | null
+  value: string | null
+  confidence: number | null
+  latency_ms: number | null
+  client_id: string | null
+  client_label: string | null
+  created_at: string | null
+}
+
+export async function listClientRequestLogs(params?: {
+  ocr_type?: string
+  limit?: number
+}): Promise<OcrRequestLog[]> {
+  const { data } = await apiClient.get<{ logs: OcrRequestLog[] }>(
+    '/v1/clients/request-logs',
+    { params },
+  )
+  return data.logs
+}
+
 export async function listReleases(taskKey: string) {
   const { data } = await apiClient.get<{ releases: Array<Record<string, unknown>> }>(
     `/v1/tasks/${taskKey}/releases`,

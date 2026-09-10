@@ -376,3 +376,30 @@ export async function listTrainingExperiments(params?: {
   const { data } = await apiClient.get("/v1/training/experiments", { params });
   return data;
 }
+
+export type AugmentationStrategy = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+export async function listAugmentationStrategies(): Promise<
+  AugmentationStrategy[]
+> {
+  const { data } = await apiClient.get<{ strategies: AugmentationStrategy[] }>(
+    "/v1/training/augmentation/strategies",
+  );
+  return data.strategies;
+}
+
+export async function createAugmentedDataset(payload: {
+  source_dataset_id: string;
+  strategy: string;
+  name?: string;
+}) {
+  const { data } = await apiClient.post(
+    "/v1/training/augmentation/datasets",
+    payload,
+  );
+  return data as import("@/types/evaluation").EvaluationDataset;
+}
