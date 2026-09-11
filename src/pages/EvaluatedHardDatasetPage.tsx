@@ -23,16 +23,13 @@ import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
 import { useTaskContext } from "@/features/tasks/TaskContext";
 import type { EvaluationResult } from "@/types/evaluation";
 import { formatPercent } from "@/utils/format";
+import {
+  FAILURE_TYPE_DESCRIPTIONS,
+  HARD_FAILURE_TYPES,
+  formatFailureType,
+} from "@/utils/failureTaxonomy";
 
-const FAILURE_TYPES = [
-  "INVALID_IMAGE",
-  "DETECTION_FAILURE",
-  "MULTIPLE_DETECTIONS",
-  "PARTIAL_DETECTION",
-  "RECOGNITION_FAILURE",
-  "MISMATCH",
-  "UNKNOWN",
-];
+const FAILURE_TYPES = [...HARD_FAILURE_TYPES, "UNKNOWN"];
 
 function FailureMetricsStrip({
   counts,
@@ -242,10 +239,25 @@ export function EvaluatedHardDatasetPage() {
       title: "Failure type",
       dataIndex: "failure_type",
       width: 160,
-      filters: FAILURE_TYPES.map((t) => ({ text: t, value: t })),
+      filters: FAILURE_TYPES.map((t) => ({
+        text: t === "UNKNOWN" ? "Unknown" : formatFailureType(t),
+        value: t,
+      })),
       filteredValue: failureType ? [failureType] : null,
       onFilter: (value, row) =>
         (row.failure_type ?? "UNKNOWN").toUpperCase() === String(value),
+      render: (v: string | null | undefined) =>
+        v ? (
+          <Tag title={FAILURE_TYPE_DESCRIPTIONS[v]}>{formatFailureType(v)}</Tag>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Detection",
+      dataIndex: "detection_outcome",
+      width: 140,
+      render: (v: string | null | undefined) => (v ? <Tag>{v}</Tag> : "—"),
     },
     {
       title: "Filename",

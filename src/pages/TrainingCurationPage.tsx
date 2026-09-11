@@ -28,6 +28,7 @@ import {
 } from "@/api/evaluation";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useTaskContext } from "@/features/tasks/TaskContext";
+import { HARD_FAILURE_TYPES, formatFailureType } from "@/utils/failureTaxonomy";
 import {
   BboxAnnotator,
   type DrawnBox,
@@ -450,14 +451,10 @@ export function TrainingCurationPage() {
             placeholder="Failure type"
             value={failureFilter}
             onChange={setFailureFilter}
-            options={[
-              "DETECTION_FAILURE",
-              "MULTIPLE_DETECTIONS",
-              "PARTIAL_DETECTION",
-              "RECOGNITION_FAILURE",
-              "MISMATCH",
-              "INVALID_IMAGE",
-            ].map((v) => ({ value: v, label: v }))}
+            options={HARD_FAILURE_TYPES.map((v) => ({
+              value: v,
+              label: formatFailureType(v),
+            }))}
           />
           <Select
             allowClear

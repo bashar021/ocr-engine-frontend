@@ -1,5 +1,6 @@
 import type { EvaluationComparisonResponse, EvaluationRun } from "@/types/evaluation";
 import { formatMs, formatPercent } from "@/utils/format";
+import { FAILURE_TYPE_LABELS, HARD_FAILURE_TYPES } from "@/utils/failureTaxonomy";
 
 export type MetricDirection = "higher" | "lower";
 
@@ -12,14 +13,7 @@ export interface ComparisonMetricRow {
   format: (v: number | null) => string;
 }
 
-const FAILURE_TYPES = [
-  "INVALID_IMAGE",
-  "DETECTION_FAILURE",
-  "MULTIPLE_DETECTIONS",
-  "PARTIAL_DETECTION",
-  "RECOGNITION_FAILURE",
-  "MISMATCH",
-] as const;
+const FAILURE_TYPES = HARD_FAILURE_TYPES;
 
 function runMetric(run: EvaluationRun | undefined, name: string): number | null {
   const value = run?.metrics?.[name];
@@ -130,11 +124,13 @@ export function buildComparisonMetricRows(
     },
   ];
 
-  const failureLabels: Record<(typeof FAILURE_TYPES)[number], string> = {
+  const failureLabels: Record<string, string> = {
     INVALID_IMAGE: "Invalid image rate",
     DETECTION_FAILURE: "Detection failure rate",
-    MULTIPLE_DETECTIONS: "Multiple detection rate",
+    WRONG_DETECTION: "Wrong detection rate",
     PARTIAL_DETECTION: "Partial detection rate",
+    MULTIPLE_DETECTIONS: "Multiple detection rate",
+    DUPLICATE_DETECTION: "Duplicate detection rate",
     RECOGNITION_FAILURE: "Recognition failure rate",
     MISMATCH: "Mismatch rate",
   };
@@ -142,7 +138,7 @@ export function buildComparisonMetricRows(
   for (const ft of FAILURE_TYPES) {
     rows.push({
       key: `failure_${ft}`,
-      label: failureLabels[ft],
+      label: failureLabels[ft] ?? `${FAILURE_TYPE_LABELS[ft] ?? ft} rate`,
       left: failureRate(leftFt, ft, leftTotal),
       right: failureRate(rightFt, ft, rightTotal),
       direction: "lower",

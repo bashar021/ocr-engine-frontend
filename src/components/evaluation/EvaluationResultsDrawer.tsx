@@ -35,22 +35,19 @@ import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
 import type { EvaluationResult } from "@/types/evaluation";
 import type { OcrBoundingBox } from "@/types/ocr";
 import { formatMs, formatPercent } from "@/utils/format";
+import {
+  FAILURE_TYPES,
+  FAILURE_TYPE_DESCRIPTIONS,
+  formatDetectionOutcome,
+  formatDiagnostic,
+  formatFailureType,
+} from "@/utils/failureTaxonomy";
 
 interface EvaluationResultsDrawerProps {
   evaluationId: string | null;
   open: boolean;
   onClose: () => void;
 }
-
-const FAILURE_TYPES = [
-  "OK",
-  "INVALID_IMAGE",
-  "DETECTION_FAILURE",
-  "MULTIPLE_DETECTIONS",
-  "PARTIAL_DETECTION",
-  "RECOGNITION_FAILURE",
-  "MISMATCH",
-];
 
 const REVIEW_STATUSES = [
   { value: "confirmed_bug", label: "Confirmed bug" },
@@ -65,7 +62,10 @@ function toCsv(rows: EvaluationResult[]): string {
     "predicted",
     "is_correct",
     "failure_type",
+    "detection_outcome",
     "quality_flags",
+    "detection_diagnostics",
+    "taxonomy_version",
     "review_status",
     "confidence",
     "processing_time_ms",
@@ -81,7 +81,10 @@ function toCsv(rows: EvaluationResult[]): string {
       row.predicted_normalized,
       row.is_correct,
       row.failure_type,
+      row.detection_outcome,
       (row.quality_flags ?? []).join("|"),
+      (row.detection_diagnostics ?? row.quality_flags ?? []).join("|"),
+      row.taxonomy_version,
       row.review_status,
       row.confidence,
       row.processing_time_ms,
@@ -321,7 +324,23 @@ export function EvaluationResultsDrawer({
       dataIndex: "failure_type",
       width: 150,
       render: (v: string | null | undefined) =>
-        v ? <Tag color={v === "OK" ? "green" : "orange"}>{v}</Tag> : "—",
+        v ? (
+          <Tag
+            color={v === "OK" ? "green" : "orange"}
+            title={FAILURE_TYPE_DESCRIPTIONS[v]}
+          >
+            {formatFailureType(v)}
+          </Tag>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Detection",
+      dataIndex: "detection_outcome",
+      width: 140,
+      render: (v: string | null | undefined) =>
+        v ? <Tag color="blue">{formatDetectionOutcome(v)}</Tag> : "—",
     },
     {
       title: "Fail stage",
@@ -573,7 +592,11 @@ export function EvaluationResultsDrawer({
             placeholder="Failure type"
             className="w-48"
             value={failureFilter}
-            options={FAILURE_TYPES.map((v) => ({ value: v, label: v }))}
+            options={FAILURE_TYPES.map((v) => ({
+              value: v,
+              label: formatFailureType(v),
+              title: FAILURE_TYPE_DESCRIPTIONS[v],
+            }))}
             onChange={(v) => {
               setFailureFilter(v);
               setPage(1);
@@ -676,17 +699,77 @@ export function EvaluationResultsDrawer({
             <div className="space-y-3 text-sm">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Outcome
+                  Primary outcome
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <Tag color={preview.is_correct ? "green" : "red"}>
-                    {failLabel(preview)}
+                  <Tag
+                    color={preview.is_correct ? "green" : "red"}
+                    title={
+                      preview.failure_type
+                        ? FAILURE_TYPE_DESCRIPTIONS[preview.failure_type]
+                        : undefined
+                    }
+                  >
+                    {formatFailureType(preview.failure_type) || failLabel(preview)}
                   </Tag>
-                  {(preview.quality_flags ?? []).map((f) => (
-                    <Tag key={f} color="gold">
-                      {f}
-                    </Tag>
-                  ))}
+                </div>
+                {preview.taxonomy_version ? (
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    Taxonomy: {preview.taxonomy_version}
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Detection
+                </div>
+                <div className="mt-1">
+                  <Tag color="blue">
+                    {formatDetectionOutcome(preview.detection_outcome)}
+                  </Tag>
+                </div>
+                {preview.detection_metrics &&
+                typeof preview.detection_metrics.gt_coverage === "number" ? (
+                  <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-600">
+                    <div>
+                      IoU:{" "}
+                      {Number(preview.detection_metrics.iou ?? 0).toFixed(3)}
+                    </div>
+                    <div>
+                      GT coverage:{" "}
+                      {Number(preview.detection_metrics.gt_coverage).toFixed(3)}
+                    </div>
+                    <div>
+                      Pred coverage:{" "}
+                      {Number(
+                        preview.detection_metrics.prediction_coverage ?? 0,
+                      ).toFixed(3)}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Diagnostics
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {(
+                    preview.detection_diagnostics ??
+                    preview.quality_flags ??
+                    []
+                  ).length === 0 ? (
+                    <span className="text-slate-400">None</span>
+                  ) : (
+                    (
+                      preview.detection_diagnostics ??
+                      preview.quality_flags ??
+                      []
+                    ).map((f) => (
+                      <Tag key={f} color="gold">
+                        {formatDiagnostic(f)}
+                      </Tag>
+                    ))
+                  )}
                 </div>
               </div>
               <div>
@@ -759,7 +842,7 @@ export function EvaluationResultsDrawer({
               allowClear
               options={FAILURE_TYPES.filter((t) => t !== "OK").map((v) => ({
                 value: v,
-                label: v,
+                label: formatFailureType(v),
               }))}
             />
           </Form.Item>

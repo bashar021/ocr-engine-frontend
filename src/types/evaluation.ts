@@ -155,6 +155,13 @@ export interface EvaluationResult {
   fail_stage: string | null;
   failure_type?: string | null;
   quality_flags?: string[];
+  detection_outcome?: string | null;
+  detection_diagnostics?: string[];
+  detection_metrics?: Record<string, unknown>;
+  taxonomy_version?: string | null;
+  gt_bbox_available?: boolean;
+  gt_bbox?: Record<string, unknown> | null;
+  classification_basis?: string | null;
   review_status?: string | null;
   corrected_gt?: string | null;
   corrected_bbox?: Record<string, unknown> | null;
