@@ -2,6 +2,24 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "@/components/layout/AppLayout";
 import { TrainingCenterLayout } from "@/components/training/TrainingCenterLayout";
+import { BillDatasetLayout } from "@/components/bill/dataset/BillDatasetLayout";
+import { BillAnnotationsPage } from "@/pages/bill/dataset/BillAnnotationsPage";
+import { BillDataListPage } from "@/pages/bill/dataset/BillDataListPage";
+import { BillDatasetEvalPage } from "@/pages/bill/dataset/BillDatasetEvalPage";
+import { BillDatasetReviewPage } from "@/pages/bill/dataset/BillDatasetReviewPage";
+import { BillDatasetsPage } from "@/pages/bill/dataset/BillDatasetsPage";
+import { BillIssuesPage } from "@/pages/bill/dataset/BillIssuesPage";
+import { BillJobsPage } from "@/pages/bill/dataset/BillJobsPage";
+import { BillVersionsPage } from "@/pages/bill/dataset/BillVersionsPage";
+import { BillDocumentDetailPage } from "@/pages/bill/BillDocumentDetailPage";
+import { BillDocumentsPage } from "@/pages/bill/BillDocumentsPage";
+import { BillFeedbackPage } from "@/pages/bill/BillFeedbackPage";
+import {
+  BillProfileDetailPage,
+  BillProfilesPage,
+} from "@/pages/bill/BillProfilesPage";
+import { BillReviewQueuePage } from "@/pages/bill/BillReviewQueuePage";
+import { BillSystemPage } from "@/pages/bill/BillSystemPage";
 import { DatabankListPage } from "@/pages/DatabankListPage";
 import { EvaluatedHardDatasetPage } from "@/pages/EvaluatedHardDatasetPage";
 import { EvaluationComparisonPage } from "@/pages/EvaluationComparisonPage";
@@ -48,7 +66,10 @@ export function AppRoutes() {
         <Route path="/deployments" element={<DeploymentsPage />} />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/history" element={<AuditHistoryPage />} />
-        <Route path="/models" element={<Navigate to="/models/list" replace />} />
+        <Route
+          path="/models"
+          element={<Navigate to="/models/list" replace />}
+        />
         <Route path="/models/list" element={<ModelListPage />} />
         <Route path="/models/refs" element={<ModelRefsPage />} />
         <Route
@@ -63,7 +84,10 @@ export function AppRoutes() {
           path="/evaluation"
           element={<Navigate to="/evaluation/datasets" replace />}
         />
-        <Route path="/evaluation/datasets" element={<EvaluationDatasetsPage />} />
+        <Route
+          path="/evaluation/datasets"
+          element={<EvaluationDatasetsPage />}
+        />
         <Route path="/evaluation/dataset-list" element={<DatabankListPage />} />
         <Route
           path="/data-explorer"
@@ -89,17 +113,29 @@ export function AppRoutes() {
         <Route path="/training-center" element={<TrainingCenterLayout />}>
           <Route index element={<TrainingCenterOverviewPage />} />
           <Route path="detection" element={<TrainingCenterDetectionPage />} />
-          <Route path="recognition" element={<TrainingCenterRecognitionPage />} />
-          <Route path="experiments" element={<TrainingCenterExperimentsPage />} />
+          <Route
+            path="recognition"
+            element={<TrainingCenterRecognitionPage />}
+          />
+          <Route
+            path="experiments"
+            element={<TrainingCenterExperimentsPage />}
+          />
           <Route path="datasets" element={<TrainingCenterDatasetsPage />} />
-          <Route path="evaluations" element={<TrainingCenterEvaluationsPage />} />
+          <Route
+            path="evaluations"
+            element={<TrainingCenterEvaluationsPage />}
+          />
           <Route path="models" element={<TrainingCenterModelsPage />} />
           <Route path="cycles" element={<TrainingCenterOverviewPage />} />
           <Route path="cycles/:cycleId" element={<TrainingCycleDetailPage />} />
         </Route>
         <Route path="/training" element={<TrainingOverviewPage />} />
         <Route path="/training/runs" element={<TrainingRunsPage />} />
-        <Route path="/training/runs/:runId" element={<TrainingRunDetailPage />} />
+        <Route
+          path="/training/runs/:runId"
+          element={<TrainingRunDetailPage />}
+        />
         <Route
           path="/training/datasets"
           element={<Navigate to="/evaluation/training-datasets" replace />}
@@ -110,6 +146,40 @@ export function AppRoutes() {
           element={<AugmentationDatasetPage />}
         />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
+        <Route
+          path="/bill"
+          element={<Navigate to="/bill/documents" replace />}
+        />
+        <Route path="/bill/documents" element={<BillDocumentsPage />} />
+        <Route
+          path="/bill/documents/:documentId"
+          element={<BillDocumentDetailPage />}
+        />
+        <Route path="/bill/review" element={<BillReviewQueuePage />} />
+        <Route path="/bill/profiles" element={<BillProfilesPage />} />
+        <Route
+          path="/bill/profiles/:profileId"
+          element={<BillProfileDetailPage />}
+        />
+        <Route path="/bill/feedback" element={<BillFeedbackPage />} />
+        <Route path="/bill/system" element={<BillSystemPage />} />
+        <Route
+          path="/bill/dataset"
+          element={<Navigate to="/bill/datasets" replace />}
+        />
+        <Route element={<BillDatasetLayout />}>
+          <Route path="/bill/datasets" element={<BillDatasetsPage />} />
+          <Route path="/bill/data" element={<BillDataListPage />} />
+          <Route path="/bill/annotations" element={<BillAnnotationsPage />} />
+          <Route
+            path="/bill/dataset-review"
+            element={<BillDatasetReviewPage />}
+          />
+          <Route path="/bill/jobs" element={<BillJobsPage />} />
+          <Route path="/bill/evaluation" element={<BillDatasetEvalPage />} />
+          <Route path="/bill/versions" element={<BillVersionsPage />} />
+          <Route path="/bill/issues" element={<BillIssuesPage />} />
+        </Route>
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/import-export" element={<ImportExportPage />} />
         <Route path="/settings" element={<SettingsPage />} />

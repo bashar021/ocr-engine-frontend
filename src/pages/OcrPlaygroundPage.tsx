@@ -4,6 +4,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
+  Alert,
   Button,
   Empty,
   Progress,
@@ -14,6 +15,7 @@ import {
   message,
 } from "antd";
 import { useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import { runTaskOcr } from "@/api/ocr";
@@ -137,7 +139,9 @@ export function OcrPlaygroundPage() {
               OCR Playground
             </div>
             <div className="mt-0.5 text-sm text-slate-400">
-              Odometer detection & recognition studio
+              {activeTaskKey === "bill"
+                ? "Generic OCR endpoint — use Bill OCR Documents for full document intelligence"
+                : "Odometer detection & recognition studio"}
             </div>
           </div>
         </div>
@@ -153,6 +157,27 @@ export function OcrPlaygroundPage() {
           Run OCR
         </Button>
       </header>
+
+      {activeTaskKey === "bill" ? (
+        <div className="relative z-10 px-8 pt-4">
+          <Alert
+            type="info"
+            showIcon
+            message="Bill / Receipt OCR workspace"
+            description={
+              <span>
+                For upload, multipage PDF, extraction evidence, validation, and
+                human review, open the{" "}
+                <Link to="/bill/documents" className="font-medium underline">
+                  Bill Documents
+                </Link>{" "}
+                workspace. This playground calls{" "}
+                <code>/v1/ocr/bill</code> only.
+              </span>
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="relative z-10 min-h-0 flex-1 overflow-auto">
         <div className="mx-auto grid max-w-[1440px] gap-10 p-8 lg:grid-cols-[380px_minmax(0,1fr)] lg:p-10">

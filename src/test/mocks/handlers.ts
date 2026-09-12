@@ -21,6 +21,21 @@ export const mockTasks: TaskDefinition[] = [
     ],
     ui_config: {},
   },
+  {
+    id: "task-bill",
+    key: "bill",
+    display_name: "Bill / Invoice OCR",
+    description: "Document intelligence for bills and receipts",
+    status: "active",
+    current_version: "1.1.0",
+    capabilities: [
+      "supports_live_ocr",
+      "supports_extraction",
+      "api_serving",
+      "configurable_profiles",
+    ],
+    ui_config: {},
+  },
 ];
 
 export const mockArtifacts: ModelArtifact[] = [
@@ -502,5 +517,170 @@ export const handlers = [
     const task =
       mockTasks.find((t) => t.key === params.taskKey) ?? mockTasks[0]!;
     return HttpResponse.json(task);
+  }),
+
+  // Bill OCR APIs — test doubles only (never used in production UI paths)
+  http.get("*/v1/bill/profiles", () => {
+    return HttpResponse.json({
+      profiles: [
+        {
+          profile_id: "generic_invoice",
+          name: "Generic Invoice",
+          version: "1",
+          status: "ACTIVE",
+          field_count: 8,
+        },
+      ],
+    });
+  }),
+
+  http.get("*/v1/bill/profiles/generated", () => {
+    return HttpResponse.json({ drafts: [] });
+  }),
+
+  http.get("*/v1/bill/profiles/:profileId", ({ params }) => {
+    return HttpResponse.json({
+      profile_id: params.profileId,
+      name: "Generic Invoice",
+      version: "1",
+      status: "ACTIVE",
+      fields: [
+        { field_name: "invoice_number", type: "IDENTIFIER", required: true },
+        { field_name: "grand_total", type: "CURRENCY", required: true },
+      ],
+    });
+  }),
+
+  http.get("*/v1/bill/providers", () => {
+    return HttpResponse.json({
+      providers: [
+        { type: "ocr", name: "paddle_ocr", production: true },
+        { type: "layout", name: "paddle_layout", production: true },
+      ],
+      readiness: { ready: true, components: {} },
+      forbidden_in_production: ["fixture_ocr", "scripted_vlm_test"],
+    });
+  }),
+
+  http.get("*/v1/bill/models", () => {
+    return HttpResponse.json({
+      vlm_enabled: false,
+      vlm_provider: "disabled",
+      ocr_provider: "paddle_ocr",
+      pipeline_version: "bill-ocr-production-v3.0.0",
+    });
+  }),
+
+  http.get("*/v1/bill/failures/taxonomy", () => {
+    return HttpResponse.json({
+      codes: ["OCR_FAILURE", "FIELD_AMBIGUOUS", "VALIDATION_FAILURE"],
+      retryable: ["OCR_FAILURE"],
+      review_required: ["FIELD_AMBIGUOUS"],
+    });
+  }),
+
+  http.get("*/v1/bill/feedback", () => {
+    return HttpResponse.json({ feedback: [] });
+  }),
+
+  http.post("*/v1/documents/process", async () => {
+    return HttpResponse.json({
+      job_id: "job-test-1",
+      document_id: "DOC-test-1",
+      status: "COMPLETED",
+      result: {
+        document_id: "DOC-test-1",
+        document_type: "INVOICE",
+        status: "COMPLETED",
+        fields: {
+          invoice_number: {
+            value: "INV-1",
+            confidence: 0.9,
+            status: "EXTRACTED",
+            strategy: "RULE",
+          },
+        },
+        line_items: [],
+        tables: [],
+        validation: { status: "PASSED", results: [], failed_count: 0 },
+        confidence: { overall: 0.9, level: "HIGH" },
+        review: { required: false, fields: [] },
+        processing: {
+          pipeline_version: "bill-ocr-production-v3.0.0",
+          profile_id: "generic_invoice",
+          stage_metrics: { ocr_ms: 12 },
+        },
+        failures: [],
+        evidence_refs: {
+          ocr_blocks: [
+            {
+              id: "tb-1",
+              text: "INV-1",
+              bbox: [10, 10, 80, 30],
+              confidence: 0.95,
+              page_id: "page-1",
+            },
+          ],
+        },
+      },
+      pipeline_version: "bill-ocr-production-v3.0.0",
+    });
+  }),
+
+  http.get("*/v1/documents/:documentId/result", ({ params }) => {
+    return HttpResponse.json({
+      document_id: params.documentId,
+      status: "COMPLETED",
+      fields: {
+        invoice_number: {
+          value: "INV-1",
+          confidence: 0.9,
+          status: "EXTRACTED",
+        },
+      },
+      validation: { status: "PASSED", results: [] },
+      confidence: { overall: 0.9, level: "HIGH" },
+      processing: { pipeline_version: "bill-ocr-production-v3.0.0" },
+      failures: [],
+      page_previews: [],
+    });
+  }),
+
+  http.get("*/v1/documents/:documentId/pages", ({ params }) => {
+    return HttpResponse.json({
+      document_id: params.documentId,
+      pages: [],
+      page_count: 0,
+    });
+  }),
+
+  http.get("*/v1/documents/:documentId/pages/:pageNumber/image", () => {
+    return new HttpResponse(null, { status: 404 });
+  }),
+
+  http.get("*/v1/documents/:documentId/evidence", () => {
+    return HttpResponse.json({
+      document_id: "DOC-test-1",
+      evidence_refs: { ocr_blocks: [] },
+      conflicts: [],
+      vlm: null,
+    });
+  }),
+
+  http.get("*/v1/documents/:documentId/review", () => {
+    return HttpResponse.json({
+      document_id: "DOC-test-1",
+      review_required: false,
+      fields: [],
+    });
+  }),
+
+  http.post("*/v1/documents/:documentId/review", async () => {
+    return HttpResponse.json({
+      status: "recorded",
+      feedback_id: "fb-1",
+      auto_retrain: false,
+      message: "Correction recorded",
+    });
   }),
 ];

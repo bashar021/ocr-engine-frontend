@@ -104,6 +104,8 @@ export interface DatabankSample {
   size_bytes?: number | null;
   reviewed_at?: string | null;
   created_at?: string | null;
+  lifecycle_state?: string | null;
+  quality_tag?: string | null;
 }
 
 export interface ListDatabankDatasetsResponse {

@@ -19,7 +19,7 @@ import {
   fetchExplorerImageUrl,
   getExplorerSample,
   setLifecycle,
-  setQualityTag,
+  setQualityTag as patchQualityTag,
   bulkSetLifecycle,
   type ExplorerSampleDetail,
   type ExplorerSampleSummary,
@@ -134,7 +134,7 @@ export function DataExplorerPage() {
 
   const qualityMutation = useMutation({
     mutationFn: (tag: string) =>
-      setQualityTag(selected!.dataset_id, selected!.id, tag),
+      patchQualityTag(selected!.dataset_id, selected!.id, tag),
     onSuccess: () => {
       message.success("Quality tag updated");
       void queryClient.invalidateQueries({ queryKey: ["explorer"] });

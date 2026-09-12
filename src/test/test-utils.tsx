@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { ConfigProvider } from 'antd'
+import { App as AntdApp, ConfigProvider } from 'antd'
 
 import { TaskProvider } from '@/features/tasks/TaskContext'
 
@@ -25,9 +25,11 @@ export function renderWithProviders(
     return (
       <QueryClientProvider client={queryClient}>
         <ConfigProvider>
-          <TaskProvider>
-            <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
-          </TaskProvider>
+          <AntdApp>
+            <TaskProvider>
+              <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+            </TaskProvider>
+          </AntdApp>
         </ConfigProvider>
       </QueryClientProvider>
     )

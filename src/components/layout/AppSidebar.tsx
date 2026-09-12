@@ -1,23 +1,33 @@
 import {
   ApiOutlined,
+  AuditOutlined,
+  AlertOutlined,
+  AppstoreOutlined,
+  BranchesOutlined,
   ClusterOutlined,
+  CommentOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
   HistoryOutlined,
   LinkOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
+  ProfileOutlined,
   RocketOutlined,
   ScanOutlined,
   SettingOutlined,
+  TagsOutlined,
   ThunderboltOutlined,
+  ToolOutlined,
+  UnorderedListOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { TaskSwitcher } from "@/features/tasks/TaskSwitcher";
 import { useTaskContext } from "@/features/tasks/TaskContext";
@@ -27,15 +37,24 @@ const { Sider } = Layout;
 type MenuItem = Required<MenuProps>["items"][number];
 
 /**
- * Product navigation is always visible so every tab renders for every task.
- * Task-specific capability gating happens inside pages, not by hiding routes.
+ * Shared platform nav is always visible.
+ * Bill OCR workspace tabs appear only when OCR type = bill.
  */
 export function AppSidebar() {
   const location = useLocation();
-  const { activeTask } = useTaskContext();
+  const navigate = useNavigate();
+  const { activeTaskKey } = useTaskContext();
+  const isBillTask = activeTaskKey === "bill";
 
-  const navItems: MenuItem[] = useMemo(
-    () => [
+  // Leave Bill routes when switching away from the bill task
+  useEffect(() => {
+    if (!isBillTask && location.pathname.startsWith("/bill")) {
+      navigate("/ocr", { replace: true });
+    }
+  }, [isBillTask, location.pathname, navigate]);
+
+  const navItems: MenuItem[] = useMemo(() => {
+    const items: MenuItem[] = [
       {
         key: "/overview",
         icon: <DashboardOutlined />,
@@ -46,6 +65,91 @@ export function AppSidebar() {
         icon: <ScanOutlined />,
         label: <Link to="/ocr">Live OCR</Link>,
       },
+    ];
+
+    if (isBillTask) {
+      items.push({
+        key: "bill-group",
+        icon: <FileTextOutlined />,
+        label: "Bill OCR",
+        children: [
+          {
+            key: "/bill/documents",
+            icon: <FileTextOutlined />,
+            label: <Link to="/bill/documents">Documents</Link>,
+          },
+          {
+            key: "/bill/review",
+            icon: <AuditOutlined />,
+            label: <Link to="/bill/review">Review queue</Link>,
+          },
+          {
+            key: "/bill/profiles",
+            icon: <ProfileOutlined />,
+            label: <Link to="/bill/profiles">Profiles</Link>,
+          },
+          {
+            key: "/bill/feedback",
+            icon: <CommentOutlined />,
+            label: <Link to="/bill/feedback">Feedback</Link>,
+          },
+          {
+            key: "/bill/system",
+            icon: <ToolOutlined />,
+            label: <Link to="/bill/system">System / models</Link>,
+          },
+        ],
+      });
+      items.push({
+        key: "bill-dataset-group",
+        icon: <DatabaseOutlined />,
+        label: "Bill Dataset",
+        children: [
+          {
+            key: "/bill/datasets",
+            icon: <AppstoreOutlined />,
+            label: <Link to="/bill/datasets">Datasets</Link>,
+          },
+          {
+            key: "/bill/data",
+            icon: <UnorderedListOutlined />,
+            label: <Link to="/bill/data">Data list</Link>,
+          },
+          {
+            key: "/bill/annotations",
+            icon: <TagsOutlined />,
+            label: <Link to="/bill/annotations">Annotations</Link>,
+          },
+          {
+            key: "/bill/dataset-review",
+            icon: <AuditOutlined />,
+            label: <Link to="/bill/dataset-review">Review queue</Link>,
+          },
+          {
+            key: "/bill/jobs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/bill/jobs">Processing jobs</Link>,
+          },
+          {
+            key: "/bill/evaluation",
+            icon: <ExperimentOutlined />,
+            label: <Link to="/bill/evaluation">Evaluation</Link>,
+          },
+          {
+            key: "/bill/versions",
+            icon: <BranchesOutlined />,
+            label: <Link to="/bill/versions">Versions & splits</Link>,
+          },
+          {
+            key: "/bill/issues",
+            icon: <AlertOutlined />,
+            label: <Link to="/bill/issues">Issues</Link>,
+          },
+        ],
+      });
+    }
+
+    items.push(
       {
         key: "models-group",
         icon: <ClusterOutlined />,
@@ -184,9 +288,10 @@ export function AppSidebar() {
         icon: <SettingOutlined />,
         label: <Link to="/settings">Settings</Link>,
       },
-    ],
-    [activeTask?.key],
-  );
+    );
+
+    return items;
+  }, [isBillTask]);
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
@@ -198,6 +303,22 @@ export function AppSidebar() {
     if (path.startsWith("/jobs")) return "/jobs";
     if (path.startsWith("/import-export")) return "/import-export";
     if (path.startsWith("/ocr")) return "/ocr";
+    if (isBillTask) {
+      if (path.startsWith("/bill/dataset-review"))
+        return "/bill/dataset-review";
+      if (path.startsWith("/bill/datasets")) return "/bill/datasets";
+      if (path.startsWith("/bill/data")) return "/bill/data";
+      if (path.startsWith("/bill/annotations")) return "/bill/annotations";
+      if (path.startsWith("/bill/jobs")) return "/bill/jobs";
+      if (path.startsWith("/bill/evaluation")) return "/bill/evaluation";
+      if (path.startsWith("/bill/versions")) return "/bill/versions";
+      if (path.startsWith("/bill/issues")) return "/bill/issues";
+      if (path.startsWith("/bill/review")) return "/bill/review";
+      if (path.startsWith("/bill/profiles")) return "/bill/profiles";
+      if (path.startsWith("/bill/feedback")) return "/bill/feedback";
+      if (path.startsWith("/bill/system")) return "/bill/system";
+      if (path.startsWith("/bill")) return "/bill/documents";
+    }
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
@@ -215,11 +336,12 @@ export function AppSidebar() {
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
     if (path.startsWith("/training-center")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
-    if (path.startsWith("/training/augmentation")) return "/training/augmentation";
+    if (path.startsWith("/training/augmentation"))
+      return "/training/augmentation";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training/runs";
     return path;
-  }, [location.pathname]);
+  }, [location.pathname, isBillTask]);
 
   const [openKeys, setOpenKeys] = useState<string[]>(() => [
     "models-group",
@@ -227,9 +349,30 @@ export function AppSidebar() {
     "training-dataset-group",
     "eval-runs-group",
     "training-group",
+    "bill-dataset-group",
   ]);
 
   useEffect(() => {
+    if (isBillTask && location.pathname.startsWith("/bill")) {
+      setOpenKeys((keys) => {
+        let next = keys.includes("bill-group") ? keys : [...keys, "bill-group"];
+        if (
+          location.pathname.startsWith("/bill/datasets") ||
+          location.pathname.startsWith("/bill/data") ||
+          location.pathname.startsWith("/bill/annotations") ||
+          location.pathname.startsWith("/bill/dataset-review") ||
+          location.pathname.startsWith("/bill/jobs") ||
+          location.pathname.startsWith("/bill/evaluation") ||
+          location.pathname.startsWith("/bill/versions") ||
+          location.pathname.startsWith("/bill/issues")
+        ) {
+          next = next.includes("bill-dataset-group")
+            ? next
+            : [...next, "bill-dataset-group"];
+        }
+        return next;
+      });
+    }
     if (
       location.pathname.startsWith("/models") ||
       location.pathname.startsWith("/releases") ||
@@ -266,9 +409,7 @@ export function AppSidebar() {
       location.pathname.startsWith("/evaluation/comparison")
     ) {
       setOpenKeys((keys) =>
-        keys.includes("eval-runs-group")
-          ? keys
-          : [...keys, "eval-runs-group"],
+        keys.includes("eval-runs-group") ? keys : [...keys, "eval-runs-group"],
       );
     }
     if (
@@ -279,7 +420,7 @@ export function AppSidebar() {
         keys.includes("training-group") ? keys : [...keys, "training-group"],
       );
     }
-  }, [location.pathname]);
+  }, [location.pathname, isBillTask]);
 
   return (
     <Sider
