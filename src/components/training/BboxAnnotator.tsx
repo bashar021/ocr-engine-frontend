@@ -14,6 +14,8 @@ interface BboxAnnotatorProps {
   imageWidth?: number | null;
   imageHeight?: number | null;
   className?: string;
+  /** When true, show overlay only — no draw/clear interactions. */
+  readOnly?: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ export function BboxAnnotator({
   imageWidth,
   imageHeight,
   className,
+  readOnly = false,
 }: BboxAnnotatorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -103,8 +106,13 @@ export function BboxAnnotator({
     <div className={className}>
       <canvas
         ref={canvasRef}
-        className="max-w-full cursor-crosshair rounded-lg border border-slate-200 shadow-sm"
+        className={
+          readOnly
+            ? "max-w-full cursor-default rounded-lg border border-slate-200 shadow-sm"
+            : "max-w-full cursor-crosshair rounded-lg border border-slate-200 shadow-sm"
+        }
         onMouseDown={(e) => {
+          if (readOnly) return;
           const p = toImageCoords(e.clientX, e.clientY);
           if (!p) return;
           startRef.current = p;
@@ -112,7 +120,7 @@ export function BboxAnnotator({
           setDraft({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
         }}
         onMouseMove={(e) => {
-          if (!dragging || !startRef.current) return;
+          if (readOnly || !dragging || !startRef.current) return;
           const p = toImageCoords(e.clientX, e.clientY);
           if (!p) return;
           const s = startRef.current;
@@ -124,7 +132,7 @@ export function BboxAnnotator({
           });
         }}
         onMouseUp={() => {
-          if (!dragging) return;
+          if (readOnly || !dragging) return;
           setDragging(false);
           startRef.current = null;
           if (draft && draft.x2 - draft.x1 > 2 && draft.y2 - draft.y1 > 2) {
@@ -140,18 +148,22 @@ export function BboxAnnotator({
           }
         }}
       />
-      <div className="mt-2 flex gap-2 text-xs text-slate-500">
-        <span>Drag to draw a detection box. Coordinates are image pixels.</span>
-        {value ? (
-          <button
-            type="button"
-            className="text-red-600 underline"
-            onClick={() => onChange(null)}
-          >
-            Clear box
-          </button>
-        ) : null}
-      </div>
+      {!readOnly ? (
+        <div className="mt-2 flex gap-2 text-xs text-slate-500">
+          <span>
+            Drag to draw a detection box. Coordinates are image pixels.
+          </span>
+          {value ? (
+            <button
+              type="button"
+              className="text-red-600 underline"
+              onClick={() => onChange(null)}
+            >
+              Clear box
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

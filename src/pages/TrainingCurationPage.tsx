@@ -22,13 +22,13 @@ import {
   bulkReviewEvaluationResults,
   exportHardCases,
   fetchSampleImageObjectUrl,
-  listEvaluationResults,
+  listAllEvaluationResults,
   listEvaluations,
   reviewEvaluationResult,
 } from "@/api/evaluation";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useTaskContext } from "@/features/tasks/TaskContext";
-import { HARD_FAILURE_TYPES, formatFailureType } from "@/utils/failureTaxonomy";
+import { FAILURE_TYPES, formatFailureType } from "@/utils/failureTaxonomy";
 import {
   BboxAnnotator,
   type DrawnBox,
@@ -56,6 +56,9 @@ export function TrainingCurationPage() {
   const [evaluationId, setEvaluationId] = useState<string | undefined>();
   const [failureFilter, setFailureFilter] = useState<string | undefined>();
   const [failStageFilter, setFailStageFilter] = useState<string | undefined>();
+  const [correctFilter, setCorrectFilter] = useState<
+    "all" | "correct" | "incorrect"
+  >("all");
   const [active, setActive] = useState<EvaluationResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [labels, setLabels] = useState<Record<string, LocalLabel>>({});
@@ -116,31 +119,35 @@ export function TrainingCurationPage() {
   }, [modelRef, evaluationsForModel, evaluationId]);
 
   const resultsQuery = useQuery({
-    queryKey: ["evaluation", "results", evaluationId, "curation"],
-    queryFn: () =>
-      listEvaluationResults(evaluationId!, { limit: 500, offset: 0 }),
+    queryKey: ["evaluation", "results", evaluationId, "curation-all"],
+    queryFn: () => listAllEvaluationResults(evaluationId!),
     enabled: Boolean(evaluationId),
   });
 
-  const failures = useMemo(() => {
-    let rows = (resultsQuery.data?.results ?? []).filter(
-      (r) =>
-        r.is_correct === false || (r.failure_type && r.failure_type !== "OK"),
-    );
+  const allResults = resultsQuery.data ?? [];
+
+  /** All evaluation entries; only user-selected filters applied. */
+  const visibleRows = useMemo(() => {
+    let rows = allResults;
     if (failureFilter) {
       rows = rows.filter((r) => (r.failure_type || "") === failureFilter);
     }
     if (failStageFilter) {
       rows = rows.filter((r) => (r.fail_stage || "") === failStageFilter);
     }
+    if (correctFilter === "correct") {
+      rows = rows.filter((r) => r.is_correct === true);
+    } else if (correctFilter === "incorrect") {
+      rows = rows.filter((r) => r.is_correct === false);
+    }
     return rows;
-  }, [resultsQuery.data, failureFilter, failStageFilter]);
+  }, [allResults, failureFilter, failStageFilter, correctFilter]);
 
   // Seed local labels from existing review state when results load
   useEffect(() => {
     setLabels((prev) => {
       const next: Record<string, LocalLabel> = { ...prev };
-      for (const r of resultsQuery.data?.results ?? []) {
+      for (const r of allResults) {
         if (next[r.id]) continue;
         const box = (r.corrected_bbox ||
           r.selected_detection) as DrawnBox | null;
@@ -169,7 +176,7 @@ export function TrainingCurationPage() {
       }
       return next;
     });
-  }, [resultsQuery.data?.results]);
+  }, [allResults]);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,9 +263,9 @@ export function TrainingCurationPage() {
           ? "Included in curated training copy"
           : "Excluded from training copy (source dataset unchanged)",
       );
-      // advance to next pending failure
-      const idx = failures.findIndex((f) => f.id === active.id);
-      const next = failures
+      // advance to next pending row in the current view
+      const idx = visibleRows.findIndex((f) => f.id === active.id);
+      const next = visibleRows
         .slice(idx + 1)
         .find((f) => labels[f.id]?.decision === "pending");
       setActive(next ?? null);
@@ -337,10 +344,28 @@ export function TrainingCurationPage() {
       render: (v, r) => v || r.relative_path || "—",
     },
     {
-      title: "Failure",
+      title: "Outcome",
       dataIndex: "failure_type",
       width: 150,
-      render: (v) => (v ? <Tag color="orange">{v}</Tag> : "—"),
+      render: (v: string | null | undefined) =>
+        v ? (
+          <Tag color={v === "OK" ? "green" : "orange"}>
+            {formatFailureType(v)}
+          </Tag>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Correct",
+      dataIndex: "is_correct",
+      width: 90,
+      render: (v: boolean | null) =>
+        v == null ? (
+          "—"
+        ) : (
+          <Tag color={v ? "green" : "red"}>{v ? "yes" : "no"}</Tag>
+        ),
     },
     {
       title: "Stage",
@@ -433,7 +458,9 @@ export function TrainingCurationPage() {
               showSearch
               optionFilterProp="label"
               placeholder={
-                modelRef ? "Select dataset evaluation" : "Choose model ref first"
+                modelRef
+                  ? "Select dataset evaluation"
+                  : "Choose model ref first"
               }
               disabled={!modelRef}
               options={evaluationOptions}
@@ -448,10 +475,10 @@ export function TrainingCurationPage() {
           <Select
             allowClear
             className="w-48"
-            placeholder="Failure type"
+            placeholder="Outcome type"
             value={failureFilter}
             onChange={setFailureFilter}
-            options={HARD_FAILURE_TYPES.map((v) => ({
+            options={FAILURE_TYPES.map((v) => ({
               value: v,
               label: formatFailureType(v),
             }))}
@@ -468,11 +495,34 @@ export function TrainingCurationPage() {
               { value: "recognition", label: "Recognition" },
             ]}
           />
+          <Select
+            className="w-40"
+            value={correctFilter}
+            onChange={setCorrectFilter}
+            options={[
+              { value: "all", label: "All correctness" },
+              { value: "correct", label: "Correct only" },
+              { value: "incorrect", label: "Incorrect only" },
+            ]}
+          />
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <Statistic title="Failed images" value={failures.length} />
+            <Statistic
+              title={
+                failureFilter || failStageFilter || correctFilter !== "all"
+                  ? "Showing (filtered)"
+                  : "Evaluation samples"
+              }
+              value={visibleRows.length}
+              suffix={
+                allResults.length > 0 &&
+                visibleRows.length !== allResults.length
+                  ? `/ ${allResults.length}`
+                  : undefined
+              }
+            />
           </Card>
           <Card>
             <Statistic title="Included (labeled)" value={labeledReady} />
@@ -487,13 +537,13 @@ export function TrainingCurationPage() {
           size="small"
           loading={resultsQuery.isLoading}
           columns={columns}
-          dataSource={failures}
-          pagination={{ pageSize: 15 }}
+          dataSource={visibleRows}
+          pagination={{ pageSize: 15, showSizeChanger: true }}
         />
       </div>
 
       <Modal
-        title={active?.filename || "Label failed image"}
+        title={active?.filename || "Label sample"}
         open={Boolean(active)}
         onCancel={() => setActive(null)}
         width={960}
@@ -519,8 +569,15 @@ export function TrainingCurationPage() {
             </div>
             <div className="space-y-3 text-sm">
               <div>
-                <Tag color="orange">{active.failure_type || "FAIL"}</Tag>
+                <Tag color={active.failure_type === "OK" ? "green" : "orange"}>
+                  {formatFailureType(active.failure_type) || "—"}
+                </Tag>
                 {active.fail_stage ? <Tag>{active.fail_stage}</Tag> : null}
+                {active.is_correct != null ? (
+                  <Tag color={active.is_correct ? "green" : "red"}>
+                    {active.is_correct ? "correct" : "incorrect"}
+                  </Tag>
+                ) : null}
               </div>
               <div>
                 <div className="text-xs text-slate-500">
@@ -595,8 +652,8 @@ export function TrainingCurationPage() {
           className="mb-3"
           type="success"
           showIcon
-          message={`${labeledReady} labeled failed images will be copied`}
-          description="Excluded images are left out. Original evaluation dataset stays unchanged."
+          message={`${labeledReady} labeled sample(s) will be copied`}
+          description="Excluded images are left out. Original evaluation dataset stays unchanged. Apply filters in the table to narrow what you curate."
         />
         <Form
           form={createForm}

@@ -3,6 +3,7 @@ import axios from "axios";
 import { apiClient } from "@/api/client";
 import type {
   CreateDatasetPayload,
+  DatasetSample,
   EvaluationDataset,
   EvaluationMetricsResponse,
   EvaluationRun,
@@ -85,6 +86,47 @@ export async function moveSampleToDatabankCategory(
     `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}/move-to-databank-category`,
     { category },
   );
+  return data;
+}
+
+export async function getDatasetSample(
+  datasetId: string,
+  sampleId: string,
+): Promise<DatasetSample> {
+  const { data } = await apiClient.get<DatasetSample>(
+    `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}`,
+  );
+  return data;
+}
+
+export async function updateDatasetSample(
+  datasetId: string,
+  sampleId: string,
+  payload: {
+    bbox?: { x1: number; y1: number; x2: number; y2: number } | null;
+    clear_bbox?: boolean;
+    ground_truth?: string | null;
+  },
+): Promise<DatasetSample> {
+  const { data } = await apiClient.patch<DatasetSample>(
+    `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}`,
+    {
+      bbox: payload.bbox ?? undefined,
+      clear_bbox: payload.clear_bbox ?? false,
+      ground_truth: payload.ground_truth ?? undefined,
+    },
+  );
+  return data;
+}
+
+export async function deleteDatasetSample(
+  datasetId: string,
+  sampleId: string,
+): Promise<{ deleted: boolean; sample_count: number }> {
+  const { data } = await apiClient.delete<{
+    deleted: boolean;
+    sample_count: number;
+  }>(`/v1/evaluation/datasets/${datasetId}/samples/${sampleId}`);
   return data;
 }
 

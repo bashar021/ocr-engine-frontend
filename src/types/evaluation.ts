@@ -90,9 +90,21 @@ export interface DatasetSample {
   status: string;
   split?: string | null;
   databank_category?: string | null;
+  bbox?: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null;
   metadata: Record<string, unknown> | null;
   created_at: string | null;
   latest_eval_metrics?: SampleEvalMetric[];
+  origin?: string | null;
+  source_dataset_id?: string | null;
+  source_sample?: (DatasetSample & {
+    dataset_name?: string;
+    dataset_version?: string;
+  }) | null;
 }
 
 export interface ListSamplesParams {
