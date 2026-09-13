@@ -151,6 +151,7 @@ export function billSampleListParams(
     split?: string | null;
     search?: string;
     hasGt?: boolean;
+    annotationStatus?: string;
   } = {},
 ): { datasetId: string; params: ListSamplesParams } {
   const page = opts.page ?? 1;
@@ -163,6 +164,110 @@ export function billSampleListParams(
       split: opts.split && opts.split !== "all" ? opts.split : undefined,
       search: opts.search || undefined,
       has_gt: opts.hasGt,
+      annotation_status: opts.annotationStatus,
     },
   };
+}
+
+export type BillImportValidationSummary = {
+  valid: boolean;
+  documents_found: number;
+  labeled: number;
+  partial: number;
+  unlabeled: number;
+  invalid: number;
+  valid_documents: number;
+  invalid_documents: number;
+  missing_documents: number;
+  orphan_annotations: number;
+  duplicate_ids: number;
+  invalid_annotations: number;
+  unsupported_files: number;
+  manifest_hash?: string | null;
+  issue_count?: number;
+  issues?: Array<{
+    code: string;
+    severity: string;
+    message: string;
+    document_id?: string | null;
+    path?: string | null;
+    stage?: string;
+  }>;
+  issues_truncated?: boolean;
+};
+
+export async function validateBillDatasetZip(
+  file: File,
+): Promise<BillImportValidationSummary> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<BillImportValidationSummary>(
+    "/v1/bill/datasets/import/validate",
+    form,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 300_000,
+    },
+  );
+  return data;
+}
+
+export async function importBillDatasetZip(
+  file: File,
+  opts: {
+    name?: string;
+    version?: string;
+    description?: string;
+    chunkSize?: number;
+    proceedWithValidOnly?: boolean;
+  } = {},
+) {
+  const form = new FormData();
+  form.append("file", file);
+  if (opts.name) form.append("name", opts.name);
+  if (opts.version) form.append("version", opts.version);
+  if (opts.description) form.append("description", opts.description);
+  if (opts.chunkSize != null) form.append("chunk_size", String(opts.chunkSize));
+  form.append(
+    "proceed_with_valid_only",
+    opts.proceedWithValidOnly === false ? "false" : "true",
+  );
+  const { data } = await apiClient.post(
+    "/v1/bill/datasets/import",
+    form,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 600_000,
+    },
+  );
+  return data as {
+    id: string;
+    name: string;
+    version: string;
+    sample_count: number;
+    status: string;
+    labeled_count?: number;
+    partial_count?: number;
+    unlabeled_count?: number;
+    invalid_count?: number;
+    import_status?: string;
+    [key: string]: unknown;
+  };
+}
+
+export async function getBillDatasetSummary(datasetId: string) {
+  const { data } = await apiClient.get<{
+    dataset_id: string;
+    [key: string]: unknown;
+  }>(`/v1/bill/datasets/${datasetId}/summary`);
+  return data;
+}
+
+export async function getBillDatasetIssues(datasetId: string) {
+  const { data } = await apiClient.get<{
+    dataset_id: string;
+    issues?: unknown[];
+    [key: string]: unknown;
+  }>(`/v1/bill/datasets/${datasetId}/issues`);
+  return data;
 }

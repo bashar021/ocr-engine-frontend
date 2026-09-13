@@ -36,9 +36,29 @@ const { Sider } = Layout;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
+const ODOMETER_ONLY_PREFIXES = [
+  "/models",
+  "/releases",
+  "/deployments",
+  "/evaluation",
+  "/training",
+  "/training-center",
+  "/clients",
+  "/history",
+  "/jobs",
+  "/import-export",
+] as const;
+
+function isOdometerOnlyPath(pathname: string): boolean {
+  return ODOMETER_ONLY_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 /**
- * Shared platform nav is always visible.
- * Bill OCR workspace tabs appear only when OCR type = bill.
+ * Sidebar is task-scoped:
+ * - odometer → platform / odometer tabs only
+ * - bill → Bill OCR + Bill Dataset tabs only
  */
 export function AppSidebar() {
   const location = useLocation();
@@ -46,15 +66,137 @@ export function AppSidebar() {
   const { activeTaskKey } = useTaskContext();
   const isBillTask = activeTaskKey === "bill";
 
-  // Leave Bill routes when switching away from the bill task
+  // Keep the user on routes that match the active OCR type
   useEffect(() => {
     if (!isBillTask && location.pathname.startsWith("/bill")) {
       navigate("/ocr", { replace: true });
+      return;
+    }
+    if (isBillTask && isOdometerOnlyPath(location.pathname)) {
+      navigate("/bill/documents", { replace: true });
     }
   }, [isBillTask, location.pathname, navigate]);
 
   const navItems: MenuItem[] = useMemo(() => {
-    const items: MenuItem[] = [
+    if (isBillTask) {
+      return [
+        {
+          key: "/overview",
+          icon: <DashboardOutlined />,
+          label: <Link to="/overview">Overview</Link>,
+        },
+        {
+          key: "/ocr",
+          icon: <ScanOutlined />,
+          label: <Link to="/ocr">Live OCR</Link>,
+        },
+        {
+          key: "bill-group",
+          icon: <FileTextOutlined />,
+          label: "Bill OCR",
+          children: [
+            {
+              key: "/bill/documents",
+              icon: <FileTextOutlined />,
+              label: <Link to="/bill/documents">Documents</Link>,
+            },
+            {
+              key: "/bill/review",
+              icon: <AuditOutlined />,
+              label: <Link to="/bill/review">Review queue</Link>,
+            },
+            {
+              key: "/bill/feedback",
+              icon: <CommentOutlined />,
+              label: <Link to="/bill/feedback">Feedback</Link>,
+            },
+          ],
+        },
+        {
+          key: "bill-models-group",
+          icon: <ClusterOutlined />,
+          label: "Bill Models",
+          children: [
+            {
+              key: "/bill/models/profiles",
+              icon: <ProfileOutlined />,
+              label: <Link to="/bill/models/profiles">Profiles & versions</Link>,
+            },
+            {
+              key: "/bill/models/fields",
+              icon: <SettingOutlined />,
+              label: <Link to="/bill/models/fields">Field extraction</Link>,
+            },
+            {
+              key: "/bill/models/pipeline",
+              icon: <ToolOutlined />,
+              label: <Link to="/bill/models/pipeline">Pipeline</Link>,
+            },
+          ],
+        },
+        {
+          key: "bill-dataset-group",
+          icon: <DatabaseOutlined />,
+          label: "Bill Dataset",
+          children: [
+            {
+              key: "/bill/datasets",
+              icon: <AppstoreOutlined />,
+              label: <Link to="/bill/datasets">Datasets</Link>,
+            },
+            {
+              key: "/bill/data",
+              icon: <UnorderedListOutlined />,
+              label: <Link to="/bill/data">Data list</Link>,
+            },
+            {
+              key: "/bill/evaluation-datasets",
+              icon: <ExperimentOutlined />,
+              label: (
+                <Link to="/bill/evaluation-datasets">Evaluation datasets</Link>
+              ),
+            },
+            {
+              key: "/bill/annotations",
+              icon: <TagsOutlined />,
+              label: <Link to="/bill/annotations">Annotations</Link>,
+            },
+            {
+              key: "/bill/dataset-review",
+              icon: <AuditOutlined />,
+              label: <Link to="/bill/dataset-review">Review queue</Link>,
+            },
+            {
+              key: "/bill/jobs",
+              icon: <PlayCircleOutlined />,
+              label: <Link to="/bill/jobs">Processing jobs</Link>,
+            },
+            {
+              key: "/bill/evaluation",
+              icon: <ExperimentOutlined />,
+              label: <Link to="/bill/evaluation">Evaluation runs</Link>,
+            },
+            {
+              key: "/bill/versions",
+              icon: <BranchesOutlined />,
+              label: <Link to="/bill/versions">Versions & splits</Link>,
+            },
+            {
+              key: "/bill/issues",
+              icon: <AlertOutlined />,
+              label: <Link to="/bill/issues">Issues</Link>,
+            },
+          ],
+        },
+        {
+          key: "/settings",
+          icon: <SettingOutlined />,
+          label: <Link to="/settings">Settings</Link>,
+        },
+      ];
+    }
+
+    return [
       {
         key: "/overview",
         icon: <DashboardOutlined />,
@@ -65,91 +207,6 @@ export function AppSidebar() {
         icon: <ScanOutlined />,
         label: <Link to="/ocr">Live OCR</Link>,
       },
-    ];
-
-    if (isBillTask) {
-      items.push({
-        key: "bill-group",
-        icon: <FileTextOutlined />,
-        label: "Bill OCR",
-        children: [
-          {
-            key: "/bill/documents",
-            icon: <FileTextOutlined />,
-            label: <Link to="/bill/documents">Documents</Link>,
-          },
-          {
-            key: "/bill/review",
-            icon: <AuditOutlined />,
-            label: <Link to="/bill/review">Review queue</Link>,
-          },
-          {
-            key: "/bill/profiles",
-            icon: <ProfileOutlined />,
-            label: <Link to="/bill/profiles">Profiles</Link>,
-          },
-          {
-            key: "/bill/feedback",
-            icon: <CommentOutlined />,
-            label: <Link to="/bill/feedback">Feedback</Link>,
-          },
-          {
-            key: "/bill/system",
-            icon: <ToolOutlined />,
-            label: <Link to="/bill/system">System / models</Link>,
-          },
-        ],
-      });
-      items.push({
-        key: "bill-dataset-group",
-        icon: <DatabaseOutlined />,
-        label: "Bill Dataset",
-        children: [
-          {
-            key: "/bill/datasets",
-            icon: <AppstoreOutlined />,
-            label: <Link to="/bill/datasets">Datasets</Link>,
-          },
-          {
-            key: "/bill/data",
-            icon: <UnorderedListOutlined />,
-            label: <Link to="/bill/data">Data list</Link>,
-          },
-          {
-            key: "/bill/annotations",
-            icon: <TagsOutlined />,
-            label: <Link to="/bill/annotations">Annotations</Link>,
-          },
-          {
-            key: "/bill/dataset-review",
-            icon: <AuditOutlined />,
-            label: <Link to="/bill/dataset-review">Review queue</Link>,
-          },
-          {
-            key: "/bill/jobs",
-            icon: <PlayCircleOutlined />,
-            label: <Link to="/bill/jobs">Processing jobs</Link>,
-          },
-          {
-            key: "/bill/evaluation",
-            icon: <ExperimentOutlined />,
-            label: <Link to="/bill/evaluation">Evaluation</Link>,
-          },
-          {
-            key: "/bill/versions",
-            icon: <BranchesOutlined />,
-            label: <Link to="/bill/versions">Versions & splits</Link>,
-          },
-          {
-            key: "/bill/issues",
-            icon: <AlertOutlined />,
-            label: <Link to="/bill/issues">Issues</Link>,
-          },
-        ],
-      });
-    }
-
-    items.push(
       {
         key: "models-group",
         icon: <ClusterOutlined />,
@@ -288,24 +345,23 @@ export function AppSidebar() {
         icon: <SettingOutlined />,
         label: <Link to="/settings">Settings</Link>,
       },
-    );
-
-    return items;
+    ];
   }, [isBillTask]);
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
     if (path.startsWith("/overview")) return "/overview";
-    if (path.startsWith("/releases")) return "/releases";
-    if (path.startsWith("/deployments")) return "/deployments";
-    if (path.startsWith("/clients")) return "/clients";
-    if (path.startsWith("/history")) return "/history";
-    if (path.startsWith("/jobs")) return "/jobs";
-    if (path.startsWith("/import-export")) return "/import-export";
     if (path.startsWith("/ocr")) return "/ocr";
+    if (path.startsWith("/settings")) return "/settings";
+
     if (isBillTask) {
-      if (path.startsWith("/bill/dataset-review"))
-        return "/bill/dataset-review";
+      if (path.startsWith("/bill/models/fields")) return "/bill/models/fields";
+      if (path.startsWith("/bill/models/pipeline"))
+        return "/bill/models/pipeline";
+      if (path.startsWith("/bill/models")) return "/bill/models/profiles";
+      if (path.startsWith("/bill/evaluation-datasets"))
+        return "/bill/evaluation-datasets";
+      if (path.startsWith("/bill/dataset-review")) return "/bill/dataset-review";
       if (path.startsWith("/bill/datasets")) return "/bill/datasets";
       if (path.startsWith("/bill/data")) return "/bill/data";
       if (path.startsWith("/bill/annotations")) return "/bill/annotations";
@@ -314,16 +370,23 @@ export function AppSidebar() {
       if (path.startsWith("/bill/versions")) return "/bill/versions";
       if (path.startsWith("/bill/issues")) return "/bill/issues";
       if (path.startsWith("/bill/review")) return "/bill/review";
-      if (path.startsWith("/bill/profiles")) return "/bill/profiles";
+      if (path.startsWith("/bill/profiles")) return "/bill/models/profiles";
       if (path.startsWith("/bill/feedback")) return "/bill/feedback";
-      if (path.startsWith("/bill/system")) return "/bill/system";
+      if (path.startsWith("/bill/system")) return "/bill/models/pipeline";
       if (path.startsWith("/bill")) return "/bill/documents";
+      return path;
     }
+
+    if (path.startsWith("/releases")) return "/releases";
+    if (path.startsWith("/deployments")) return "/deployments";
+    if (path.startsWith("/clients")) return "/clients";
+    if (path.startsWith("/history")) return "/history";
+    if (path.startsWith("/jobs")) return "/jobs";
+    if (path.startsWith("/import-export")) return "/import-export";
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
     if (path.startsWith("/models")) return "/models/list";
-    if (path.startsWith("/settings")) return "/settings";
     if (path.startsWith("/evaluation/comparison"))
       return "/evaluation/comparison";
     if (path.startsWith("/evaluation/runs")) return "/evaluation/runs";
@@ -343,22 +406,37 @@ export function AppSidebar() {
     return path;
   }, [location.pathname, isBillTask]);
 
-  const [openKeys, setOpenKeys] = useState<string[]>(() => [
-    "models-group",
-    "evaluation-group",
-    "training-dataset-group",
-    "eval-runs-group",
-    "training-group",
-    "bill-dataset-group",
-  ]);
+  const [openKeys, setOpenKeys] = useState<string[]>(() =>
+    isBillTask
+      ? ["bill-group", "bill-models-group", "bill-dataset-group"]
+      : [
+          "models-group",
+          "evaluation-group",
+          "training-dataset-group",
+          "eval-runs-group",
+          "training-group",
+        ],
+  );
 
   useEffect(() => {
-    if (isBillTask && location.pathname.startsWith("/bill")) {
+    if (isBillTask) {
       setOpenKeys((keys) => {
-        let next = keys.includes("bill-group") ? keys : [...keys, "bill-group"];
+        const billKeys = new Set(
+          keys.filter(
+            (k) =>
+              k === "bill-group" ||
+              k === "bill-models-group" ||
+              k === "bill-dataset-group",
+          ),
+        );
+        billKeys.add("bill-group");
+        if (location.pathname.startsWith("/bill/models")) {
+          billKeys.add("bill-models-group");
+        }
         if (
           location.pathname.startsWith("/bill/datasets") ||
           location.pathname.startsWith("/bill/data") ||
+          location.pathname.startsWith("/bill/evaluation-datasets") ||
           location.pathname.startsWith("/bill/annotations") ||
           location.pathname.startsWith("/bill/dataset-review") ||
           location.pathname.startsWith("/bill/jobs") ||
@@ -366,60 +444,63 @@ export function AppSidebar() {
           location.pathname.startsWith("/bill/versions") ||
           location.pathname.startsWith("/bill/issues")
         ) {
-          next = next.includes("bill-dataset-group")
-            ? next
-            : [...next, "bill-dataset-group"];
+          billKeys.add("bill-dataset-group");
         }
-        return next;
+        return Array.from(billKeys);
       });
+      return;
     }
-    if (
-      location.pathname.startsWith("/models") ||
-      location.pathname.startsWith("/releases") ||
-      location.pathname.startsWith("/deployments")
-    ) {
-      setOpenKeys((keys) =>
-        keys.includes("models-group") ? keys : [...keys, "models-group"],
+
+    setOpenKeys((keys) => {
+      let next = keys.filter(
+        (k) =>
+          k !== "bill-group" &&
+          k !== "bill-dataset-group" &&
+          k !== "bill-models-group",
       );
-    }
-    if (
-      location.pathname.startsWith("/evaluation/datasets") ||
-      location.pathname.startsWith("/evaluation/dataset-list") ||
-      location.pathname.startsWith("/evaluation/hard-cases")
-    ) {
-      setOpenKeys((keys) =>
-        keys.includes("evaluation-group")
-          ? keys
-          : [...keys, "evaluation-group"],
-      );
-    }
-    if (
-      location.pathname.startsWith("/evaluation/training-datasets") ||
-      location.pathname.startsWith("/training/curate") ||
-      location.pathname.startsWith("/training/augmentation")
-    ) {
-      setOpenKeys((keys) =>
-        keys.includes("training-dataset-group")
-          ? keys
-          : [...keys, "training-dataset-group"],
-      );
-    }
-    if (
-      location.pathname.startsWith("/evaluation/runs") ||
-      location.pathname.startsWith("/evaluation/comparison")
-    ) {
-      setOpenKeys((keys) =>
-        keys.includes("eval-runs-group") ? keys : [...keys, "eval-runs-group"],
-      );
-    }
-    if (
-      location.pathname.startsWith("/training") ||
-      location.pathname.startsWith("/training-center")
-    ) {
-      setOpenKeys((keys) =>
-        keys.includes("training-group") ? keys : [...keys, "training-group"],
-      );
-    }
+      if (
+        location.pathname.startsWith("/models") ||
+        location.pathname.startsWith("/releases") ||
+        location.pathname.startsWith("/deployments")
+      ) {
+        next = next.includes("models-group") ? next : [...next, "models-group"];
+      }
+      if (
+        location.pathname.startsWith("/evaluation/datasets") ||
+        location.pathname.startsWith("/evaluation/dataset-list") ||
+        location.pathname.startsWith("/evaluation/hard-cases")
+      ) {
+        next = next.includes("evaluation-group")
+          ? next
+          : [...next, "evaluation-group"];
+      }
+      if (
+        location.pathname.startsWith("/evaluation/training-datasets") ||
+        location.pathname.startsWith("/training/curate") ||
+        location.pathname.startsWith("/training/augmentation")
+      ) {
+        next = next.includes("training-dataset-group")
+          ? next
+          : [...next, "training-dataset-group"];
+      }
+      if (
+        location.pathname.startsWith("/evaluation/runs") ||
+        location.pathname.startsWith("/evaluation/comparison")
+      ) {
+        next = next.includes("eval-runs-group")
+          ? next
+          : [...next, "eval-runs-group"];
+      }
+      if (
+        location.pathname.startsWith("/training") ||
+        location.pathname.startsWith("/training-center")
+      ) {
+        next = next.includes("training-group")
+          ? next
+          : [...next, "training-group"];
+      }
+      return next;
+    });
   }, [location.pathname, isBillTask]);
 
   return (

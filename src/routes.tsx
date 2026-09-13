@@ -8,6 +8,7 @@ import { BillDataListPage } from "@/pages/bill/dataset/BillDataListPage";
 import { BillDatasetEvalPage } from "@/pages/bill/dataset/BillDatasetEvalPage";
 import { BillDatasetReviewPage } from "@/pages/bill/dataset/BillDatasetReviewPage";
 import { BillDatasetsPage } from "@/pages/bill/dataset/BillDatasetsPage";
+import { BillEvaluationDatasetsPage } from "@/pages/bill/dataset/BillEvaluationDatasetsPage";
 import { BillIssuesPage } from "@/pages/bill/dataset/BillIssuesPage";
 import { BillJobsPage } from "@/pages/bill/dataset/BillJobsPage";
 import { BillVersionsPage } from "@/pages/bill/dataset/BillVersionsPage";
@@ -16,10 +17,15 @@ import { BillDocumentsPage } from "@/pages/bill/BillDocumentsPage";
 import { BillFeedbackPage } from "@/pages/bill/BillFeedbackPage";
 import {
   BillProfileDetailPage,
-  BillProfilesPage,
 } from "@/pages/bill/BillProfilesPage";
+import { BillModelsFieldsPage } from "@/pages/bill/models/BillModelsFieldsPage";
+import {
+  BillModelsPipelinePage,
+  BillProfilesRedirect,
+  BillSystemRedirect,
+} from "@/pages/bill/models/BillModelsPipelinePage";
+import { BillModelsProfilesPage } from "@/pages/bill/models/BillModelsProfilesPage";
 import { BillReviewQueuePage } from "@/pages/bill/BillReviewQueuePage";
-import { BillSystemPage } from "@/pages/bill/BillSystemPage";
 import { DatabankListPage } from "@/pages/DatabankListPage";
 import { EvaluatedHardDatasetPage } from "@/pages/EvaluatedHardDatasetPage";
 import { EvaluationComparisonPage } from "@/pages/EvaluationComparisonPage";
@@ -156,20 +162,37 @@ export function AppRoutes() {
           element={<BillDocumentDetailPage />}
         />
         <Route path="/bill/review" element={<BillReviewQueuePage />} />
-        <Route path="/bill/profiles" element={<BillProfilesPage />} />
+        <Route path="/bill/profiles" element={<BillProfilesRedirect />} />
         <Route
           path="/bill/profiles/:profileId"
           element={<BillProfileDetailPage />}
         />
         <Route path="/bill/feedback" element={<BillFeedbackPage />} />
-        <Route path="/bill/system" element={<BillSystemPage />} />
+        <Route path="/bill/system" element={<BillSystemRedirect />} />
+        <Route
+          path="/bill/models"
+          element={<Navigate to="/bill/models/profiles" replace />}
+        />
+        <Route
+          path="/bill/models/profiles"
+          element={<BillModelsProfilesPage />}
+        />
+        <Route path="/bill/models/fields" element={<BillModelsFieldsPage />} />
+        <Route
+          path="/bill/models/pipeline"
+          element={<BillModelsPipelinePage />}
+        />
+        <Route path="/bill/data" element={<BillDataListPage />} />
+        <Route
+          path="/bill/evaluation-datasets"
+          element={<BillEvaluationDatasetsPage />}
+        />
         <Route
           path="/bill/dataset"
           element={<Navigate to="/bill/datasets" replace />}
         />
         <Route element={<BillDatasetLayout />}>
           <Route path="/bill/datasets" element={<BillDatasetsPage />} />
-          <Route path="/bill/data" element={<BillDataListPage />} />
           <Route path="/bill/annotations" element={<BillAnnotationsPage />} />
           <Route
             path="/bill/dataset-review"

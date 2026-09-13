@@ -49,25 +49,21 @@ describe("Bill dataset workspace routes", () => {
       await screen.findByRole("heading", { name: /^Datasets$/i }),
     ).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/partially supported/i)).toBeInTheDocument();
+      expect(screen.getByText(/Bill OCR package import/i)).toBeInTheDocument();
     });
   });
 
-  it("renders data list empty context", async () => {
+  it("renders bill databank data list", async () => {
     renderWithProviders(
       <Routes>
-        <Route element={<BillDatasetLayout />}>
-          <Route path="/bill/data" element={<BillDataListPage />} />
-        </Route>
+        <Route path="/bill/data" element={<BillDataListPage />} />
       </Routes>,
       { route: "/bill/data" },
     );
     expect(
-      await screen.findByRole("heading", { name: /Data list/i }),
+      await screen.findByRole("heading", { name: /Bill data list/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Select a dataset in the context bar/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Bill-only databank/i)).toBeInTheDocument();
   });
 
   it("renders issues with taxonomy", async () => {
@@ -83,7 +79,7 @@ describe("Bill dataset workspace routes", () => {
       await screen.findByRole("heading", { name: /^Issues$/i }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText(/No per-document bill issue workflow API/i),
+      await screen.findByText(/Import issues are persisted on the dataset/i),
     ).toBeInTheDocument();
   });
 });

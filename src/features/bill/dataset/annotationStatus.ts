@@ -12,11 +12,21 @@ export function annotationStatusFromSample(sample: {
   status?: string;
   metadata?: Record<string, unknown> | null;
 }): SampleAnnotationStatus {
+  const metaStatus = String(sample.metadata?.annotation_status ?? "")
+    .trim()
+    .toUpperCase();
+  if (
+    metaStatus === "LABELED" ||
+    metaStatus === "PARTIAL" ||
+    metaStatus === "UNLABELED" ||
+    metaStatus === "INVALID"
+  ) {
+    return metaStatus;
+  }
   const raw = (sample.ground_truth ?? "").trim();
   const sampleStatus = String(sample.status ?? "").toLowerCase();
   if (sampleStatus === "invalid" || sampleStatus === "failed") return "INVALID";
   if (!raw) return "UNLABELED";
-  // Backend sample model is single-string GT — PARTIAL only if metadata says so
   const coverage = sample.metadata?.annotation_coverage;
   if (typeof coverage === "number" && coverage > 0 && coverage < 1) {
     return "PARTIAL";

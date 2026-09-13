@@ -15,7 +15,9 @@ import {
   listGeneratedBillProfiles,
   processBillDocument,
   submitBillReviewCorrection,
+  updateBillProfile,
   validateBillSchema,
+  type ProfileVersionBody,
 } from "@/api/bill";
 import {
   documentFromProcessResponse,
@@ -83,6 +85,23 @@ export function useBillProfile(profileId: string | undefined) {
     queryKey: billKeys.profile(profileId ?? ""),
     queryFn: () => getBillProfile(profileId!),
     enabled: Boolean(profileId),
+  });
+}
+
+export function useUpdateBillProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      profileId,
+      body,
+    }: {
+      profileId: string;
+      body: ProfileVersionBody;
+    }) => updateBillProfile(profileId, body),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: billKeys.profiles });
+      void qc.invalidateQueries({ queryKey: billKeys.profile(vars.profileId) });
+    },
   });
 }
 

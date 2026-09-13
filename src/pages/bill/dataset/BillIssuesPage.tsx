@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { Alert, Button, Table, Tag, Typography } from "antd";
 import { Link } from "react-router-dom";
 import dayjs from "dayjs";
+import { useQuery } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
+import { getBillDatasetIssues } from "@/api/billDataset";
 import { PageHeader } from "@/components/common/PageHeader";
 import { CapabilityAlert } from "@/components/bill/dataset/DatasetContextBar";
 import { useBillDatasetContext } from "@/features/bill/dataset/context";
@@ -29,6 +31,16 @@ export function BillIssuesPage() {
         }
       : null,
   );
+  const importIssuesQuery = useQuery({
+    queryKey: ["bill", "dataset", "import-issues", datasetId],
+    queryFn: () => getBillDatasetIssues(datasetId!),
+    enabled: Boolean(datasetId),
+  });
+
+  const importIssues = useMemo(() => {
+    const raw = importIssuesQuery.data?.issues;
+    return Array.isArray(raw) ? raw : [];
+  }, [importIssuesQuery.data]);
 
   const localIssues = useMemo(() => {
     return listLocalBillDocuments()
@@ -59,16 +71,60 @@ export function BillIssuesPage() {
           { title: "Issues" },
         ]}
         title="Issues"
-        description="Failure taxonomy, evaluation hard-failures (when dataset selected), and local process failures."
+        description="Import validation issues, evaluation hard-failures, failure taxonomy, and local process failures."
       />
 
       <CapabilityAlert
-        type="warning"
-        title="No per-document bill issue workflow API"
-        detail="There is no CRUD for bill dataset issues (resolve/ignore/assign). Hard-failures require a dataset with evaluation results. Taxonomy codes are from GET /v1/bill/failures/taxonomy."
+        type="info"
+        title="Import issues are persisted on the dataset"
+        detail="GET /v1/bill/datasets/{id}/issues returns issues recorded during Bill ZIP import. Resolve/ignore workflow is not yet a separate CRUD API."
       />
 
       <div className="space-y-6 px-4 pb-4">
+        <div>
+          <Typography.Title level={5}>Import issues</Typography.Title>
+          {!datasetId ? (
+            <Alert
+              type="info"
+              showIcon
+              message="Select a dataset to load import issues"
+            />
+          ) : importIssuesQuery.isError ? (
+            <Alert
+              type="error"
+              showIcon
+              message={getApiErrorMessage(importIssuesQuery.error)}
+            />
+          ) : (
+            <Table
+              size="small"
+              rowKey={(_, i) => String(i)}
+              loading={importIssuesQuery.isLoading}
+              dataSource={importIssues as Array<Record<string, unknown>>}
+              pagination={{ pageSize: 15 }}
+              columns={[
+                {
+                  title: "Severity",
+                  dataIndex: "severity",
+                  width: 90,
+                  render: (s: string) => (
+                    <Tag color={s === "critical" ? "red" : "gold"}>{s}</Tag>
+                  ),
+                },
+                { title: "Code", dataIndex: "code", width: 160 },
+                { title: "Message", dataIndex: "message", ellipsis: true },
+                {
+                  title: "Document",
+                  dataIndex: "document_id",
+                  width: 140,
+                  render: (v: string | undefined) => v || "—",
+                },
+              ]}
+              locale={{ emptyText: "No import issues for this dataset." }}
+            />
+          )}
+        </div>
+
         <div>
           <Typography.Title level={5}>Failure taxonomy</Typography.Title>
           {taxonomyQuery.isError ? (
@@ -93,10 +149,6 @@ export function BillIssuesPage() {
                   {c}
                 </Tag>
               ))}
-              {!taxonomyQuery.data?.codes?.length &&
-              !taxonomyQuery.isLoading ? (
-                <Typography.Text type="secondary">No codes.</Typography.Text>
-              ) : null}
             </div>
           )}
         </div>
@@ -109,7 +161,7 @@ export function BillIssuesPage() {
             <Alert
               type="info"
               showIcon
-              message="Select a dataset to load GET /v1/evaluations/hard-failures"
+              message="Select a dataset to load hard-failures"
             />
           ) : hardQuery.isError ? (
             <Alert
@@ -160,12 +212,6 @@ export function BillIssuesPage() {
                   dataIndex: "ground_truth_normalized",
                   ellipsis: true,
                 },
-                {
-                  title: "Review",
-                  dataIndex: "review_status",
-                  width: 110,
-                  render: (v: string | null | undefined) => v || "—",
-                },
               ]}
               locale={{ emptyText: "No hard failures for this dataset." }}
             />
@@ -201,14 +247,12 @@ export function BillIssuesPage() {
               },
               {
                 title: "Status",
-                key: "st",
                 width: 120,
                 render: (_: unknown, row: { document: BillLocalDocument }) =>
                   row.document.status,
               },
               {
-                title: "Updated",
-                key: "u",
+                title: "Created",
                 width: 120,
                 render: (_: unknown, row: { document: BillLocalDocument }) =>
                   row.document.createdAt
@@ -221,7 +265,7 @@ export function BillIssuesPage() {
         </div>
 
         <div>
-          <Typography.Title level={5}>Backend gaps</Typography.Title>
+          <Typography.Title level={5}>Remaining backend gaps</Typography.Title>
           <ul className="list-disc pl-5 text-sm text-slate-600">
             {BILL_DATASET_GAPS.map((g) => (
               <li key={g}>{g}</li>

@@ -171,6 +171,85 @@ export async function createBillProfile(body: Record<string, unknown>) {
   return data;
 }
 
+export type ProfileVersionBody = {
+  fields?: Record<string, unknown>[];
+  line_items?: Record<string, unknown>;
+  validation?: Record<string, unknown>;
+  thresholds?: Record<string, unknown>;
+  description?: string;
+  version?: string;
+};
+
+export async function updateBillProfile(
+  profileId: string,
+  body: ProfileVersionBody,
+) {
+  const { data } = await apiClient.put<Record<string, unknown>>(
+    `/v1/bill/profiles/${profileId}`,
+    body,
+  );
+  return data;
+}
+
+export async function createBillProfileVersion(
+  profileId: string,
+  body: ProfileVersionBody,
+) {
+  const { data } = await apiClient.post<Record<string, unknown>>(
+    `/v1/bill/profiles/${profileId}/versions`,
+    body,
+  );
+  return data;
+}
+
+export async function processBillEvaluationSample(
+  datasetId: string,
+  sampleId: string,
+  body: {
+    profile_id?: string;
+    profile_version?: string;
+    model_ref?: string;
+  } = {},
+) {
+  const { data } = await apiClient.post<{
+    dataset_id: string;
+    sample_id: string;
+    filename?: string;
+    ground_truth?: string;
+    prediction?: Record<string, unknown>;
+    predicted_value?: string;
+    confidence?: number;
+    status?: string;
+  }>(`/v1/bill/datasets/${datasetId}/samples/${sampleId}/process`, body, {
+    timeout: 300_000,
+  });
+  return data;
+}
+
+export async function processBillDatabankSample(
+  datasetId: string,
+  sampleId: string,
+  body: {
+    profile_id?: string;
+    profile_version?: string;
+    model_ref?: string;
+  } = {},
+) {
+  const { data } = await apiClient.post<{
+    dataset_id: string;
+    sample_id: string;
+    filename?: string;
+    ground_truth?: string;
+    prediction?: Record<string, unknown>;
+    sample?: Record<string, unknown>;
+  }>(
+    `/v1/bill/databank/datasets/${datasetId}/samples/${sampleId}/process`,
+    body,
+    { timeout: 300_000 },
+  );
+  return data;
+}
+
 export async function validateBillSchema(schema: Record<string, unknown>) {
   const { data } = await apiClient.post<{
     valid: boolean;

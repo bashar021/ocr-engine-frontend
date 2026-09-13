@@ -470,6 +470,32 @@ export const handlers = [
     },
   ),
 
+  http.get("*/v1/databank/bank", ({ request }) => {
+    const url = new URL(request.url);
+    const ocrType = url.searchParams.get("ocr_type") || "odometer";
+    return HttpResponse.json({
+      id: ocrType === "bill" ? "bill-bank-1" : "odo-bank-1",
+      ocr_type: ocrType,
+      name: "data-bank",
+      version: "1.0.0",
+      status: "ready",
+      sample_count: 0,
+      reviewed_count: 0,
+      unreviewed_count: 0,
+      category_counts: {},
+      custom_categories: [],
+    });
+  }),
+
+  http.get("*/v1/databank/datasets/:datasetId/samples", () => {
+    return HttpResponse.json({
+      total: 0,
+      limit: 25,
+      offset: 0,
+      samples: [],
+    });
+  }),
+
   http.patch(
     "*/v1/databank/datasets/:datasetId/samples/:sampleId/quality-tag",
     async ({ request }) => {
@@ -681,6 +707,38 @@ export const handlers = [
       feedback_id: "fb-1",
       auto_retrain: false,
       message: "Correction recorded",
+    });
+  }),
+
+  http.post("*/v1/bill/datasets/import/validate", async () => {
+    return HttpResponse.json({
+      valid: true,
+      documents_found: 3,
+      labeled: 1,
+      partial: 1,
+      unlabeled: 1,
+      invalid: 0,
+      valid_documents: 3,
+      invalid_documents: 0,
+      missing_documents: 0,
+      orphan_annotations: 0,
+      duplicate_ids: 0,
+      invalid_annotations: 0,
+      unsupported_files: 0,
+      issues: [],
+    });
+  }),
+
+  http.get("*/v1/bill/datasets/:datasetId/issues", () => {
+    return HttpResponse.json({ dataset_id: "ds-1", issues: [] });
+  }),
+
+  http.get("*/v1/bill/datasets/:datasetId/summary", () => {
+    return HttpResponse.json({
+      dataset_id: "ds-1",
+      labeled_count: 0,
+      partial_count: 0,
+      unlabeled_count: 0,
     });
   }),
 ];

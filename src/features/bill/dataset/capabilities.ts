@@ -56,9 +56,9 @@ export const BILL_DATASET_CAPABILITIES: Record<
     tabs: ["Datasets"],
   },
   upload_dataset_zip: {
-    status: "partial",
-    endpoint: "POST /v1/evaluation/datasets/{id}/upload",
-    notes: "ZIP GT format is filename/string based, not multi-field bill JSON",
+    status: "available",
+    endpoint: "POST /v1/bill/datasets/import (+ validate)",
+    notes: "Bill package: manifest.jsonl + documents/ + annotations/",
     tabs: ["Datasets"],
   },
   archive_dataset: {
@@ -194,9 +194,9 @@ export const BILL_DATASET_CAPABILITIES: Record<
     tabs: ["Data List", "Annotations"],
   },
   import_validate: {
-    status: "partial",
-    endpoint: "POST /v1/import/validate",
-    notes: "Manifest validation only — no bill GT import executor",
+    status: "available",
+    endpoint: "POST /v1/bill/datasets/import/validate",
+    notes: "Full Bill package validation with issue report",
     tabs: ["Datasets"],
   },
   canonical_datasets: {
@@ -210,12 +210,8 @@ export const BILL_DATASET_CAPABILITIES: Record<
 /** Gaps with no suitable Bill endpoint today */
 export const BILL_DATASET_GAPS = [
   "GET /v1/documents (list/search/paginate processed bill documents)",
-  "Bill dataset membership (link processed DOC-* to evaluation datasets)",
-  "Multi-field bill annotation CRUD (fields/line_items)",
-  "Bulk bill review corrections",
-  "Bill field-level evaluation runner",
-  "Async multipage bill process jobs",
-  "Bill GT package import executor",
-  "Per-document issue workflow CRUD",
-  "Split assign/update API for bill documents",
+  "Async multipage bill process job API for dataset batches",
+  "Bill field-level evaluation runner (det/rec string metrics only today)",
+  "Bulk bill review corrections API",
+  "Per-document issue resolve/ignore workflow CRUD",
 ] as const;

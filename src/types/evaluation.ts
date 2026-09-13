@@ -114,6 +114,7 @@ export interface ListSamplesParams {
   status?: string;
   split?: string;
   has_gt?: boolean;
+  annotation_status?: string;
   include_eval_metrics?: boolean;
 }
 

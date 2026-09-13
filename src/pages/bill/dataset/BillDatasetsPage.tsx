@@ -25,7 +25,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { SearchInput } from "@/components/common/SearchInput";
 import { CapabilityAlert } from "@/components/bill/dataset/DatasetContextBar";
-import { UploadDatasetModal } from "@/components/evaluation/UploadDatasetModal";
+import { BillZipUploadModal } from "@/components/bill/dataset/BillZipUploadModal";
 import { StartEvaluationModal } from "@/components/evaluation/StartEvaluationModal";
 import { useBillDatasetContext } from "@/features/bill/dataset/context";
 import {
@@ -159,6 +159,48 @@ export function BillDatasetsPage() {
         ),
       },
       {
+        title: "Labeled",
+        key: "labeled",
+        width: 80,
+        render: (_: unknown, row: EvaluationDataset) => {
+          const n = (row as EvaluationDataset & { labeled_count?: number })
+            .labeled_count;
+          return n != null ? (
+            <span className="tabular-nums">{n}</span>
+          ) : (
+            "—"
+          );
+        },
+      },
+      {
+        title: "Partial",
+        key: "partial",
+        width: 80,
+        render: (_: unknown, row: EvaluationDataset) => {
+          const n = (row as EvaluationDataset & { partial_count?: number })
+            .partial_count;
+          return n != null ? (
+            <span className="tabular-nums">{n}</span>
+          ) : (
+            "—"
+          );
+        },
+      },
+      {
+        title: "Unlabeled",
+        key: "unlabeled",
+        width: 90,
+        render: (_: unknown, row: EvaluationDataset) => {
+          const n = (row as EvaluationDataset & { unlabeled_count?: number })
+            .unlabeled_count;
+          return n != null ? (
+            <span className="tabular-nums">{n}</span>
+          ) : (
+            "—"
+          );
+        },
+      },
+      {
         title: "Splits",
         key: "splits",
         width: 140,
@@ -279,15 +321,15 @@ export function BillDatasetsPage() {
               icon={<UploadOutlined />}
               onClick={() => setUploadOpen(true)}
             >
-              Upload ZIP
+              Upload Bill ZIP
             </Button>
           </Space>
         }
       />
       <CapabilityAlert
-        type="warning"
-        title="Bill dataset formats are partially supported"
-        detail="ZIP upload uses the shared evaluation dataset store. Ground truth is string/filename oriented (odometer lineage), not multi-field bill JSON. Processed DOC-* documents have no list API and are not automatically members of these datasets."
+        type="info"
+        title="Bill OCR package import"
+        detail="Use Upload Bill ZIP for manifest.jsonl + documents/ + annotations/. Unlabeled documents without annotation files are supported. Odometer filename-GT ZIPs belong under the shared Datasets nav, not here."
       />
       <div className="px-4 pb-4">
         <DataTableToolbar
@@ -370,9 +412,15 @@ export function BillDatasetsPage() {
         </Typography.Paragraph>
       </div>
 
-      <UploadDatasetModal
+      <BillZipUploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        onImported={(d) => {
+          setDatasetId(d.id);
+          setVersion(d.version);
+          setUploadOpen(false);
+          navigate(`/bill/data?datasetId=${encodeURIComponent(d.id)}`);
+        }}
       />
       <StartEvaluationModal
         open={Boolean(evalDataset)}
