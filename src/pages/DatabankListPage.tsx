@@ -30,6 +30,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import {
@@ -46,6 +47,7 @@ import {
   reviewDatabankSample,
   setDatabankSampleCategory,
   syncDatabankReviewedEval,
+  uploadRawToDatabank,
   uploadToDatabank,
 } from "@/api/databank";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
@@ -91,14 +93,32 @@ function asStringList(value: unknown): string[] {
 }
 
 function tabCategoryScope(tabKey: string): string {
-  return tabKey === "general" ? "" : tabKey;
+  if (tabKey === "general" || tabKey === "raw") return "";
+  return tabKey;
 }
 
 function tabDisplayName(tabKey: string): string {
   if (tabKey === "general") return "General";
+  if (tabKey === "raw") return "Raw Data";
   if (tabKey === "blurry") return "Blurry";
   if (tabKey === "dead") return "Dead";
   return tabKey;
+}
+
+function isRawSample(sample: DatabankSample | null | undefined): boolean {
+  if (!sample) return false;
+  if (sample.category === "raw") return true;
+  return Boolean(sample.metadata && sample.metadata.raw_pending === true);
+}
+
+function isKnownReviewTab(tabKey: string, customCategories: string[]): boolean {
+  return (
+    tabKey === "general" ||
+    tabKey === "raw" ||
+    tabKey === "blurry" ||
+    tabKey === "dead" ||
+    customCategories.includes(tabKey)
+  );
 }
 
 function sampleCategoryLabel(category: string): string {
@@ -184,8 +204,14 @@ export function DatabankListPage() {
   const { activeTaskKey } = useTaskContext();
   const { modal, message: appMessage } = App.useApp();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [reviewTab, setReviewTab] = useState<string>("general");
+  const [rawUploadOpen, setRawUploadOpen] = useState(false);
+  const [reviewTab, setReviewTab] = useState<string>(() =>
+    tabFromUrl === "raw" ? "raw" : "general",
+  );
+  const [moveTargetCategory, setMoveTargetCategory] = useState<string>("");
   const [withinReviewStatus, setWithinReviewStatus] =
     useState<WithinReviewStatusFilter>("all");
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
@@ -250,10 +276,7 @@ export function DatabankListPage() {
   );
 
   useEffect(() => {
-    if (
-      uploadProgress?.status === "completed" &&
-      uploadProgress.message
-    ) {
+    if (uploadProgress?.status === "completed" && uploadProgress.message) {
       setShowUploadSuccess(true);
       const timer = window.setTimeout(() => setShowUploadSuccess(false), 4500);
       return () => window.clearTimeout(timer);
@@ -262,7 +285,13 @@ export function DatabankListPage() {
   }, [uploadProgress?.status, uploadProgress?.message]);
 
   useEffect(() => {
-    const known = new Set(["general", "blurry", "dead", ...customCategories]);
+    const known = new Set([
+      "general",
+      "raw",
+      "blurry",
+      "dead",
+      ...customCategories,
+    ]);
     if (
       reviewTab === "unreviewed" ||
       reviewTab === "reviewed" ||
@@ -272,6 +301,35 @@ export function DatabankListPage() {
       setSamplePage(1);
     }
   }, [customCategories, reviewTab]);
+
+  useEffect(() => {
+    if (tabFromUrl === "raw" && reviewTab !== "raw") {
+      setReviewTab("raw");
+      setSamplePage(1);
+      return;
+    }
+    if (
+      tabFromUrl &&
+      tabFromUrl !== "raw" &&
+      isKnownReviewTab(tabFromUrl, customCategories) &&
+      reviewTab !== tabFromUrl
+    ) {
+      setReviewTab(tabFromUrl);
+      setSamplePage(1);
+    }
+  }, [tabFromUrl, customCategories, reviewTab]);
+
+  const syncTabToUrl = (key: string) => {
+    setReviewTab(key);
+    setSamplePage(1);
+    const next = new URLSearchParams(searchParams);
+    if (key === "raw") {
+      next.set("tab", "raw");
+    } else {
+      next.delete("tab");
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   const samplesQuery = useQuery({
     queryKey: [
@@ -357,6 +415,7 @@ export function DatabankListPage() {
     setImgSaturate(DEFAULT_ENHANCE.saturate);
     setImgBlur(DEFAULT_ENHANCE.blur);
     setHideBbox(Boolean(reviewSample.bbox_cleared));
+    setMoveTargetCategory("");
     reviewForm.setFieldsValue({
       corrected_gt:
         reviewSample.corrected_gt ||
@@ -372,16 +431,25 @@ export function DatabankListPage() {
   const tabUnreviewedCount =
     reviewTab === "general"
       ? (dataset?.unreviewed_count ?? 0)
-      : Math.max(
-          0,
-          (dataset?.category_counts?.[reviewTab]?.total ?? 0) -
-            (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0),
-        );
+      : reviewTab === "raw"
+        ? Math.max(
+            0,
+            (dataset?.raw_pending_count ??
+              dataset?.category_counts?.raw?.total ??
+              0) - (dataset?.category_counts?.raw?.reviewed ?? 0),
+          )
+        : Math.max(
+            0,
+            (dataset?.category_counts?.[reviewTab]?.total ?? 0) -
+              (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0),
+          );
 
   const tabReviewedCount =
     reviewTab === "general"
       ? (dataset?.reviewed_count ?? 0)
-      : (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0);
+      : reviewTab === "raw"
+        ? (dataset?.category_counts?.raw?.reviewed ?? 0)
+        : (dataset?.category_counts?.[reviewTab]?.reviewed ?? 0);
 
   const currentTabMetrics = pickTabMetrics(dataset, reviewTab);
 
@@ -398,21 +466,49 @@ export function DatabankListPage() {
     onError: (error) => message.error(getApiErrorMessage(error)),
   });
 
+  const rawUploadMutation = useMutation({
+    mutationFn: (payload: { ocr_type: string; file: File }) =>
+      uploadRawToDatabank(payload.ocr_type, payload.file),
+    onSuccess: (ds) => {
+      message.success(
+        ds.message ?? "Raw upload accepted — predicting in background",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["databank"] });
+      setRawUploadOpen(false);
+      syncTabToUrl("raw");
+    },
+    onError: (error) => message.error(getApiErrorMessage(error)),
+  });
+
   const reviewMutation = useMutation({
     mutationFn: (body: {
       corrected_gt?: string;
       accept_prediction?: boolean;
       review_notes?: string;
       clear_bbox?: boolean;
+      target_category?: string | null;
     }) => reviewDatabankSample(datasetId!, reviewSample!.id, body),
     onSuccess: (sample) => {
-      const wasReviewed = reviewSample?.review_status === "reviewed";
-      message.success(
-        wasReviewed
-          ? "Ground truth updated"
-          : "Ground truth saved — category kept (use Dataset category to move)",
-      );
-      setReviewSample(sample);
+      const match = sample.match_after_save ?? sample.upload_match;
+      const matchLabel =
+        match == null
+          ? ""
+          : match
+            ? " — prediction matched GT"
+            : " — prediction mismatched GT";
+      if (sample.promoted) {
+        message.success(`Saved GT and moved to Dataset list${matchLabel}`);
+      } else if (isRawSample(sample)) {
+        message.success(`Ground truth saved (still in Raw Data)${matchLabel}`);
+      } else {
+        const wasReviewed = reviewSample?.review_status === "reviewed";
+        message.success(
+          wasReviewed
+            ? `Ground truth updated${matchLabel}`
+            : `Ground truth saved${matchLabel}`,
+        );
+      }
+      setReviewSample(null);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
       window.setTimeout(() => {
         void queryClient.invalidateQueries({
@@ -664,7 +760,9 @@ export function DatabankListPage() {
       dataIndex: "category",
       width: 90,
       render: (v: string | undefined, row) =>
-        v || row.is_blurry ? (
+        isRawSample(row) ? (
+          <Tag color="blue">raw</Tag>
+        ) : v || row.is_blurry ? (
           <Tag color={v === "dead" ? "red" : "orange"}>{v || "blurry"}</Tag>
         ) : (
           "—"
@@ -714,11 +812,23 @@ export function DatabankListPage() {
           <Space wrap>
             <Button
               type="primary"
-              onClick={() => setUploadOpen(true)}
+              onClick={() =>
+                reviewTab === "raw"
+                  ? setRawUploadOpen(true)
+                  : setUploadOpen(true)
+              }
               disabled={busy}
             >
-              Upload to data bank
+              {reviewTab === "raw" ? "Upload raw data" : "Upload to data bank"}
             </Button>
+            {reviewTab !== "raw" ? (
+              <Button
+                onClick={() => setRawUploadOpen(true)}
+                disabled={busy || !datasetId}
+              >
+                Upload raw data
+              </Button>
+            ) : null}
             <Button
               disabled={!datasetId}
               onClick={() => setAddCategoryOpen(true)}
@@ -749,7 +859,7 @@ export function DatabankListPage() {
             <Button
               icon={<ReloadOutlined />}
               loading={syncReviewedMutation.isPending}
-              disabled={!datasetId}
+              disabled={!datasetId || reviewTab === "raw"}
               onClick={() => {
                 setSyncChunkCount(
                   Math.max(1, dataset?.reviewed_eval_chunk_count ?? 1),
@@ -761,7 +871,7 @@ export function DatabankListPage() {
                 ? `Sync ${tabDisplayName(reviewTab)} to Dataset tab`
                 : "Sync to Dataset tab"}
             </Button>
-            {tabUnreviewedCount > 0 ? (
+            {reviewTab !== "raw" && tabUnreviewedCount > 0 ? (
               <Button
                 icon={<ReloadOutlined />}
                 loading={
@@ -774,7 +884,7 @@ export function DatabankListPage() {
                 Re-analyze
               </Button>
             ) : null}
-            {tabReviewedCount > 0 ? (
+            {reviewTab !== "raw" && tabReviewedCount > 0 ? (
               <Button
                 icon={<ReloadOutlined />}
                 loading={
@@ -873,7 +983,11 @@ export function DatabankListPage() {
         <MetricsStrip
           title={`Latest accuracy — ${tabDisplayName(reviewTab)}`}
           metrics={currentTabMetrics}
-          emptyHint="Review samples or run re-analyze / re-run to compute accuracy for this tab."
+          emptyHint={
+            reviewTab === "raw"
+              ? "Upload raw images, save ground truth, then accuracy (predicted vs GT) appears here."
+              : "Review samples or run re-analyze / re-run to compute accuracy for this tab."
+          }
         />
 
         <DataTableToolbar
@@ -976,10 +1090,13 @@ export function DatabankListPage() {
         <Tabs
           activeKey={reviewTab}
           onChange={(key) => {
-            setReviewTab(key);
-            setSamplePage(1);
+            syncTabToUrl(key);
           }}
           items={[
+            {
+              key: "raw",
+              label: `Raw Data (${dataset?.raw_pending_count ?? dataset?.category_counts?.raw?.total ?? 0})`,
+            },
             {
               key: "general",
               label: `General (${dataset?.reviewed_count ?? 0}/${dataset?.unreviewed_count ?? 0})`,
@@ -1022,6 +1139,14 @@ export function DatabankListPage() {
         confirmLoading={uploadMutation.isPending}
         onClose={() => setUploadOpen(false)}
         onSubmit={(values) => uploadMutation.mutate(values)}
+      />
+
+      <UploadRawDatabankModal
+        open={rawUploadOpen}
+        ocrType={activeTaskKey}
+        confirmLoading={rawUploadMutation.isPending}
+        onClose={() => setRawUploadOpen(false)}
+        onSubmit={(values) => rawUploadMutation.mutate(values)}
       />
 
       <Modal
@@ -1106,39 +1231,82 @@ export function DatabankListPage() {
                   <Typography.Text type="secondary">Category: </Typography.Text>
                   <Tag
                     color={
-                      reviewSampleCategory === "dead"
-                        ? "red"
-                        : reviewSampleCategory
-                          ? "orange"
-                          : "default"
+                      isRawSample(reviewSample)
+                        ? "blue"
+                        : reviewSampleCategory === "dead"
+                          ? "red"
+                          : reviewSampleCategory
+                            ? "orange"
+                            : "default"
                     }
                   >
-                    {sampleCategoryLabel(reviewSampleCategory)}
+                    {isRawSample(reviewSample)
+                      ? "Raw Data (pending)"
+                      : sampleCategoryLabel(reviewSampleCategory)}
                   </Tag>
+                  {reviewSample.upload_match == null ? null : (
+                    <Tag
+                      className="ml-1"
+                      color={reviewSample.upload_match ? "success" : "error"}
+                    >
+                      {reviewSample.upload_match
+                        ? "pred matches GT"
+                        : "pred ≠ GT"}
+                    </Tag>
+                  )}
                 </div>
+                {typeof reviewSample.metadata?.original_filename ===
+                "string" ? (
+                  <div className="mt-1 text-xs text-slate-500">
+                    Original file: {reviewSample.metadata.original_filename}
+                  </div>
+                ) : null}
               </div>
 
-              <div>
-                <div className="mb-1 text-sm text-slate-600">Dataset category</div>
-                <Select
-                  className="w-full"
-                  value={reviewSampleCategory}
-                  loading={categoryMutationBusy}
-                  disabled={categoryMutationBusy}
-                  options={categorySelectOptions}
-                  onChange={(value: string) => {
-                    if (value === reviewSampleCategory) return;
-                    if (!value) {
-                      moveToReviewedMutation.mutate(reviewSample.id);
-                      return;
-                    }
-                    categoryMutation.mutate({
-                      sampleId: reviewSample.id,
-                      category: value,
-                    });
-                  }}
-                />
-              </div>
+              {isRawSample(reviewSample) ? (
+                <div>
+                  <div className="mb-1 text-sm text-slate-600">
+                    Move into Dataset list category
+                  </div>
+                  <Select
+                    className="w-full"
+                    value={moveTargetCategory}
+                    options={categorySelectOptions}
+                    onChange={(value: string) => setMoveTargetCategory(value)}
+                  />
+                  <Typography.Paragraph
+                    type="secondary"
+                    className="!mb-0 !mt-2 text-xs"
+                  >
+                    Save GT to stay in Raw, or Save &amp; move to send this
+                    image into General / Blurry / Dead / a custom category.
+                  </Typography.Paragraph>
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-1 text-sm text-slate-600">
+                    Dataset category
+                  </div>
+                  <Select
+                    className="w-full"
+                    value={reviewSampleCategory}
+                    loading={categoryMutationBusy}
+                    disabled={categoryMutationBusy}
+                    options={categorySelectOptions}
+                    onChange={(value: string) => {
+                      if (value === reviewSampleCategory) return;
+                      if (!value) {
+                        moveToReviewedMutation.mutate(reviewSample.id);
+                        return;
+                      }
+                      categoryMutation.mutate({
+                        sampleId: reviewSample.id,
+                        category: value,
+                      });
+                    }}
+                  />
+                </div>
+              )}
 
               <Space wrap>
                 <Button size="small" onClick={() => setHideBbox((v) => !v)}>
@@ -1286,14 +1454,19 @@ export function DatabankListPage() {
                       accept_prediction: true,
                       review_notes: reviewForm.getFieldValue("review_notes"),
                       clear_bbox: hideBbox,
+                      ...(isRawSample(reviewSample)
+                        ? { target_category: moveTargetCategory }
+                        : {}),
                     })
                   }
                   loading={reviewMutation.isPending}
                 >
-                  Accept prediction
+                  {isRawSample(reviewSample)
+                    ? "Accept pred & move"
+                    : "Accept prediction"}
                 </Button>
                 <Button
-                  type="primary"
+                  type={isRawSample(reviewSample) ? "default" : "primary"}
                   loading={reviewMutation.isPending}
                   onClick={async () => {
                     const values = await reviewForm.validateFields();
@@ -1304,8 +1477,25 @@ export function DatabankListPage() {
                     });
                   }}
                 >
-                  Save corrected GR
+                  Save GT
                 </Button>
+                {isRawSample(reviewSample) ? (
+                  <Button
+                    type="primary"
+                    loading={reviewMutation.isPending}
+                    onClick={async () => {
+                      const values = await reviewForm.validateFields();
+                      reviewMutation.mutate({
+                        corrected_gt: values.corrected_gt,
+                        review_notes: values.review_notes,
+                        clear_bbox: hideBbox,
+                        target_category: moveTargetCategory,
+                      });
+                    }}
+                  >
+                    Save GT &amp; move
+                  </Button>
+                ) : null}
               </Space>
             </div>
           </div>
@@ -1462,6 +1652,77 @@ function UploadDatabankModal({
           <InboxOutlined />
         </p>
         <p className="ant-upload-text">Drop a ZIP, or click to browse</p>
+      </Upload.Dragger>
+    </Modal>
+  );
+}
+
+function UploadRawDatabankModal({
+  open,
+  ocrType,
+  onClose,
+  onSubmit,
+  confirmLoading,
+}: {
+  open: boolean;
+  ocrType: string;
+  confirmLoading: boolean;
+  onClose: () => void;
+  onSubmit: (values: { ocr_type: string; file: File }) => void;
+}) {
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+
+  const handleOk = () => {
+    const file = fileList[0]?.originFileObj;
+    if (!file) {
+      message.error("Please choose an image or ZIP file");
+      return;
+    }
+    onSubmit({ ocr_type: ocrType, file });
+    setFileList([]);
+  };
+
+  return (
+    <Modal
+      title="Upload raw data"
+      open={open}
+      onCancel={() => {
+        setFileList([]);
+        onClose();
+      }}
+      onOk={handleOk}
+      okText="Upload & predict"
+      confirmLoading={confirmLoading}
+      destroyOnHidden
+      width={560}
+    >
+      <Alert
+        className="mb-3"
+        type="info"
+        showIcon
+        message="Pending review queue"
+        description={
+          <>
+            Filenames can be anything — no ground truth is inferred from the
+            name. Images land in <strong>Raw Data</strong>, the default model
+            runs a prediction, then you set GT and move them into General /
+            Blurry / Dead / a custom category.
+          </>
+        }
+      />
+      <Upload.Dragger
+        maxCount={1}
+        beforeUpload={() => false}
+        fileList={fileList}
+        onChange={({ fileList: next }) => setFileList(next)}
+        accept=".zip,.jpg,.jpeg,.png,.webp,application/zip,image/jpeg,image/png,image/webp"
+      >
+        <p className="ant-upload-drag-icon">
+          <InboxOutlined />
+        </p>
+        <p className="ant-upload-text">
+          Drop a single image or a ZIP of images
+        </p>
       </Upload.Dragger>
     </Modal>
   );

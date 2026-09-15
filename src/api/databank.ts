@@ -26,6 +26,20 @@ export async function uploadToDatabank(
   return data;
 }
 
+export async function uploadRawToDatabank(
+  ocrType: string,
+  file: File,
+): Promise<DatabankDataset & { added_samples?: number; message?: string | null }> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<
+    DatabankDataset & { added_samples?: number; message?: string | null }
+  >(`/v1/databank/upload-raw?ocr_type=${encodeURIComponent(ocrType)}`, form, {
+    timeout: 300_000,
+  });
+  return data;
+}
+
 export async function getDatabankDataset(id: string): Promise<DatabankDataset> {
   const { data } = await apiClient.get<DatabankDataset>(
     `/v1/databank/datasets/${id}`,
@@ -112,6 +126,8 @@ export async function reviewDatabankSample(
     corrected_bbox?: Record<string, unknown> | null;
     clear_bbox?: boolean;
     review_notes?: string | null;
+    /** Move raw sample into General ("") / blurry / dead / custom after saving GT */
+    target_category?: string | null;
   },
 ): Promise<DatabankSample> {
   const { data } = await apiClient.post<DatabankSample>(

@@ -41,6 +41,7 @@ export interface DatabankDataset {
   reviewed_count: number;
   unreviewed_count: number;
   blurry_count?: number;
+  raw_pending_count?: number;
   category_counts?: Record<string, { total: number; reviewed: number }>;
   custom_categories?: string[];
   reviewed_eval_chunk_count?: number;
@@ -106,6 +107,9 @@ export interface DatabankSample {
   created_at?: string | null;
   lifecycle_state?: string | null;
   quality_tag?: string | null;
+  metadata?: Record<string, unknown> | null;
+  promoted?: boolean;
+  match_after_save?: boolean | null;
 }
 
 export interface ListDatabankDatasetsResponse {

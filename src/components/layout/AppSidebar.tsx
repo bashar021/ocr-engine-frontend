@@ -12,6 +12,7 @@ import {
   ExperimentOutlined,
   FileTextOutlined,
   HistoryOutlined,
+  InboxOutlined,
   LinkOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
@@ -120,7 +121,9 @@ export function AppSidebar() {
             {
               key: "/bill/models/profiles",
               icon: <ProfileOutlined />,
-              label: <Link to="/bill/models/profiles">Profiles & versions</Link>,
+              label: (
+                <Link to="/bill/models/profiles">Profiles & versions</Link>
+              ),
             },
             {
               key: "/bill/models/fields",
@@ -257,6 +260,11 @@ export function AppSidebar() {
             label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
           },
           {
+            key: "/evaluation/dataset-list?tab=raw",
+            icon: <InboxOutlined />,
+            label: <Link to="/evaluation/dataset-list?tab=raw">Raw Data</Link>,
+          },
+          {
             key: "/evaluation/hard-cases",
             icon: <ExperimentOutlined />,
             label: (
@@ -350,6 +358,7 @@ export function AppSidebar() {
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
+    const search = location.search;
     if (path.startsWith("/overview")) return "/overview";
     if (path.startsWith("/ocr")) return "/ocr";
     if (path.startsWith("/settings")) return "/settings";
@@ -361,7 +370,8 @@ export function AppSidebar() {
       if (path.startsWith("/bill/models")) return "/bill/models/profiles";
       if (path.startsWith("/bill/evaluation-datasets"))
         return "/bill/evaluation-datasets";
-      if (path.startsWith("/bill/dataset-review")) return "/bill/dataset-review";
+      if (path.startsWith("/bill/dataset-review"))
+        return "/bill/dataset-review";
       if (path.startsWith("/bill/datasets")) return "/bill/datasets";
       if (path.startsWith("/bill/data")) return "/bill/data";
       if (path.startsWith("/bill/annotations")) return "/bill/annotations";
@@ -394,8 +404,11 @@ export function AppSidebar() {
       return "/evaluation/hard-cases";
     if (path.startsWith("/evaluation/training-datasets"))
       return "/evaluation/training-datasets";
-    if (path.startsWith("/evaluation/dataset-list"))
+    if (path.startsWith("/evaluation/dataset-list")) {
+      const tab = new URLSearchParams(search).get("tab");
+      if (tab === "raw") return "/evaluation/dataset-list?tab=raw";
       return "/evaluation/dataset-list";
+    }
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
     if (path.startsWith("/training-center")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
@@ -404,7 +417,7 @@ export function AppSidebar() {
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training/runs";
     return path;
-  }, [location.pathname, isBillTask]);
+  }, [location.pathname, location.search, isBillTask]);
 
   const [openKeys, setOpenKeys] = useState<string[]>(() =>
     isBillTask
