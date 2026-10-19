@@ -45,6 +45,7 @@ import {
   updateImageCategory,
 } from "@/api/scraper";
 import { PageHeader } from "@/components/common/PageHeader";
+import { formatBytes } from "@/utils/format";
 import type {
   ScraperCategory,
   ScraperImage,
@@ -433,6 +434,7 @@ function DataBankTab() {
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedImage, setSelectedImage] = useState<ScraperImage | null>(null);
 
   const categoriesQuery = useQuery({
     queryKey: ["scraper", "categories"],
@@ -469,8 +471,126 @@ function DataBankTab() {
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
 
+  const handleCategoryChange = (id: string, categoryId: string | null) => {
+    updateCatMutation.mutate({ id, categoryId });
+    setSelectedImage((prev) =>
+      prev && prev.id === id ? { ...prev, category_id: categoryId } : prev,
+    );
+  };
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id);
+    if (selectedImage?.id === id) {
+      setSelectedImage(null);
+    }
+  };
+
   const images = imagesQuery.data?.images ?? [];
   const total = imagesQuery.data?.total ?? 0;
+
+  const columns: ColumnsType<ScraperImage> = [
+    {
+      title: "Alt Text",
+      dataIndex: "alt_text",
+      key: "alt_text",
+      ellipsis: true,
+      render: (text: string | null) =>
+        text ? (
+          <Typography.Text ellipsis style={{ maxWidth: 220 }}>
+            {text}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
+    },
+    {
+      title: "Category",
+      dataIndex: "category_id",
+      key: "category_id",
+      width: 180,
+      render: (_: unknown, record: ScraperImage) => (
+        <Select
+          size="small"
+          placeholder="Category"
+          allowClear
+          value={record.category_id ?? undefined}
+          onChange={(val) => handleCategoryChange(record.id, val ?? null)}
+          options={(categoriesQuery.data ?? []).map((c) => ({
+            label: c.name,
+            value: c.id,
+          }))}
+          style={{ width: "100%" }}
+        />
+      ),
+    },
+    {
+      title: "Source URL",
+      dataIndex: "source_url",
+      key: "source_url",
+      ellipsis: true,
+      render: (text: string) => (
+        <Typography.Link
+          href={text}
+          target="_blank"
+          rel="noopener noreferrer"
+          ellipsis
+          style={{ maxWidth: 240 }}
+        >
+          {text}
+        </Typography.Link>
+      ),
+    },
+    {
+      title: "Dimensions",
+      key: "dimensions",
+      width: 120,
+      render: (_: unknown, record: ScraperImage) =>
+        record.width && record.height
+          ? `${record.width} × ${record.height}`
+          : "—",
+    },
+    {
+      title: "Size",
+      dataIndex: "file_size_bytes",
+      key: "file_size_bytes",
+      width: 100,
+      render: (bytes: number) => formatBytes(bytes),
+    },
+    {
+      title: "Created",
+      dataIndex: "created_at",
+      key: "created_at",
+      width: 170,
+      render: (v: string) => new Date(v).toLocaleString(),
+    },
+    {
+      title: "Actions",
+      key: "actions",
+      width: 140,
+      render: (_: unknown, record: ScraperImage) => (
+        <Space size="small">
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => setSelectedImage(record)}
+          >
+            View
+          </Button>
+          <Popconfirm
+            title="Delete this image?"
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -504,78 +624,76 @@ function DataBankTab() {
         </Typography.Text>
       </div>
 
-      {imagesQuery.isLoading ? (
-        <div className="flex justify-center py-16">
-          <Spin size="large" />
-        </div>
-      ) : images.length === 0 ? (
-        <Empty description="No images found" />
-      ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-          {images.map((img) => (
-            <ImageCard
-              key={img.id}
-              image={img}
-              categories={categoriesQuery.data ?? []}
-              onDelete={() => deleteMutation.mutate(img.id)}
-              onChangeCategory={(catId) =>
-                updateCatMutation.mutate({ id: img.id, categoryId: catId })
-              }
-            />
-          ))}
-        </div>
-      )}
+      <Table
+        rowKey="id"
+        dataSource={images}
+        columns={columns}
+        loading={imagesQuery.isLoading}
+        locale={{ emptyText: <Empty description="No images found" /> }}
+        pagination={{
+          current: page,
+          pageSize: PAGE_SIZE,
+          total,
+          showSizeChanger: false,
+          showTotal: (t) => `Total ${t} image${t !== 1 ? "s" : ""}`,
+          onChange: (p) => setPage(p),
+        }}
+        size="small"
+        scroll={{ x: 800 }}
+      />
 
-      {total > PAGE_SIZE && (
-        <div className="flex justify-center pt-4">
-          <Button
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            Previous
-          </Button>
-          <Typography.Text className="mx-4 leading-8">
-            Page {page} of {Math.ceil(total / PAGE_SIZE)}
-          </Typography.Text>
-          <Button
-            disabled={page >= Math.ceil(total / PAGE_SIZE)}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
+      {selectedImage && (
+        <ImagePreviewModal
+          key={selectedImage.id}
+          image={selectedImage}
+          categories={categoriesQuery.data ?? []}
+          onClose={() => setSelectedImage(null)}
+          onChangeCategory={(catId) =>
+            handleCategoryChange(selectedImage.id, catId)
+          }
+          onDelete={() => handleDelete(selectedImage.id)}
+        />
       )}
     </div>
   );
 }
 
-function ImageCard({
+function ImagePreviewModal({
   image,
   categories,
-  onDelete,
+  onClose,
   onChangeCategory,
+  onDelete,
 }: {
   image: ScraperImage;
   categories: ScraperCategory[];
-  onDelete: () => void;
+  onClose: () => void;
   onChangeCategory: (categoryId: string | null) => void;
+  onDelete: () => void;
 }) {
-  const [previewUrl, setPreviewUrl] = useState<string>();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [previewFailed, setPreviewFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
     let objectUrl: string | undefined;
-    setPreviewFailed(false);
-    setPreviewUrl(undefined);
+
     void getImageBlob(image.id)
       .then((blob) => {
         objectUrl = URL.createObjectURL(blob);
-        if (active) setPreviewUrl(objectUrl);
+        if (active) {
+          setPreviewUrl(objectUrl);
+          setLoading(false);
+        }
       })
       .catch(() => {
-        if (active) setPreviewFailed(true);
+        if (active) {
+          setPreviewFailed(true);
+          setLoading(false);
+        }
       });
+
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -583,68 +701,123 @@ function ImageCard({
   }, [image.id]);
 
   return (
-    <Card
-      size="small"
-      cover={
-        <div className="flex h-40 items-center justify-center overflow-hidden bg-gray-100">
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt={image.alt_text ?? "scraped image"}
-              className="h-full w-full object-contain"
-            />
-          ) : previewFailed ? (
-            <Typography.Text type="secondary">Preview unavailable</Typography.Text>
-          ) : (
-            <Spin size="small" />
-          )}
+    <Modal
+      title={image.alt_text || "Image Details"}
+      open
+      onCancel={onClose}
+      width={720}
+      centered
+      footer={
+        <div className="flex items-center justify-between">
+          <Popconfirm
+            title="Delete this image?"
+            onConfirm={onDelete}
+          >
+            <Button danger icon={<DeleteOutlined />}>
+              Delete
+            </Button>
+          </Popconfirm>
+          <Space>
+            {image.source_url && (
+              <Button
+                href={image.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open Source
+              </Button>
+            )}
+            <Button type="primary" onClick={onClose}>
+              Close
+            </Button>
+          </Space>
         </div>
       }
-      actions={[
-        <Popconfirm
-          key="delete"
-          title="Delete this image?"
-          onConfirm={onDelete}
-        >
-          <DeleteOutlined />
-        </Popconfirm>,
-      ]}
     >
-      <Card.Meta
-        title={
-          <Typography.Text ellipsis style={{ fontSize: 12 }}>
-            {image.alt_text || "No alt text"}
-          </Typography.Text>
-        }
-        description={
-          <div className="space-y-1">
+      <div className="space-y-4">
+        <div className="flex min-h-[260px] max-h-[480px] items-center justify-center overflow-hidden rounded bg-gray-50 border p-2">
+          {loading ? (
+            <Spin tip="Loading image..." />
+          ) : previewUrl ? (
+            <img
+              src={previewUrl}
+              alt={image.alt_text ?? "Scraped image"}
+              className="max-h-[460px] w-auto max-w-full object-contain"
+            />
+          ) : previewFailed ? (
+            <Typography.Text type="secondary">
+              Preview unavailable
+            </Typography.Text>
+          ) : null}
+        </div>
+
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="w-24 font-medium text-gray-500">Category:</span>
+            <Select
+              size="small"
+              placeholder="Category"
+              allowClear
+              value={image.category_id ?? undefined}
+              onChange={(value) => onChangeCategory(value ?? null)}
+              options={categories.map((c) => ({
+                label: c.name,
+                value: c.id,
+              }))}
+              style={{ minWidth: 200 }}
+            />
+          </div>
+          {image.alt_text && (
+            <div className="flex items-start gap-2">
+              <span className="w-24 font-medium text-gray-500">Alt text:</span>
+              <span className="flex-1 text-gray-800">{image.alt_text}</span>
+            </div>
+          )}
+          <div className="flex items-start gap-2">
+            <span className="w-24 font-medium text-gray-500">Source URL:</span>
             <Typography.Link
               href={image.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              ellipsis
-              style={{ fontSize: 11 }}
+              className="flex-1 break-all"
             >
               {image.source_url}
             </Typography.Link>
-            <div>
-              <Select
-                size="small"
-                placeholder="Category"
-                allowClear
-                value={image.category_id ?? undefined}
-                onChange={(value) => onChangeCategory(value ?? null)}
-                options={categories.map((c) => ({
-                  label: c.name,
-                  value: c.id,
-                }))}
-                style={{ width: "100%" }}
-              />
-            </div>
           </div>
-        }
-      />
-    </Card>
+          {image.page_url && (
+            <div className="flex items-start gap-2">
+              <span className="w-24 font-medium text-gray-500">Page URL:</span>
+              <Typography.Link
+                href={image.page_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 break-all"
+              >
+                {image.page_url}
+              </Typography.Link>
+            </div>
+          )}
+          {(image.width > 0 || image.height > 0) && (
+            <div className="flex items-center gap-2">
+              <span className="w-24 font-medium text-gray-500">Dimensions:</span>
+              <span>
+                {image.width} × {image.height} px
+              </span>
+            </div>
+          )}
+          {image.file_size_bytes > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="w-24 font-medium text-gray-500">File size:</span>
+              <span>{formatBytes(image.file_size_bytes)}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="w-24 font-medium text-gray-500">Created:</span>
+            <span>{new Date(image.created_at).toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
