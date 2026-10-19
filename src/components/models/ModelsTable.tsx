@@ -1,4 +1,5 @@
-import { App, Button, Space, Typography } from "antd";
+import { App, Button, Space, Typography, message } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
 import {
   flexRender,
   getCoreRowModel,
@@ -10,6 +11,7 @@ import dayjs from "dayjs";
 import { useMemo } from "react";
 
 import { StatusTag } from "@/components/common/StatusTag";
+import { downloadArtifact } from "@/api/models";
 import type { ModelArtifact } from "@/types/models";
 import { formatBytes, formatPercent, truncateDigest } from "@/utils/format";
 
@@ -25,6 +27,7 @@ interface ModelsTableProps {
   onActivate?: (artifact: ModelArtifact) => void;
   onDelete?: (artifact: ModelArtifact) => void;
   actionLoadingId?: string | null;
+  exportingId?: string | null;
 }
 
 export function ModelsTable({
@@ -39,8 +42,10 @@ export function ModelsTable({
   onActivate,
   onDelete,
   actionLoadingId,
+  exportingId,
 }: ModelsTableProps) {
   const { modal } = App.useApp();
+  const [messageApi, contextHolder] = message.useMessage();
 
   const columns = useMemo<ColumnDef<ModelArtifact>[]>(
     () => [
@@ -142,8 +147,22 @@ export function ModelsTable({
         cell: ({ row }) => {
           const art = row.original;
           const busy = actionLoadingId === art.id;
+          const exporting = exportingId === art.id;
+          const defaultFilename = `${art.name}-${art.version}`;
           return (
             <Space size={4} wrap>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                loading={exporting}
+                onClick={() => {
+                  void downloadArtifact(art.id, defaultFilename).catch(() => {
+                    void messageApi.error("Export failed. Please try again.");
+                  });
+                }}
+              >
+                Export
+              </Button>
               {tab === "activated" ? (
                 <Button
                   size="small"
@@ -208,7 +227,7 @@ export function ModelsTable({
         },
       },
     ],
-    [actionLoadingId, modal, onActivate, onDeactivate, onDelete, tab],
+    [actionLoadingId, exportingId, messageApi, modal, onActivate, onDeactivate, onDelete, tab],
   );
 
   const table = useReactTable({
@@ -221,6 +240,7 @@ export function ModelsTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      {contextHolder}
       <Spin spinning={Boolean(loading)}>
         <div className="overflow-x-auto">
           <table className="min-w-[1500px] w-full border-collapse text-left text-sm">

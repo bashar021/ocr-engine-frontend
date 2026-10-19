@@ -197,6 +197,27 @@ export async function deleteArtifact(id: string): Promise<ModelArtifact> {
   return data;
 }
 
+export async function downloadArtifact(
+  id: string,
+  filename: string,
+): Promise<void> {
+  const { data, headers } = await apiClient.get<Blob>(
+    `/v1/models/artifacts/${id}/download`,
+    { responseType: "blob" },
+  );
+  const disposition = headers["content-disposition"] ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const dl = match ? match[1] : filename;
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = dl;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export type RecognitionConfigBody = Record<string, unknown>;
 
 export interface RecognitionConfigArtifact extends ModelArtifact {
