@@ -241,3 +241,19 @@ export async function downloadDatabankCsv(
   if (match?.[1]) filename = match[1];
   return { blob, filename };
 }
+
+export async function extractDatabankSampleWithGemini(
+  datasetId: string,
+  sampleId: string,
+  params: { prompt: string; api_key?: string; model?: string },
+): Promise<{ extracted_value: string; model: string; prompt: string }> {
+  const { data } = await apiClient.post<{
+    extracted_value: string;
+    model: string;
+    prompt: string;
+  }>(
+    `/v1/databank/datasets/${datasetId}/samples/${sampleId}/extract-gemini`,
+    params,
+  );
+  return data;
+}

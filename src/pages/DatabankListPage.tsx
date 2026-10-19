@@ -4,6 +4,7 @@ import {
   DownloadOutlined,
   InboxOutlined,
   ReloadOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
   App,
@@ -17,6 +18,7 @@ import {
   Select,
   Space,
   Slider,
+  Spin,
   Switch,
   Statistic,
   Table,
@@ -36,6 +38,7 @@ import { getApiErrorMessage } from "@/api/client";
 import {
   deleteDatabankSample,
   downloadDatabankCsv,
+  extractDatabankSampleWithGemini,
   fetchDatabankSampleImageUrl,
   getDatabank,
   listDatabankSamples,
@@ -50,6 +53,7 @@ import {
   uploadRawToDatabank,
   uploadToDatabank,
 } from "@/api/databank";
+import { getGeminiConfig, getGeminiPrompts } from "@/api/scraper";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
@@ -221,7 +225,11 @@ export function DatabankListPage() {
   const [syncChunkCount, setSyncChunkCount] = useState(1);
   const [sampleSearch, setSampleSearch] = useState("");
   const [samplePage, setSamplePage] = useState(1);
-  const [samplePageSize, setSamplePageSize] = useState(20);
+  const [samplePageSize, setSamplePageSize] = useState<number>(() =>
+    tabFromUrl === "raw" ? 50 : 20,
+  );
+  const [getValueSample, setGetValueSample] =
+    useState<DatabankSample | null>(null);
   const [filenameGtFilter, setFilenameGtFilter] =
     useState<FilenameGtFilter>("all");
   const [predictedFilter, setPredictedFilter] =
@@ -306,6 +314,7 @@ export function DatabankListPage() {
     if (tabFromUrl === "raw" && reviewTab !== "raw") {
       setReviewTab("raw");
       setSamplePage(1);
+      setSamplePageSize(50);
       return;
     }
     if (
@@ -322,6 +331,9 @@ export function DatabankListPage() {
   const syncTabToUrl = (key: string) => {
     setReviewTab(key);
     setSamplePage(1);
+    if (key === "raw") {
+      setSamplePageSize(50);
+    }
     const next = new URLSearchParams(searchParams);
     if (key === "raw") {
       next.set("tab", "raw");
@@ -737,6 +749,26 @@ export function DatabankListPage() {
       width: 110,
       render: (v) => v ?? "—",
     },
+    ...(reviewTab === "raw"
+      ? [
+          {
+            title: "Get Value",
+            key: "get_value",
+            width: 120,
+            render: (_: unknown, row: DatabankSample) => (
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<ThunderboltOutlined />}
+                onClick={() => setGetValueSample(row)}
+              >
+                Get Value
+              </Button>
+            ),
+          },
+        ]
+      : []),
     {
       title: "Re-run",
       dataIndex: "rerun_predicted",
@@ -1124,6 +1156,8 @@ export function DatabankListPage() {
           pagination={{
             current: samplePage,
             pageSize: samplePageSize,
+            pageSizeOptions: [20, 50, 100, 200],
+            showSizeChanger: true,
             total: samplesQuery.data?.total ?? 0,
             onChange: (p, ps) => {
               setSamplePage(p);
@@ -1502,6 +1536,20 @@ export function DatabankListPage() {
         ) : null}
       </Modal>
 
+      {getValueSample && datasetId && (
+        <DatabankGetValueModal
+          sample={getValueSample}
+          datasetId={datasetId}
+          onClose={() => setGetValueSample(null)}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: ["databank"] });
+            void queryClient.invalidateQueries({
+              queryKey: ["evaluation", "datasets"],
+            });
+          }}
+        />
+      )}
+
       <Modal
         title="Add category"
         open={addCategoryOpen}
@@ -1724,6 +1772,359 @@ function UploadRawDatabankModal({
           Drop a single image or a ZIP of images
         </p>
       </Upload.Dragger>
+    </Modal>
+  );
+}
+
+function DatabankGetValueModal({
+  sample,
+  datasetId,
+  onClose,
+  onSaved,
+}: {
+  sample: DatabankSample;
+  datasetId: string;
+  onClose: () => void;
+  onSaved: (updated: DatabankSample) => void;
+}) {
+  const { message } = App.useApp();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("odometer_reading");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem("gemini_api_key") || "",
+  );
+  const [reviewedValue, setReviewedValue] = useState<string>(
+    sample.final_gt || sample.ground_truth_normalized || "",
+  );
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [usedModelTag, setUsedModelTag] = useState<string | null>(null);
+
+  const promptsQuery = useQuery({
+    queryKey: ["scraper", "prompts"],
+    queryFn: getGeminiPrompts,
+  });
+
+  const configQuery = useQuery({
+    queryKey: ["scraper", "gemini-config"],
+    queryFn: getGeminiConfig,
+  });
+
+  const effectiveModel =
+    selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
+
+  const activePromptText =
+    customPrompt !== null
+      ? customPrompt
+      : (promptsQuery.data?.find((p) => p.id === selectedPromptId)?.prompt ??
+        (promptsQuery.data?.[0]?.prompt || ""));
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | undefined;
+
+    void fetchDatabankSampleImageUrl(datasetId, sample.id)
+      .then((url) => {
+        objectUrl = url;
+        if (active) {
+          setPreviewUrl(objectUrl);
+          setImageLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPreviewFailed(true);
+          setImageLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [datasetId, sample.id]);
+
+  const extractMutation = useMutation({
+    mutationFn: (vars: { prompt: string; apiKey?: string; model?: string }) =>
+      extractDatabankSampleWithGemini(datasetId, sample.id, {
+        prompt: vars.prompt,
+        api_key: vars.apiKey || undefined,
+        model: vars.model || effectiveModel,
+      }),
+    onSuccess: (data) => {
+      setExtractError(null);
+      setUsedModelTag(data.model);
+      message.success("Extracted response from Gemini! Review below before saving.");
+      setReviewedValue(data.extracted_value);
+    },
+    onError: (err) => {
+      const errMsg = getApiErrorMessage(err);
+      setExtractError(errMsg);
+      message.error(errMsg);
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (gt: string) =>
+      reviewDatabankSample(datasetId, sample.id, {
+        corrected_gt: gt,
+      }),
+    onSuccess: (updated) => {
+      message.success(`Ground truth saved for ${sample.filename}!`);
+      onSaved(updated);
+      onClose();
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  const handlePromptSelect = (promptId: string) => {
+    setSelectedPromptId(promptId);
+    const found = (promptsQuery.data ?? []).find((p) => p.id === promptId);
+    setCustomPrompt(found ? found.prompt : "");
+  };
+
+  const handleExtract = () => {
+    if (!activePromptText.trim()) {
+      message.warning("Please enter or select a prompt");
+      return;
+    }
+    setExtractError(null);
+    if (apiKey) {
+      localStorage.setItem("gemini_api_key", apiKey.trim());
+    }
+    extractMutation.mutate({
+      prompt: activePromptText.trim(),
+      apiKey: apiKey.trim() || undefined,
+      model: effectiveModel,
+    });
+  };
+
+  const handleSave = () => {
+    if (!reviewedValue.trim()) {
+      message.warning("Ground truth value cannot be empty");
+      return;
+    }
+    saveMutation.mutate(reviewedValue.trim());
+  };
+
+  const serverHasKey = Boolean(configQuery.data?.has_api_key);
+
+  const modelOptions =
+    configQuery.data?.available_models && configQuery.data.available_models.length > 0
+      ? configQuery.data.available_models.map((m) => ({ label: m.name, value: m.id }))
+      : [
+          { label: "Gemini 3.5 Flash Lite (Fastest & Stable)", value: "gemini-3.5-flash-lite" },
+          { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
+          { label: "Gemini 3 Flash Preview", value: "gemini-3-flash-preview" },
+        ];
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <ThunderboltOutlined className="text-amber-500" />
+          <span>Get Ground Truth Value (Gemini AI)</span>
+        </div>
+      }
+      open
+      onCancel={onClose}
+      width={760}
+      centered
+      footer={
+        <div className="flex items-center justify-between">
+          <Button onClick={onClose}>Cancel</Button>
+          <Space>
+            <Button
+              type="primary"
+              disabled={!reviewedValue.trim()}
+              loading={saveMutation.isPending}
+              onClick={handleSave}
+            >
+              Save Ground Truth
+            </Button>
+          </Space>
+        </div>
+      }
+    >
+      <div className="space-y-4 pt-2">
+        {/* Top: Image thumbnail & info */}
+        <div className="flex gap-4 rounded-lg border bg-gray-50 p-3">
+          <div className="flex h-32 w-44 shrink-0 items-center justify-center overflow-hidden rounded bg-gray-200">
+            {imageLoading ? (
+              <Spin size="small" />
+            ) : previewUrl ? (
+              <img
+                src={previewUrl}
+                alt={sample.filename}
+                className="h-full w-full object-contain"
+              />
+            ) : previewFailed ? (
+              <Typography.Text type="secondary" className="text-xs">
+                Image preview unavailable
+              </Typography.Text>
+            ) : null}
+          </div>
+          <div className="flex flex-1 flex-col justify-center space-y-1 text-xs">
+            <div>
+              <Typography.Text strong>File: </Typography.Text>
+              <Typography.Text code>{sample.filename}</Typography.Text>
+            </div>
+            <div>
+              <Typography.Text strong>Category: </Typography.Text>
+              <Tag color="blue">{sampleCategoryLabel(sample.category ?? "")}</Tag>
+            </div>
+            {sample.upload_predicted && (
+              <div>
+                <Typography.Text strong>Predicted: </Typography.Text>
+                <span>
+                  {sample.upload_predicted}
+                  {sample.upload_confidence != null
+                    ? ` (${(sample.upload_confidence * 100).toFixed(0)}%)`
+                    : ""}
+                </span>
+              </div>
+            )}
+            <div>
+              <Typography.Text strong>Current Final GT: </Typography.Text>
+              {sample.final_gt ? (
+                <Tag color="cyan">{sample.final_gt}</Tag>
+              ) : (
+                <Typography.Text type="secondary">Not set</Typography.Text>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Prompt Selection & Model Selection */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Select Prompt:
+              </label>
+              <Select
+                value={selectedPromptId}
+                onChange={handlePromptSelect}
+                loading={promptsQuery.isLoading}
+                options={(promptsQuery.data ?? []).map((p) => ({
+                  label: p.name,
+                  value: p.id,
+                }))}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Gemini Model:
+              </label>
+              <Select
+                value={effectiveModel}
+                onChange={(val) => setSelectedModel(val)}
+                loading={configQuery.isLoading}
+                options={modelOptions}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Prompt Instructions (customizable):
+            </label>
+            <Input.TextArea
+              rows={2}
+              value={activePromptText}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="Prompt to instruct Gemini..."
+            />
+          </div>
+        </div>
+
+        {/* API Key setting */}
+        <div className="rounded border border-dashed p-2.5 text-xs space-y-1.5 bg-gray-50/50">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-gray-700">Gemini API Key:</span>
+            {serverHasKey ? (
+              <Tag color="success">Server API Key Configured</Tag>
+            ) : (
+              <Typography.Link
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Get free API Key (Google AI Studio)
+              </Typography.Link>
+            )}
+          </div>
+          <Input.Password
+            size="small"
+            placeholder={
+              serverHasKey
+                ? "Optional override: enter custom Gemini API key"
+                : "Enter your Gemini API key (saved in browser)"
+            }
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </div>
+
+        {/* Action: Hit Gemini API Button */}
+        <div className="flex items-center justify-between">
+          <Typography.Text type="secondary" className="text-xs">
+            Using model: <Typography.Text code>{effectiveModel}</Typography.Text>
+          </Typography.Text>
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            loading={extractMutation.isPending}
+            onClick={handleExtract}
+          >
+            {extractMutation.isPending ? "Extracting from Gemini..." : "Hit Gemini API"}
+          </Button>
+        </div>
+
+        {/* Error notification if extraction fails */}
+        {extractError && (
+          <Alert
+            type="error"
+            showIcon
+            closable
+            onClose={() => setExtractError(null)}
+            message="Gemini API Error"
+            description={extractError}
+          />
+        )}
+
+        {/* Response Review Section */}
+        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold text-blue-900">
+              Review Extracted Value (Ground Truth):
+            </label>
+            <Space size="small">
+              {usedModelTag && (
+                <Tag color="geekblue">Model: {usedModelTag}</Tag>
+              )}
+              {reviewedValue && <Tag color="purple">Ready to Save</Tag>}
+            </Space>
+          </div>
+          <Input.TextArea
+            rows={2}
+            value={reviewedValue}
+            onChange={(e) => setReviewedValue(e.target.value)}
+            placeholder="Extracted value will appear here after hitting Gemini. You can review and edit before saving."
+            style={{ fontSize: 14, fontWeight: 500 }}
+          />
+          <Typography.Text type="secondary" className="block text-xs">
+            Review and adjust the extracted value above, then click &quot;Save Ground Truth&quot; to save it on this data bank sample.
+          </Typography.Text>
+        </div>
+      </div>
     </Modal>
   );
 }
