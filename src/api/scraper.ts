@@ -1,5 +1,7 @@
 import { apiClient } from "@/api/client";
 import type {
+  GeminiConfig,
+  GeminiPrompt,
   ScraperCategory,
   ScraperImage,
   ScraperSession,
@@ -123,5 +125,42 @@ export async function updateImageCategory(
 
 export async function getStats(): Promise<ScraperStats> {
   const { data } = await apiClient.get<ScraperStats>("/v1/scraper/stats");
+  return data;
+}
+
+export async function updateImageGroundTruth(
+  id: string,
+  groundTruth: string | null,
+): Promise<ScraperImage> {
+  const { data } = await apiClient.put<ScraperImage>(
+    `/v1/scraper/images/${id}/ground-truth`,
+    { ground_truth: groundTruth },
+  );
+  return data;
+}
+
+export async function getGeminiPrompts(): Promise<GeminiPrompt[]> {
+  const { data } = await apiClient.get<{ prompts: GeminiPrompt[] }>(
+    "/v1/scraper/prompts",
+  );
+  return data.prompts;
+}
+
+export async function getGeminiConfig(): Promise<GeminiConfig> {
+  const { data } = await apiClient.get<GeminiConfig>(
+    "/v1/scraper/gemini-config",
+  );
+  return data;
+}
+
+export async function extractWithGemini(
+  id: string,
+  params: { prompt: string; api_key?: string; model?: string },
+): Promise<{ extracted_value: string; model: string; prompt: string }> {
+  const { data } = await apiClient.post<{
+    extracted_value: string;
+    model: string;
+    prompt: string;
+  }>(`/v1/scraper/images/${id}/extract-gemini`, params);
   return data;
 }

@@ -51,7 +51,25 @@ export interface ScraperImage {
   width: number;
   height: number;
   page_url: string;
+  ground_truth?: string | null;
   created_at: string;
+}
+
+export interface GeminiPrompt {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+export interface GeminiModelOption {
+  id: string;
+  name: string;
+}
+
+export interface GeminiConfig {
+  has_api_key: boolean;
+  default_model: string;
+  available_models?: GeminiModelOption[];
 }
 
 export interface ScraperStats {

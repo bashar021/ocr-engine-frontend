@@ -6,8 +6,11 @@ import {
   PlusOutlined,
   SearchOutlined,
   StopOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
+  Alert,
+  App,
   Button,
   Card,
   Col,
@@ -24,7 +27,6 @@ import {
   Tabs,
   Tag,
   Typography,
-  message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
@@ -35,7 +37,10 @@ import {
   createCategory,
   deleteCategory,
   deleteImage,
+  extractWithGemini,
   getCategories,
+  getGeminiConfig,
+  getGeminiPrompts,
   getImageBlob,
   getImages,
   getSessions,
@@ -43,6 +48,7 @@ import {
   stopSession,
   updateCategory,
   updateImageCategory,
+  updateImageGroundTruth,
 } from "@/api/scraper";
 import { PageHeader } from "@/components/common/PageHeader";
 import { formatBytes } from "@/utils/format";
@@ -68,6 +74,7 @@ const PAGE_SIZE = 20;
 // ---------------------------------------------------------------------------
 
 function ScrapeTab() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
 
   // Form state
@@ -430,11 +437,13 @@ function ScrapeTab() {
 // ---------------------------------------------------------------------------
 
 function DataBankTab() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedImage, setSelectedImage] = useState<ScraperImage | null>(null);
+  const [getValueImage, setGetValueImage] = useState<ScraperImage | null>(null);
 
   const categoriesQuery = useQuery({
     queryKey: ["scraper", "categories"],
@@ -483,6 +492,9 @@ function DataBankTab() {
     if (selectedImage?.id === id) {
       setSelectedImage(null);
     }
+    if (getValueImage?.id === id) {
+      setGetValueImage(null);
+    }
   };
 
   const images = imagesQuery.data?.images ?? [];
@@ -496,7 +508,7 @@ function DataBankTab() {
       ellipsis: true,
       render: (text: string | null) =>
         text ? (
-          <Typography.Text ellipsis style={{ maxWidth: 220 }}>
+          <Typography.Text ellipsis style={{ maxWidth: 200 }}>
             {text}
           </Typography.Text>
         ) : (
@@ -507,7 +519,7 @@ function DataBankTab() {
       title: "Category",
       dataIndex: "category_id",
       key: "category_id",
-      width: 180,
+      width: 170,
       render: (_: unknown, record: ScraperImage) => (
         <Select
           size="small"
@@ -524,6 +536,52 @@ function DataBankTab() {
       ),
     },
     {
+      title: "GT (Ground Truth)",
+      dataIndex: "ground_truth",
+      key: "ground_truth",
+      width: 180,
+      render: (text: string | null | undefined) =>
+        text ? (
+          <Tag color="cyan" style={{ fontSize: 13, padding: "2px 8px" }}>
+            {text}
+          </Tag>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
+    },
+    {
+      title: "Get Value",
+      key: "get_value",
+      width: 120,
+      render: (_: unknown, record: ScraperImage) => (
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          icon={<ThunderboltOutlined />}
+          onClick={() => setGetValueImage(record)}
+        >
+          Get Value
+        </Button>
+      ),
+    },
+    {
+      title: "Dimensions",
+      key: "dimensions",
+      width: 110,
+      render: (_: unknown, record: ScraperImage) =>
+        record.width && record.height
+          ? `${record.width} × ${record.height}`
+          : "—",
+    },
+    {
+      title: "Size",
+      dataIndex: "file_size_bytes",
+      key: "file_size_bytes",
+      width: 90,
+      render: (bytes: number) => formatBytes(bytes),
+    },
+    {
       title: "Source URL",
       dataIndex: "source_url",
       key: "source_url",
@@ -534,39 +592,23 @@ function DataBankTab() {
           target="_blank"
           rel="noopener noreferrer"
           ellipsis
-          style={{ maxWidth: 240 }}
+          style={{ maxWidth: 200 }}
         >
           {text}
         </Typography.Link>
       ),
     },
     {
-      title: "Dimensions",
-      key: "dimensions",
-      width: 120,
-      render: (_: unknown, record: ScraperImage) =>
-        record.width && record.height
-          ? `${record.width} × ${record.height}`
-          : "—",
-    },
-    {
-      title: "Size",
-      dataIndex: "file_size_bytes",
-      key: "file_size_bytes",
-      width: 100,
-      render: (bytes: number) => formatBytes(bytes),
-    },
-    {
       title: "Created",
       dataIndex: "created_at",
       key: "created_at",
-      width: 170,
+      width: 160,
       render: (v: string) => new Date(v).toLocaleString(),
     },
     {
       title: "Actions",
       key: "actions",
-      width: 140,
+      width: 120,
       render: (_: unknown, record: ScraperImage) => (
         <Space size="small">
           <Button
@@ -639,7 +681,7 @@ function DataBankTab() {
           onChange: (p) => setPage(p),
         }}
         size="small"
-        scroll={{ x: 800 }}
+        scroll={{ x: 1000 }}
       />
 
       {selectedImage && (
@@ -654,7 +696,366 @@ function DataBankTab() {
           onDelete={() => handleDelete(selectedImage.id)}
         />
       )}
+
+      {getValueImage && (
+        <GetValueModal
+          key={getValueImage.id}
+          image={getValueImage}
+          onClose={() => setGetValueImage(null)}
+          onSaved={(updated) => {
+            queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+            if (selectedImage?.id === updated.id) {
+              setSelectedImage(updated);
+            }
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function GetValueModal({
+  image,
+  onClose,
+  onSaved,
+}: {
+  image: ScraperImage;
+  onClose: () => void;
+  onSaved: (updated: ScraperImage) => void;
+}) {
+  const { message } = App.useApp();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("odometer_reading");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("gemini_api_key") || "");
+  const [reviewedValue, setReviewedValue] = useState<string>(image.ground_truth || "");
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [usedModelTag, setUsedModelTag] = useState<string | null>(null);
+
+  const promptsQuery = useQuery({
+    queryKey: ["scraper", "prompts"],
+    queryFn: getGeminiPrompts,
+  });
+
+  const configQuery = useQuery({
+    queryKey: ["scraper", "gemini-config"],
+    queryFn: getGeminiConfig,
+  });
+
+  const effectiveModel =
+    selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
+
+  const activePromptText =
+    customPrompt !== null
+      ? customPrompt
+      : (promptsQuery.data?.find((p) => p.id === selectedPromptId)?.prompt ??
+        (promptsQuery.data?.[0]?.prompt || ""));
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | undefined;
+
+    void getImageBlob(image.id)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) {
+          setPreviewUrl(objectUrl);
+          setImageLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPreviewFailed(true);
+          setImageLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [image.id]);
+
+  const extractMutation = useMutation({
+    mutationFn: (vars: { prompt: string; apiKey?: string; model?: string }) =>
+      extractWithGemini(image.id, {
+        prompt: vars.prompt,
+        api_key: vars.apiKey || undefined,
+        model: vars.model || effectiveModel,
+      }),
+    onSuccess: (data) => {
+      setExtractError(null);
+      setUsedModelTag(data.model);
+      message.success("Extracted response from Gemini! Review below before saving.");
+      setReviewedValue(data.extracted_value);
+    },
+    onError: (err) => {
+      const errMsg = getApiErrorMessage(err);
+      setExtractError(errMsg);
+      message.error(errMsg);
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (gt: string) => updateImageGroundTruth(image.id, gt),
+    onSuccess: (updated) => {
+      message.success("Ground truth saved to image row!");
+      onSaved(updated);
+      onClose();
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  const handlePromptSelect = (promptId: string) => {
+    setSelectedPromptId(promptId);
+    const found = (promptsQuery.data ?? []).find((p) => p.id === promptId);
+    setCustomPrompt(found ? found.prompt : "");
+  };
+
+  const handleExtract = () => {
+    if (!activePromptText.trim()) {
+      message.warning("Please enter or select a prompt");
+      return;
+    }
+    setExtractError(null);
+    if (apiKey) {
+      localStorage.setItem("gemini_api_key", apiKey.trim());
+    }
+    extractMutation.mutate({
+      prompt: activePromptText.trim(),
+      apiKey: apiKey.trim() || undefined,
+      model: effectiveModel,
+    });
+  };
+
+  const handleSave = () => {
+    if (!reviewedValue.trim()) {
+      message.warning("Ground truth value cannot be empty");
+      return;
+    }
+    saveMutation.mutate(reviewedValue.trim());
+  };
+
+  const serverHasKey = Boolean(configQuery.data?.has_api_key);
+
+  const modelOptions =
+    configQuery.data?.available_models && configQuery.data.available_models.length > 0
+      ? configQuery.data.available_models.map((m) => ({ label: m.name, value: m.id }))
+      : [
+          { label: "Gemini 3.5 Flash Lite (Fastest & Stable)", value: "gemini-3.5-flash-lite" },
+          { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
+          { label: "Gemini 3 Flash Preview", value: "gemini-3-flash-preview" },
+        ];
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <ThunderboltOutlined className="text-amber-500" />
+          <span>Get Ground Truth Value (Gemini AI)</span>
+        </div>
+      }
+      open
+      onCancel={onClose}
+      width={760}
+      centered
+      footer={
+        <div className="flex items-center justify-between">
+          <Button onClick={onClose}>Cancel</Button>
+          <Space>
+            <Button
+              type="primary"
+              disabled={!reviewedValue.trim()}
+              loading={saveMutation.isPending}
+              onClick={handleSave}
+            >
+              Save Ground Truth
+            </Button>
+          </Space>
+        </div>
+      }
+    >
+      <div className="space-y-4 pt-2">
+        {/* Top: Image thumbnail & info */}
+        <div className="flex gap-4 rounded-lg border bg-gray-50 p-3">
+          <div className="flex h-32 w-44 shrink-0 items-center justify-center overflow-hidden rounded bg-gray-200">
+            {imageLoading ? (
+              <Spin size="small" />
+            ) : previewUrl ? (
+              <img
+                src={previewUrl}
+                alt={image.alt_text ?? "Image to extract"}
+                className="h-full w-full object-contain"
+              />
+            ) : previewFailed ? (
+              <Typography.Text type="secondary" className="text-xs">
+                Image preview unavailable
+              </Typography.Text>
+            ) : null}
+          </div>
+          <div className="flex flex-1 flex-col justify-center space-y-1 text-xs">
+            <div>
+              <Typography.Text strong>Image ID: </Typography.Text>
+              <Typography.Text copyable={{ text: image.id }} code>
+                {image.id.slice(0, 16)}...
+              </Typography.Text>
+            </div>
+            {image.alt_text && (
+              <div>
+                <Typography.Text strong>Alt Text: </Typography.Text>
+                <span>{image.alt_text}</span>
+              </div>
+            )}
+            {image.category_name && (
+              <div>
+                <Typography.Text strong>Category: </Typography.Text>
+                <Tag color="blue">{image.category_name}</Tag>
+              </div>
+            )}
+            <div>
+              <Typography.Text strong>Current Ground Truth: </Typography.Text>
+              {image.ground_truth ? (
+                <Tag color="cyan">{image.ground_truth}</Tag>
+              ) : (
+                <Typography.Text type="secondary">Not set</Typography.Text>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Prompt Selection & Model Selection */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Select Prompt:
+              </label>
+              <Select
+                value={selectedPromptId}
+                onChange={handlePromptSelect}
+                loading={promptsQuery.isLoading}
+                options={(promptsQuery.data ?? []).map((p) => ({
+                  label: p.name,
+                  value: p.id,
+                }))}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Gemini Model:
+              </label>
+              <Select
+                value={effectiveModel}
+                onChange={(val) => setSelectedModel(val)}
+                loading={configQuery.isLoading}
+                options={modelOptions}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Prompt Instructions (customizable):
+            </label>
+            <Input.TextArea
+              rows={2}
+              value={activePromptText}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="Prompt to instruct Gemini..."
+            />
+          </div>
+        </div>
+
+        {/* API Key setting */}
+        <div className="rounded border border-dashed p-2.5 text-xs space-y-1.5 bg-gray-50/50">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-gray-700">Gemini API Key:</span>
+            {serverHasKey ? (
+              <Tag color="success">Server API Key Configured</Tag>
+            ) : (
+              <Typography.Link
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Get free API Key (Google AI Studio)
+              </Typography.Link>
+            )}
+          </div>
+          <Input.Password
+            size="small"
+            placeholder={
+              serverHasKey
+                ? "Optional override: enter custom Gemini API key"
+                : "Enter your Gemini API key (saved in browser)"
+            }
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </div>
+
+        {/* Action: Hit Gemini API Button */}
+        <div className="flex items-center justify-between">
+          <Typography.Text type="secondary" className="text-xs">
+            Using model: <Typography.Text code>{effectiveModel}</Typography.Text>
+          </Typography.Text>
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            loading={extractMutation.isPending}
+            onClick={handleExtract}
+          >
+            {extractMutation.isPending ? "Extracting from Gemini..." : "Hit Gemini API"}
+          </Button>
+        </div>
+
+        {/* Error notification if extraction fails */}
+        {extractError && (
+          <Alert
+            type="error"
+            showIcon
+            closable
+            onClose={() => setExtractError(null)}
+            message="Gemini API Error"
+            description={extractError}
+          />
+        )}
+
+        {/* Response Review Section */}
+        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold text-blue-900">
+              Review Extracted Value (Ground Truth):
+            </label>
+            <Space size="small">
+              {usedModelTag && (
+                <Tag color="geekblue">Model: {usedModelTag}</Tag>
+              )}
+              {reviewedValue && (
+                <Tag color="purple">Ready to Save</Tag>
+              )}
+            </Space>
+          </div>
+          <Input.TextArea
+            rows={2}
+            value={reviewedValue}
+            onChange={(e) => setReviewedValue(e.target.value)}
+            placeholder="Extracted value will appear here after hitting Gemini. You can review and edit before saving."
+            style={{ fontSize: 14, fontWeight: 500 }}
+          />
+          <Typography.Text type="secondary" className="block text-xs">
+            Review and adjust the extracted value above, then click &quot;Save Ground Truth&quot; to save it on the row.
+          </Typography.Text>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -815,6 +1216,14 @@ function ImagePreviewModal({
             <span className="w-24 font-medium text-gray-500">Created:</span>
             <span>{new Date(image.created_at).toLocaleString()}</span>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="w-24 font-medium text-gray-500">Ground Truth:</span>
+            {image.ground_truth ? (
+              <Tag color="cyan">{image.ground_truth}</Tag>
+            ) : (
+              <Typography.Text type="secondary">—</Typography.Text>
+            )}
+          </div>
         </div>
       </div>
     </Modal>
@@ -826,6 +1235,7 @@ function ImagePreviewModal({
 // ---------------------------------------------------------------------------
 
 function CategoriesTab() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<ScraperCategory | null>(null);
