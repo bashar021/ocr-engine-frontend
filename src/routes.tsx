@@ -36,6 +36,7 @@ import { JobsPage } from "@/pages/JobsPage";
 import { ModelListPage } from "@/pages/ModelListPage";
 import { ModelRefsPage } from "@/pages/ModelRefsPage";
 import { OcrPlaygroundPage } from "@/pages/OcrPlaygroundPage";
+import { ScraperPage } from "@/pages/ScraperPage";
 import { RecognitionConfigsPage } from "@/pages/RecognitionConfigsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrainingCenterExperimentsPage } from "@/pages/TrainingCenterExperimentsPage";
@@ -152,6 +153,7 @@ export function AppRoutes() {
           element={<AugmentationDatasetPage />}
         />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
+        <Route path="/scraper" element={<ScraperPage />} />
         <Route
           path="/bill"
           element={<Navigate to="/bill/documents" replace />}

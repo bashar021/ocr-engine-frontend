@@ -5,6 +5,7 @@ import {
   AppstoreOutlined,
   BranchesOutlined,
   ClusterOutlined,
+  GlobalOutlined,
   CommentOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -48,6 +49,7 @@ const ODOMETER_ONLY_PREFIXES = [
   "/history",
   "/jobs",
   "/import-export",
+  "/scraper",
 ] as const;
 
 function isOdometerOnlyPath(pathname: string): boolean {
@@ -209,6 +211,11 @@ export function AppSidebar() {
         key: "/ocr",
         icon: <ScanOutlined />,
         label: <Link to="/ocr">Live OCR</Link>,
+      },
+      {
+        key: "/scraper",
+        icon: <GlobalOutlined />,
+        label: <Link to="/scraper">Image Scraper</Link>,
       },
       {
         key: "models-group",
@@ -416,6 +423,7 @@ export function AppSidebar() {
       return "/training/augmentation";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training/runs";
+    if (path.startsWith("/scraper")) return "/scraper";
     return path;
   }, [location.pathname, location.search, isBillTask]);
 
