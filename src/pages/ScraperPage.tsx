@@ -861,6 +861,7 @@ function GetValueModal({
       }
       open
       onCancel={onClose}
+      maskClosable={false}
       width={760}
       centered
       footer={

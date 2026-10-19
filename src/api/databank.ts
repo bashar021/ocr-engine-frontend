@@ -257,3 +257,20 @@ export async function extractDatabankSampleWithGemini(
   );
   return data;
 }
+
+export async function batchSetDatabankSampleCategory(
+  datasetId: string,
+  sampleIds: string[],
+  category: string,
+): Promise<{ dataset_id: string; count: number; category: string }> {
+  const { data } = await apiClient.post<{
+    dataset_id: string;
+    count: number;
+    category: string;
+  }>(`/v1/databank/datasets/${datasetId}/batch-category`, {
+    sample_ids: sampleIds,
+    category,
+  });
+  return data;
+}
+

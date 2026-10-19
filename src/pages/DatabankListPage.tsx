@@ -1,9 +1,15 @@
 import {
+  CheckCircleOutlined,
   CheckOutlined,
+  CheckSquareOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
   DeleteOutlined,
   DownloadOutlined,
   InboxOutlined,
   ReloadOutlined,
+  StopOutlined,
+  SyncOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
@@ -30,12 +36,13 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import {
+  batchSetDatabankSampleCategory,
   deleteDatabankSample,
   downloadDatabankCsv,
   extractDatabankSampleWithGemini,
@@ -228,6 +235,8 @@ export function DatabankListPage() {
   const [samplePageSize, setSamplePageSize] = useState<number>(() =>
     tabFromUrl === "raw" ? 50 : 20,
   );
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchGeminiOpen, setBatchGeminiOpen] = useState(false);
   const [getValueSample, setGetValueSample] =
     useState<DatabankSample | null>(null);
   const [filenameGtFilter, setFilenameGtFilter] =
@@ -307,6 +316,7 @@ export function DatabankListPage() {
     ) {
       setReviewTab("general");
       setSamplePage(1);
+      setSelectedRowKeys([]);
     }
   }, [customCategories, reviewTab]);
 
@@ -315,6 +325,7 @@ export function DatabankListPage() {
       setReviewTab("raw");
       setSamplePage(1);
       setSamplePageSize(50);
+      setSelectedRowKeys([]);
       return;
     }
     if (
@@ -325,12 +336,14 @@ export function DatabankListPage() {
     ) {
       setReviewTab(tabFromUrl);
       setSamplePage(1);
+      setSelectedRowKeys([]);
     }
   }, [tabFromUrl, customCategories, reviewTab]);
 
   const syncTabToUrl = (key: string) => {
     setReviewTab(key);
     setSamplePage(1);
+    setSelectedRowKeys([]);
     if (key === "raw") {
       setSamplePageSize(50);
     }
@@ -836,6 +849,70 @@ export function DatabankListPage() {
   const categoryMutationBusy =
     categoryMutation.isPending || moveToReviewedMutation.isPending;
 
+  const selectedSamples = useMemo(() => {
+    const currentSamples = samplesQuery.data?.samples ?? [];
+    const keySet = new Set(selectedRowKeys.map(String));
+    return currentSamples.filter((s) => keySet.has(s.id));
+  }, [samplesQuery.data?.samples, selectedRowKeys]);
+
+  const rowSelection =
+    reviewTab === "raw"
+      ? {
+          selectedRowKeys,
+          onChange: (keys: React.Key[]) => {
+            setSelectedRowKeys(keys);
+          },
+          onSelectAll: (selected: boolean) => {
+            if (selected) {
+              const loadedKeys = (samplesQuery.data?.samples ?? []).map(
+                (s) => s.id,
+              );
+              setSelectedRowKeys(loadedKeys);
+            } else {
+              setSelectedRowKeys([]);
+            }
+          },
+        }
+      : undefined;
+
+  const handleBatchMoveCategory = (targetCat: string) => {
+    if (!datasetId || selectedRowKeys.length === 0) return;
+    const count = selectedRowKeys.length;
+    const catLabel = sampleCategoryLabel(targetCat);
+    modal.confirm({
+      title: `Move ${count} selected sample${count > 1 ? "s" : ""} to ${catLabel}?`,
+      content: (
+        <div className="text-sm text-slate-600">
+          This will transfer {count} item{count > 1 ? "s" : ""} from Raw Data into the{" "}
+          <strong>{catLabel}</strong> category.
+        </div>
+      ),
+      okText: `Move to ${catLabel}`,
+      centered: true,
+      onOk: async () => {
+        try {
+          const res = await batchSetDatabankSampleCategory(
+            datasetId,
+            selectedRowKeys as string[],
+            targetCat,
+          );
+          appMessage.success(
+            `Moved ${res.count} sample${res.count > 1 ? "s" : ""} to ${catLabel}`,
+          );
+          setSelectedRowKeys([]);
+          void queryClient.invalidateQueries({ queryKey: ["databank"] });
+          window.setTimeout(() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["evaluation", "datasets"],
+            });
+          }, 1500);
+        } catch (err) {
+          appMessage.error(getApiErrorMessage(err));
+        }
+      },
+    });
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden ">
       <PageHeader
@@ -1148,7 +1225,43 @@ export function DatabankListPage() {
           ]}
         />
 
+        {reviewTab === "raw" && selectedRowKeys.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/80 px-4 py-2.5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <CheckSquareOutlined className="text-base text-blue-600" />
+              <span className="text-sm font-semibold text-blue-900">
+                {selectedRowKeys.length} sample{selectedRowKeys.length > 1 ? "s" : ""} selected (current page)
+              </span>
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setSelectedRowKeys([])}
+              >
+                Deselect all
+              </Button>
+            </div>
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                onClick={() => setBatchGeminiOpen(true)}
+              >
+                Run Gemini GT ({selectedRowKeys.length})
+              </Button>
+
+              <Select
+                placeholder="Move selected to category…"
+                style={{ width: 230 }}
+                value={null}
+                onChange={(cat: string) => handleBatchMoveCategory(cat)}
+                options={categorySelectOptions}
+              />
+            </Space>
+          </div>
+        )}
+
         <Table
+          rowSelection={rowSelection}
           rowKey="id"
           loading={bankQuery.isLoading || samplesQuery.isLoading}
           columns={sampleColumns}
@@ -1162,6 +1275,7 @@ export function DatabankListPage() {
             onChange: (p, ps) => {
               setSamplePage(p);
               setSamplePageSize(ps);
+              setSelectedRowKeys([]);
             },
           }}
         />
@@ -1550,6 +1664,25 @@ export function DatabankListPage() {
         />
       )}
 
+      {batchGeminiOpen && datasetId && (
+        <DatabankBatchGeminiModal
+          open={batchGeminiOpen}
+          datasetId={datasetId}
+          selectedSamples={selectedSamples}
+          onClose={() => setBatchGeminiOpen(false)}
+          onFinished={() => {
+            setSelectedRowKeys([]);
+            void queryClient.invalidateQueries({ queryKey: ["databank"] });
+            window.setTimeout(() => {
+              void queryClient.invalidateQueries({
+                queryKey: ["evaluation", "datasets"],
+              });
+            }, 1500);
+          }}
+        />
+      )}
+
+
       <Modal
         title="Add category"
         open={addCategoryOpen}
@@ -1932,6 +2065,7 @@ function DatabankGetValueModal({
       }
       open
       onCancel={onClose}
+      maskClosable={false}
       width={760}
       centered
       footer={
@@ -2128,3 +2262,548 @@ function DatabankGetValueModal({
     </Modal>
   );
 }
+
+export function parseNumericalValue(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  s = s.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
+  s = s.replace(/^["']/, "").replace(/["']$/, "").trim();
+  if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    return s;
+  }
+  const noCommas = s.replace(/,/g, "");
+  if (/^\d+(\.\d+)?$/.test(noCommas)) {
+    return noCommas;
+  }
+  return null;
+}
+
+interface BatchItemProgress {
+  sample: DatabankSample;
+  status:
+    | "pending"
+    | "processing"
+    | "waiting_delay"
+    | "saved_gt"
+    | "moved_dead"
+    | "error_dead";
+  extractedRaw?: string;
+  savedGt?: string;
+  error?: string;
+}
+
+function DatabankBatchGeminiModal({
+  open,
+  datasetId,
+  selectedSamples,
+  onClose,
+  onFinished,
+}: {
+  open: boolean;
+  datasetId: string;
+  selectedSamples: DatabankSample[];
+  onClose: () => void;
+  onFinished: () => void;
+}) {
+  const { message, modal } = App.useApp();
+  const [selectedPromptId, setSelectedPromptId] =
+    useState<string>("odometer_reading");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem("gemini_api_key") || "",
+  );
+
+  const promptsQuery = useQuery({
+    queryKey: ["scraper", "prompts"],
+    queryFn: getGeminiPrompts,
+  });
+
+  const configQuery = useQuery({
+    queryKey: ["scraper", "gemini-config"],
+    queryFn: getGeminiConfig,
+  });
+
+  const effectiveModel =
+    selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
+
+  const activePromptText =
+    customPrompt !== null
+      ? customPrompt
+      : (promptsQuery.data?.find((p) => p.id === selectedPromptId)?.prompt ??
+        (promptsQuery.data?.[0]?.prompt || ""));
+
+  const serverHasKey = Boolean(configQuery.data?.has_api_key);
+
+  const modelOptions =
+    configQuery.data?.available_models &&
+    configQuery.data.available_models.length > 0
+      ? configQuery.data.available_models.map((m) => ({
+          label: m.name,
+          value: m.id,
+        }))
+      : [
+          {
+            label: "Gemini 3.5 Flash Lite (Fastest & Stable)",
+            value: "gemini-3.5-flash-lite",
+          },
+          { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
+          { label: "Gemini 3 Flash Preview", value: "gemini-3-flash-preview" },
+        ];
+
+  const [items, setItems] = useState<BatchItemProgress[]>(() =>
+    selectedSamples.map((s) => ({ sample: s, status: "pending" })),
+  );
+  const [isRunning, setIsRunning] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [delayCountdown, setDelayCountdown] = useState(0);
+  const stopRef = useRef(false);
+
+  useEffect(() => {
+    if (!isRunning && !isFinished) {
+      setItems(selectedSamples.map((s) => ({ sample: s, status: "pending" })));
+    }
+  }, [selectedSamples, isRunning, isFinished]);
+
+  const totalCount = items.length;
+  const savedCount = items.filter((it) => it.status === "saved_gt").length;
+  const deadCount = items.filter(
+    (it) => it.status === "moved_dead" || it.status === "error_dead",
+  ).length;
+  const processedCount = savedCount + deadCount;
+  const percent =
+    totalCount === 0 ? 0 : Math.round((processedCount / totalCount) * 100);
+
+  const handlePromptSelect = (promptId: string) => {
+    setSelectedPromptId(promptId);
+    const found = (promptsQuery.data ?? []).find((p) => p.id === promptId);
+    setCustomPrompt(found ? found.prompt : "");
+  };
+
+  const handleStart = async () => {
+    if (!activePromptText.trim()) {
+      message.warning("Please provide prompt instructions");
+      return;
+    }
+    if (items.length === 0) {
+      message.warning("No samples selected");
+      return;
+    }
+
+    if (apiKey.trim()) {
+      localStorage.setItem("gemini_api_key", apiKey.trim());
+    }
+
+    stopRef.current = false;
+    setIsStopping(false);
+    setIsRunning(true);
+    setIsFinished(false);
+
+    let savedTotal = 0;
+    let deadTotal = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      if (stopRef.current) break;
+
+      setCurrentIndex(i);
+      setItems((prev) =>
+        prev.map((it, idx) =>
+          idx === i ? { ...it, status: "processing" } : it,
+        ),
+      );
+
+      const target = items[i].sample;
+      try {
+        const res = await extractDatabankSampleWithGemini(
+          datasetId,
+          target.id,
+          {
+            prompt: activePromptText.trim(),
+            api_key: apiKey.trim() || undefined,
+            model: effectiveModel,
+          },
+        );
+
+        const rawVal = res.extracted_value || "";
+        const numericVal = parseNumericalValue(rawVal);
+
+        if (numericVal !== null) {
+          // Valid numerical value: Save as Ground Truth
+          await reviewDatabankSample(datasetId, target.id, {
+            corrected_gt: numericVal,
+          });
+          savedTotal++;
+          setItems((prev) =>
+            prev.map((it, idx) =>
+              idx === i
+                ? {
+                    ...it,
+                    status: "saved_gt",
+                    extractedRaw: rawVal,
+                    savedGt: numericVal,
+                  }
+                : it,
+            ),
+          );
+        } else {
+          // Non-numerical value: Do NOT save GT, move to Dead category
+          await setDatabankSampleCategory(datasetId, target.id, "dead");
+          deadTotal++;
+          setItems((prev) =>
+            prev.map((it, idx) =>
+              idx === i
+                ? {
+                    ...it,
+                    status: "moved_dead",
+                    extractedRaw: rawVal,
+                  }
+                : it,
+            ),
+          );
+        }
+      } catch (err: unknown) {
+        // Extraction or network error: move to Dead category
+        const errDetail = getApiErrorMessage(err);
+        try {
+          await setDatabankSampleCategory(datasetId, target.id, "dead");
+        } catch {
+          // ignore secondary error
+        }
+        deadTotal++;
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? {
+                  ...it,
+                  status: "error_dead",
+                  error: errDetail,
+                }
+              : it,
+          ),
+        );
+      }
+
+      // After one completion, wait 2 seconds before sending next request
+      if (i < items.length - 1 && !stopRef.current) {
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i + 1 ? { ...it, status: "waiting_delay" } : it,
+          ),
+        );
+        for (let sec = 2; sec > 0; sec--) {
+          if (stopRef.current) break;
+          setDelayCountdown(sec);
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        setDelayCountdown(0);
+      }
+    }
+
+    setIsRunning(false);
+    setIsStopping(false);
+    setIsFinished(true);
+    setCurrentIndex(-1);
+
+    if (stopRef.current) {
+      message.info("Batch processing stopped.");
+    } else {
+      message.success(
+        `Batch finished! ${savedTotal} saved as GT, ${deadTotal} moved to Dead.`,
+      );
+    }
+    onFinished();
+  };
+
+  const handleStop = () => {
+    stopRef.current = true;
+    setIsStopping(true);
+    message.info("Stopping batch after current sample finishes...");
+  };
+
+  const handleModalClose = () => {
+    if (isRunning) {
+      modal.confirm({
+        title: "Stop batch extraction?",
+        content:
+          "Gemini requests are currently running. Do you want to stop processing and close?",
+        okText: "Stop and Close",
+        okButtonProps: { danger: true },
+        centered: true,
+        onOk: () => {
+          stopRef.current = true;
+          setIsStopping(true);
+          onClose();
+          onFinished();
+        },
+      });
+      return;
+    }
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center justify-between pr-6">
+          <div className="flex items-center gap-2">
+            <ThunderboltOutlined className="text-lg text-amber-500" />
+            <span className="font-semibold">
+              Batch Gemini Ground Truth Extraction
+            </span>
+          </div>
+          <Tag color="blue">{selectedSamples.length} samples selected</Tag>
+        </div>
+      }
+      open={open}
+      onCancel={handleModalClose}
+      maskClosable={false}
+      width={840}
+      centered
+      destroyOnHidden
+      footer={
+        <div className="flex items-center justify-between">
+          <Button
+            onClick={handleModalClose}
+            disabled={isRunning && isStopping}
+          >
+            {isFinished ? "Close" : "Cancel"}
+          </Button>
+          <Space>
+            {isRunning ? (
+              <Button
+                danger
+                icon={<StopOutlined />}
+                onClick={handleStop}
+                disabled={isStopping}
+              >
+                {isStopping
+                  ? "Stopping after current sample..."
+                  : "Stop Batch"}
+              </Button>
+            ) : isFinished ? (
+              <Button
+                type="primary"
+                onClick={() => {
+                  onClose();
+                  onFinished();
+                }}
+              >
+                Done
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                disabled={totalCount === 0}
+                onClick={handleStart}
+              >
+                Start Batch Extraction ({totalCount})
+              </Button>
+            )}
+          </Space>
+        </div>
+      }
+    >
+      <div className="space-y-4 pt-2">
+        {/* Rule description Alert */}
+        <Alert
+          type="info"
+          showIcon
+          message="Automated Batch Rules"
+          description={
+            <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-slate-600">
+              <li>
+                Processes selected rows sequentially with a{" "}
+                <strong>2-second delay</strong> between requests.
+              </li>
+              <li>
+                If a <strong>numerical value</strong> is returned by Gemini:
+                saves it as Ground Truth (GT).
+              </li>
+              <li>
+                If <strong>non-numerical</strong> (or failed): does not save GT
+                and automatically moves the sample to the <strong>Dead</strong>{" "}
+                category.
+              </li>
+            </ul>
+          }
+        />
+
+        {/* Prompt & Model Selection */}
+        <div className="space-y-3 rounded-lg border bg-gray-50/60 p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Select Prompt:
+              </label>
+              <Select
+                value={selectedPromptId}
+                onChange={handlePromptSelect}
+                disabled={isRunning}
+                loading={promptsQuery.isLoading}
+                options={(promptsQuery.data ?? []).map((p) => ({
+                  label: p.name,
+                  value: p.id,
+                }))}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Gemini Model:
+              </label>
+              <Select
+                value={effectiveModel}
+                onChange={(val) => setSelectedModel(val)}
+                disabled={isRunning}
+                loading={configQuery.isLoading}
+                options={modelOptions}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Prompt Instructions (customizable):
+            </label>
+            <Input.TextArea
+              rows={2}
+              value={activePromptText}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              disabled={isRunning}
+              placeholder="Prompt to instruct Gemini..."
+            />
+          </div>
+
+          {/* Gemini API Key */}
+          <div className="space-y-1.5 rounded border border-dashed bg-white p-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-gray-700">Gemini API Key:</span>
+              {serverHasKey ? (
+                <Tag color="success">Server API Key Configured</Tag>
+              ) : (
+                <Typography.Link
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Get free API Key (Google AI Studio)
+                </Typography.Link>
+              )}
+            </div>
+            <Input.Password
+              size="small"
+              disabled={isRunning}
+              placeholder={
+                serverHasKey
+                  ? "Optional override: enter custom Gemini API key"
+                  : "Enter your Gemini API key (saved in browser)"
+              }
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Progress & Statistics */}
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-700">
+            <span>
+              Progress: {processedCount} / {totalCount} ({percent}%)
+            </span>
+            {isRunning && delayCountdown > 0 && (
+              <span className="animate-pulse font-semibold text-amber-600">
+                Waiting 2s delay ({delayCountdown}s)...
+              </span>
+            )}
+            {isRunning && delayCountdown === 0 && currentIndex >= 0 && (
+              <span className="font-semibold text-blue-600">
+                Processing sample {currentIndex + 1} of {totalCount}...
+              </span>
+            )}
+          </div>
+          <Progress
+            percent={percent}
+            status={isRunning ? "active" : isFinished ? "success" : "normal"}
+          />
+          <div className="flex flex-wrap gap-2 pt-1 text-xs">
+            <Tag color="default">Total: {totalCount}</Tag>
+            <Tag color="success">Numeric Saved as GT: {savedCount}</Tag>
+            <Tag color="error">Non-numeric Moved to Dead: {deadCount}</Tag>
+            <Tag color="warning">Remaining: {totalCount - processedCount}</Tag>
+          </div>
+        </div>
+
+        {/* Selected Samples List with Live Status */}
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-slate-600">
+            Sample Processing Queue:
+          </div>
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+            {items.length === 0 ? (
+              <div className="py-6 text-center text-xs text-gray-400">
+                No samples selected.
+              </div>
+            ) : (
+              items.map((it, idx) => (
+                <div
+                  key={it.sample.id}
+                  className="flex items-center justify-between gap-3 border-b border-gray-100 py-1.5 text-xs last:border-b-0"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="w-6 shrink-0 font-mono text-gray-400">
+                      #{idx + 1}
+                    </span>
+                    <span
+                      className="truncate font-mono font-medium text-gray-800"
+                      title={it.sample.filename}
+                    >
+                      {it.sample.filename}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {it.status === "pending" && <Tag>Pending</Tag>}
+                    {it.status === "processing" && (
+                      <Tag color="processing" icon={<SyncOutlined spin />}>
+                        Extracting...
+                      </Tag>
+                    )}
+                    {it.status === "waiting_delay" && (
+                      <Tag color="warning" icon={<ClockCircleOutlined />}>
+                        Next in 2s... ({delayCountdown}s)
+                      </Tag>
+                    )}
+                    {it.status === "saved_gt" && (
+                      <Tag color="success" icon={<CheckCircleOutlined />}>
+                        GT: <strong>{it.savedGt}</strong>
+                      </Tag>
+                    )}
+                    {it.status === "moved_dead" && (
+                      <Tag color="error" icon={<CloseCircleOutlined />}>
+                        Non-numeric{" "}
+                        {it.extractedRaw ? `("${it.extractedRaw}")` : ""} → Dead
+                      </Tag>
+                    )}
+                    {it.status === "error_dead" && (
+                      <Tag color="red" icon={<CloseCircleOutlined />}>
+                        Error → Dead
+                      </Tag>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
