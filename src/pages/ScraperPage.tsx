@@ -2,9 +2,9 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
-  GlobalOutlined,
   PlusOutlined,
   SearchOutlined,
+  SettingOutlined,
   StopOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
@@ -80,10 +80,11 @@ function ScrapeTab() {
   // Form state
   const [url, setUrl] = useState("");
   const [keywords, setKeywords] = useState("");
-  const [maxImages, setMaxImages] = useState<number>(20);
-  const [maxPages, setMaxPages] = useState<number>(5);
-  const [depth, setDepth] = useState<number>(1);
+  const [maxImages, setMaxImages] = useState<number>(100);
+  const [maxPages, setMaxPages] = useState<number>(10);
+  const [depth, setDepth] = useState<number>(2);
   const [categoryId, setCategoryId] = useState<string | undefined>();
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Add-category modal
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -109,7 +110,7 @@ function ScrapeTab() {
   const scrapeMutation = useMutation({
     mutationFn: startScrape,
     onSuccess: () => {
-      message.success("Scrape session started");
+      message.success("Autonomous scrape session started");
       setUrl("");
       setKeywords("");
       queryClient.invalidateQueries({ queryKey: ["scraper", "sessions"] });
@@ -141,31 +142,54 @@ function ScrapeTab() {
   });
 
   const handleStartScrape = useCallback(() => {
-    if (!url.trim()) {
-      message.warning("Please enter a URL");
+    const trimmedUrl = url.trim();
+    const trimmedKeywords = keywords.trim();
+
+    if (!trimmedUrl && !trimmedKeywords) {
+      message.warning("Please provide search keywords for autonomous crawling");
       return;
     }
+    if (!categoryId) {
+      message.warning("Please select or create a category to enable zero-duplication tracking");
+      return;
+    }
+
     scrapeMutation.mutate({
-      seed_url: url.trim(),
-      keywords: keywords.trim() || undefined,
+      seed_url: trimmedUrl || undefined,
+      keywords: trimmedKeywords || undefined,
       max_images: maxImages,
-      max_pages: maxPages,
-      depth,
+      max_pages: trimmedUrl ? maxPages : undefined,
+      depth: trimmedUrl ? depth : undefined,
       category_id: categoryId,
     });
-  }, [url, keywords, maxImages, maxPages, depth, categoryId, scrapeMutation]);
+  }, [url, keywords, maxImages, maxPages, depth, categoryId, scrapeMutation, message]);
 
   const sessionColumns: ColumnsType<ScraperSession> = [
     {
-      title: "URL",
+      title: "Source / Keywords",
       dataIndex: "seed_url",
       key: "seed_url",
       ellipsis: true,
-      render: (text: string) => (
-        <Typography.Text copyable={{ text }} style={{ maxWidth: 260 }}>
-          {text.length > 50 ? `${text.slice(0, 50)}...` : text}
-        </Typography.Text>
-      ),
+      render: (text: string) => {
+        if (!text || text.startsWith("auto:")) {
+          const kw = text ? text.replace(/^auto:/, "") : "Autonomous";
+          return (
+            <Space direction="vertical" size={2}>
+              <Tag color="blue" icon={<SearchOutlined />}>
+                Autonomous Search
+              </Tag>
+              <Typography.Text strong ellipsis={{ tooltip: kw }} style={{ maxWidth: 240 }}>
+                "{kw}"
+              </Typography.Text>
+            </Space>
+          );
+        }
+        return (
+          <Typography.Text copyable={{ text }} style={{ maxWidth: 260 }}>
+            {text.length > 50 ? `${text.slice(0, 50)}...` : text}
+          </Typography.Text>
+        );
+      },
     },
     {
       title: "Status",
@@ -180,15 +204,20 @@ function ScrapeTab() {
       title: "Category",
       dataIndex: "category_name",
       key: "category_name",
-      width: 140,
-      render: (name: string | null) => name ?? "-",
+      width: 150,
+      render: (name: string | null) => (name ? <Tag color="geekblue">{name}</Tag> : "-"),
     },
     {
       title: "Images",
       dataIndex: "image_count",
       key: "image_count",
-      width: 80,
+      width: 90,
       align: "right" as const,
+      render: (count: number) => (
+        <Typography.Text strong className="text-blue-600">
+          {(count ?? 0).toLocaleString()}
+        </Typography.Text>
+      ),
     },
     {
       title: "Pages",
@@ -196,6 +225,7 @@ function ScrapeTab() {
       key: "pages_visited",
       width: 80,
       align: "right" as const,
+      render: (pages: number) => (pages ?? 0).toLocaleString(),
     },
     {
       title: "Started",
@@ -236,94 +266,191 @@ function ScrapeTab() {
 
   return (
     <div className="space-y-6">
-      <Card title="New Scrape" size="small">
-        <Row gutter={[16, 16]}>
-          <Col xs={24} md={12}>
-            <label className="mb-1 block text-sm font-medium">
-              URL <span className="text-red-500">*</span>
-            </label>
-            <Input
-              placeholder="https://example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            {/^https?:\/\/([^.]+\.)?google\.[^/]+\/search/i.test(url) && (
-              <Typography.Text type="secondary" className="mt-1 block text-xs">
-                Google Images opens in a real Chromium window. If Google asks for CAPTCHA,
-                solve it there and scraping resumes automatically.
-              </Typography.Text>
-            )}
-          </Col>
-          <Col xs={24} md={12}>
-            <label className="mb-1 block text-sm font-medium">Keywords</label>
-            <Input
-              placeholder="odometer, dashboard, car"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-            />
-          </Col>
-          <Col xs={12} sm={6} md={4}>
-            <label className="mb-1 block text-sm font-medium">
-              Max Images
-            </label>
-            <InputNumber
-              min={1}
-              // max={200}
-              value={maxImages}
-              onChange={(v) => setMaxImages(v ?? 20)}
-              className="!w-full"
-            />
-          </Col>
-          <Col xs={12} sm={6} md={4}>
-            <label className="mb-1 block text-sm font-medium">Max Pages</label>
-            <InputNumber
-              min={1}
-              max={20}
-              value={maxPages}
-              onChange={(v) => setMaxPages(v ?? 5)}
-              className="!w-full"
-            />
-          </Col>
-          <Col xs={12} sm={6} md={4}>
-            <label className="mb-1 block text-sm font-medium">Depth</label>
-            <InputNumber
-              min={0}
-              max={3}
-              value={depth}
-              onChange={(v) => setDepth(v ?? 1)}
-              className="!w-full"
-            />
-          </Col>
-          <Col xs={24} sm={12} md={8}>
-            <label className="mb-1 block text-sm font-medium">Category</label>
-            <Space.Compact className="!w-full">
-              <Select
-                className="!flex-1"
-                placeholder="Select category"
+      <Card
+        title={
+          <Space>
+            <ThunderboltOutlined className="text-amber-500" />
+            <span>Autonomous Web Image Harvester</span>
+          </Space>
+        }
+        size="small"
+      >
+        <div className="space-y-4">
+          <Alert
+            type="info"
+            showIcon
+            message="Autonomous Multi-Engine Crawl (Bing Images & Wikimedia Commons)"
+            description={
+              <div className="text-xs space-y-1 mt-1 text-slate-600">
+                <div>
+                  • <strong>Zero Duplicate Guarantee:</strong> Dual-layer deduplication (URL hash + SHA-256 content hash) against all existing images in the category.
+                </div>
+                <div>
+                  • <strong>Smart Search Memory:</strong> Remembers visited page URLs and search pagination offsets per category so repeating scrapes never visits already-scraped pages.
+                </div>
+                <div>
+                  • <strong>High Capacity:</strong> Concurrent 8-worker parallel pipeline capable of scraping up to 100,000 (1 Lakh) images continuously.
+                </div>
+              </div>
+            }
+          />
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={14}>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Search Keyword(s) <span className="text-red-500">*</span>
+              </label>
+              <Input
+                size="large"
+                prefix={<SearchOutlined className="text-slate-400" />}
+                placeholder="e.g. electric meter display digits, car odometer numbers, fuel gauge"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
                 allowClear
-                value={categoryId}
-                onChange={setCategoryId}
-                loading={categoriesQuery.isLoading}
-                options={(categoriesQuery.data ?? []).map((c) => ({
-                  label: c.name,
-                  value: c.id,
-                }))}
               />
-              <Button icon={<PlusOutlined />} onClick={() => setCatModalOpen(true)} />
-            </Space.Compact>
-          </Col>
-          <Col xs={24} md={4} className="flex items-end">
+              <Typography.Text type="secondary" className="mt-1 block text-xs">
+                Enter primary subject terms. The harvester automatically generates relevant query expansions to satisfy your requested count.
+              </Typography.Text>
+            </Col>
+
+            <Col xs={24} md={10}>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Target Category <span className="text-red-500">*</span>
+              </label>
+              <Space.Compact className="!w-full">
+                <Select
+                  size="large"
+                  className="!flex-1"
+                  placeholder="Select or create category"
+                  allowClear
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  loading={categoriesQuery.isLoading}
+                  options={(categoriesQuery.data ?? []).map((c) => ({
+                    label: `${c.name} (${c.image_count ?? 0} images)`,
+                    value: c.id,
+                  }))}
+                />
+                <Button
+                  size="large"
+                  icon={<PlusOutlined />}
+                  onClick={() => setCatModalOpen(true)}
+                  title="Create new category"
+                >
+                  New
+                </Button>
+              </Space.Compact>
+              <Typography.Text type="secondary" className="mt-1 block text-xs">
+                Deduplication & visited-page memory are permanently scoped to this category.
+              </Typography.Text>
+            </Col>
+
+            <Col xs={24}>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <label className="text-sm font-semibold text-slate-700">
+                  Target Image Count (Up to 100,000 / 1 Lakh)
+                </label>
+                <Space size="small" wrap>
+                  <span className="text-xs text-slate-500">Quick presets:</span>
+                  {[50, 200, 1000, 5000, 20000, 100000].map((preset) => (
+                    <Button
+                      key={preset}
+                      size="small"
+                      type={maxImages === preset ? "primary" : "default"}
+                      onClick={() => setMaxImages(preset)}
+                    >
+                      {preset >= 1000 ? `${preset / 1000}k${preset === 100000 ? " (1 Lakh)" : ""}` : preset}
+                    </Button>
+                  ))}
+                </Space>
+              </div>
+              <InputNumber
+                min={1}
+                max={100000}
+                value={maxImages}
+                onChange={(v) => setMaxImages(v ?? 100)}
+                className="!w-full"
+                size="large"
+                formatter={(val) => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+                parser={(val) => Number((val ?? "").replace(/\$\s?|(,*)/g, ""))}
+              />
+            </Col>
+          </Row>
+
+          {/* Advanced toggle for direct website URL crawling */}
+          <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+            <div
+              className="flex items-center justify-between cursor-pointer select-none"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <Space size="small">
+                <SettingOutlined className="text-slate-500" />
+                <span className="text-xs font-medium text-slate-700">
+                  Advanced: Specific Website Crawl (Optional Override)
+                </span>
+                {url && <Tag color="blue">URL Specified</Tag>}
+              </Space>
+              <Button type="link" size="small">
+                {showAdvanced ? "Hide" : "Show"}
+              </Button>
+            </div>
+
+            {showAdvanced && (
+              <div className="mt-3 pt-3 border-t border-slate-200 space-y-3">
+                <Row gutter={[16, 12]}>
+                  <Col xs={24} md={14}>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Seed URL (Leave empty for Autonomous Web Search)
+                    </label>
+                    <Input
+                      placeholder="https://example.com"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      allowClear
+                    />
+                  </Col>
+                  <Col xs={12} sm={5}>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Max Pages Override
+                    </label>
+                    <InputNumber
+                      min={1}
+                      max={500}
+                      value={maxPages}
+                      onChange={(v) => setMaxPages(v ?? 10)}
+                      className="!w-full"
+                    />
+                  </Col>
+                  <Col xs={12} sm={5}>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Crawl Depth Override
+                    </label>
+                    <InputNumber
+                      min={0}
+                      max={5}
+                      value={depth}
+                      onChange={(v) => setDepth(v ?? 2)}
+                      className="!w-full"
+                    />
+                  </Col>
+                </Row>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-2">
             <Button
               type="primary"
-              icon={<GlobalOutlined />}
+              size="large"
+              icon={<ThunderboltOutlined />}
               loading={scrapeMutation.isPending}
               onClick={handleStartScrape}
-              block
+              className="px-8 !bg-blue-600 hover:!bg-blue-700"
             >
-              Start Scraping
+              Start Autonomous Harvester
             </Button>
-          </Col>
-        </Row>
+          </div>
+        </div>
       </Card>
 
       <Card title="Recent Sessions" size="small">
@@ -387,43 +514,55 @@ function ScrapeTab() {
         width={600}
       >
         {detailSession && (
-          <div className="space-y-2">
-            <p>
-              <strong>URL:</strong> {detailSession.seed_url}
-            </p>
-            <p>
-              <strong>Status:</strong>{" "}
-              <Tag color={STATUS_COLORS[detailSession.status]}>
-                {detailSession.status}
-              </Tag>
-            </p>
-            <p>
-              <strong>Category:</strong>{" "}
-              {detailSession.category_name ?? "None"}
-            </p>
-            <p>
-              <strong>Images found:</strong> {detailSession.image_count}
-            </p>
-            <p>
-              <strong>Pages visited:</strong> {detailSession.pages_visited}
-            </p>
-            <p>
-              <strong>Started:</strong>{" "}
-              {new Date(detailSession.created_at).toLocaleString()}
-            </p>
-            {detailSession.completed_at && (
-              <p>
-                <strong>Completed:</strong>{" "}
-                {new Date(detailSession.completed_at).toLocaleString()}
-              </p>
-            )}
-            {detailSession.error && (
-              <p>
-                <strong>Error:</strong>{" "}
-                <Typography.Text type="danger">
-                  {detailSession.error}
+          <div className="space-y-3">
+            <div>
+              <Typography.Text type="secondary" className="block text-xs">
+                {detailSession.seed_url?.startsWith("auto:") ? "Autonomous Keywords" : "Target URL"}
+              </Typography.Text>
+              <Typography.Text strong className="text-base">
+                {detailSession.seed_url?.startsWith("auto:")
+                  ? detailSession.seed_url.replace("auto:", "")
+                  : detailSession.seed_url}
+              </Typography.Text>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div>
+                <Typography.Text type="secondary" className="block text-xs">Status</Typography.Text>
+                <Tag color={STATUS_COLORS[detailSession.status]}>{detailSession.status}</Tag>
+              </div>
+              <div>
+                <Typography.Text type="secondary" className="block text-xs">Category</Typography.Text>
+                <Typography.Text>{detailSession.category_name ?? "None"}</Typography.Text>
+              </div>
+              <div>
+                <Typography.Text type="secondary" className="block text-xs">Images Scraped</Typography.Text>
+                <Typography.Text strong className="text-blue-600">
+                  {(detailSession.image_count ?? 0).toLocaleString()}
                 </Typography.Text>
-              </p>
+              </div>
+              <div>
+                <Typography.Text type="secondary" className="block text-xs">Pages / Offsets Visited</Typography.Text>
+                <Typography.Text>{(detailSession.pages_visited ?? 0).toLocaleString()}</Typography.Text>
+              </div>
+              <div>
+                <Typography.Text type="secondary" className="block text-xs">Started</Typography.Text>
+                <Typography.Text>{new Date(detailSession.created_at).toLocaleString()}</Typography.Text>
+              </div>
+              {detailSession.completed_at && (
+                <div>
+                  <Typography.Text type="secondary" className="block text-xs">Completed</Typography.Text>
+                  <Typography.Text>{new Date(detailSession.completed_at).toLocaleString()}</Typography.Text>
+                </div>
+              )}
+            </div>
+            {detailSession.error && (
+              <Alert
+                type="error"
+                showIcon
+                message="Session Error"
+                description={detailSession.error}
+                className="mt-2"
+              />
             )}
           </div>
         )}

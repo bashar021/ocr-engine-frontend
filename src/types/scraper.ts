@@ -8,7 +8,7 @@ export interface ScraperCategory {
 }
 
 export interface ScraperSessionConfig {
-  seed_url: string;
+  seed_url?: string;
   keywords?: string;
   max_images?: number;
   max_pages?: number;
