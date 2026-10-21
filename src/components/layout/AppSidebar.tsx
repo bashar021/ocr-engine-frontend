@@ -18,13 +18,11 @@ import {
   OrderedListOutlined,
   PlayCircleOutlined,
   ProfileOutlined,
-  RocketOutlined,
   ScanOutlined,
   SettingOutlined,
   TagsOutlined,
   ThunderboltOutlined,
   ToolOutlined,
-  UnorderedListOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu } from "antd";
 import type { MenuProps } from "antd";
@@ -40,8 +38,6 @@ type MenuItem = Required<MenuProps>["items"][number];
 
 const ODOMETER_ONLY_PREFIXES = [
   "/models",
-  "/releases",
-  "/deployments",
   "/evaluation",
   "/training",
   "/training-center",
@@ -50,6 +46,7 @@ const ODOMETER_ONLY_PREFIXES = [
   "/jobs",
   "/import-export",
   "/scraper",
+  "/databank",
 ] as const;
 
 function isOdometerOnlyPath(pathname: string): boolean {
@@ -150,11 +147,6 @@ export function AppSidebar() {
               label: <Link to="/bill/datasets">Datasets</Link>,
             },
             {
-              key: "/bill/data",
-              icon: <UnorderedListOutlined />,
-              label: <Link to="/bill/data">Data list</Link>,
-            },
-            {
               key: "/bill/evaluation-datasets",
               icon: <ExperimentOutlined />,
               label: (
@@ -213,9 +205,48 @@ export function AppSidebar() {
         label: <Link to="/ocr">Live OCR</Link>,
       },
       {
-        key: "/scraper",
+        key: "scraper-group",
         icon: <GlobalOutlined />,
-        label: <Link to="/scraper">Image Scraper</Link>,
+        label: "Scrapper",
+        children: [
+          {
+            key: "/scraper/spyder",
+            icon: <ThunderboltOutlined />,
+            label: <Link to="/scraper/spyder">Spyder</Link>,
+          },
+          {
+            key: "/scraper/data",
+            icon: <DatabaseOutlined />,
+            label: <Link to="/scraper/data">Scrape Data</Link>,
+          },
+          {
+            key: "/scraper/categories",
+            icon: <TagsOutlined />,
+            label: <Link to="/scraper/categories">Categories</Link>,
+          },
+        ],
+      },
+      {
+        key: "databank-group",
+        icon: <DatabaseOutlined />,
+        label: "Databank",
+        children: [
+          {
+            key: "/databank/raw",
+            icon: <InboxOutlined />,
+            label: <Link to="/databank/raw">Raw Data</Link>,
+          },
+          {
+            key: "/databank/label-data",
+            icon: <TagsOutlined />,
+            label: <Link to="/databank/label-data">Label Data</Link>,
+          },
+          {
+            key: "/databank/datasets",
+            icon: <OrderedListOutlined />,
+            label: <Link to="/databank/datasets">Datasets</Link>,
+          },
+        ],
       },
       {
         key: "models-group",
@@ -237,45 +268,6 @@ export function AppSidebar() {
             icon: <SettingOutlined />,
             label: (
               <Link to="/models/recognition-configs">Recognition configs</Link>
-            ),
-          },
-          {
-            key: "/releases",
-            icon: <RocketOutlined />,
-            label: <Link to="/releases">Releases</Link>,
-          },
-          {
-            key: "/deployments",
-            icon: <RocketOutlined />,
-            label: <Link to="/deployments">Deployments</Link>,
-          },
-        ],
-      },
-      {
-        key: "evaluation-group",
-        icon: <DatabaseOutlined />,
-        label: "Datasets",
-        children: [
-          {
-            key: "/evaluation/datasets",
-            icon: <OrderedListOutlined />,
-            label: <Link to="/evaluation/datasets">Datasets</Link>,
-          },
-          {
-            key: "/evaluation/dataset-list",
-            icon: <DatabaseOutlined />,
-            label: <Link to="/evaluation/dataset-list">Dataset list</Link>,
-          },
-          {
-            key: "/evaluation/dataset-list?tab=raw",
-            icon: <InboxOutlined />,
-            label: <Link to="/evaluation/dataset-list?tab=raw">Raw Data</Link>,
-          },
-          {
-            key: "/evaluation/hard-cases",
-            icon: <ExperimentOutlined />,
-            label: (
-              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
             ),
           },
         ],
@@ -320,6 +312,13 @@ export function AppSidebar() {
             key: "/evaluation/comparison",
             icon: <ExperimentOutlined />,
             label: <Link to="/evaluation/comparison">Comparison</Link>,
+          },
+          {
+            key: "/evaluation/hard-cases",
+            icon: <ExperimentOutlined />,
+            label: (
+              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
+            ),
           },
         ],
       },
@@ -413,9 +412,18 @@ export function AppSidebar() {
       return "/evaluation/training-datasets";
     if (path.startsWith("/evaluation/dataset-list")) {
       const tab = new URLSearchParams(search).get("tab");
-      if (tab === "raw") return "/evaluation/dataset-list?tab=raw";
+      if (tab === "raw") return "/databank/raw";
       return "/evaluation/dataset-list";
     }
+    if (path.startsWith("/databank/raw")) return "/databank/raw";
+    if (path.startsWith("/databank/label-data")) return "/databank/label-data";
+    if (
+      path.startsWith("/databank/datasets") ||
+      path.startsWith("/evaluation/datasets")
+    ) {
+      return "/databank/datasets";
+    }
+    if (path.startsWith("/databank")) return "/databank/raw";
     if (path.startsWith("/evaluation")) return "/evaluation/datasets";
     if (path.startsWith("/training-center")) return "/training/runs";
     if (path.startsWith("/training/runs")) return "/training/runs";
@@ -423,7 +431,10 @@ export function AppSidebar() {
       return "/training/augmentation";
     if (path.startsWith("/training/curate")) return "/training/curate";
     if (path.startsWith("/training")) return "/training/runs";
-    if (path.startsWith("/scraper")) return "/scraper";
+    if (path.startsWith("/scraper/data")) return "/scraper/data";
+    if (path.startsWith("/scraper/categories")) return "/scraper/categories";
+    if (path.startsWith("/scraper/spyder") || path.startsWith("/scraper"))
+      return "/scraper/spyder";
     return path;
   }, [location.pathname, location.search, isBillTask]);
 
@@ -432,10 +443,12 @@ export function AppSidebar() {
       ? ["bill-group", "bill-models-group", "bill-dataset-group"]
       : [
           "models-group",
+          "databank-group",
           "evaluation-group",
           "training-dataset-group",
           "eval-runs-group",
           "training-group",
+          "scraper-group",
         ],
   );
 
@@ -456,7 +469,6 @@ export function AppSidebar() {
         }
         if (
           location.pathname.startsWith("/bill/datasets") ||
-          location.pathname.startsWith("/bill/data") ||
           location.pathname.startsWith("/bill/evaluation-datasets") ||
           location.pathname.startsWith("/bill/annotations") ||
           location.pathname.startsWith("/bill/dataset-review") ||
@@ -487,15 +499,6 @@ export function AppSidebar() {
         next = next.includes("models-group") ? next : [...next, "models-group"];
       }
       if (
-        location.pathname.startsWith("/evaluation/datasets") ||
-        location.pathname.startsWith("/evaluation/dataset-list") ||
-        location.pathname.startsWith("/evaluation/hard-cases")
-      ) {
-        next = next.includes("evaluation-group")
-          ? next
-          : [...next, "evaluation-group"];
-      }
-      if (
         location.pathname.startsWith("/evaluation/training-datasets") ||
         location.pathname.startsWith("/training/curate") ||
         location.pathname.startsWith("/training/augmentation")
@@ -506,7 +509,8 @@ export function AppSidebar() {
       }
       if (
         location.pathname.startsWith("/evaluation/runs") ||
-        location.pathname.startsWith("/evaluation/comparison")
+        location.pathname.startsWith("/evaluation/comparison") ||
+        location.pathname.startsWith("/evaluation/hard-cases")
       ) {
         next = next.includes("eval-runs-group")
           ? next
@@ -519,6 +523,16 @@ export function AppSidebar() {
         next = next.includes("training-group")
           ? next
           : [...next, "training-group"];
+      }
+      if (location.pathname.startsWith("/scraper")) {
+        next = next.includes("scraper-group")
+          ? next
+          : [...next, "scraper-group"];
+      }
+      if (location.pathname.startsWith("/databank")) {
+        next = next.includes("databank-group")
+          ? next
+          : [...next, "databank-group"];
       }
       return next;
     });

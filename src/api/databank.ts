@@ -1,13 +1,17 @@
 import { apiClient } from "@/api/client";
 import type {
+  DatabankBBox,
   DatabankDataset,
   DatabankSample,
   ListDatabankSamplesResponse,
 } from "@/types/databank";
 
-export async function getDatabank(ocrType: string): Promise<DatabankDataset> {
+export async function getDatabank(
+  ocrType: string,
+  datasetType?: "raw" | "label" | string,
+): Promise<DatabankDataset> {
   const { data } = await apiClient.get<DatabankDataset>("/v1/databank/bank", {
-    params: { ocr_type: ocrType },
+    params: { ocr_type: ocrType, dataset_type: datasetType },
   });
   return data;
 }
@@ -15,12 +19,18 @@ export async function getDatabank(ocrType: string): Promise<DatabankDataset> {
 export async function uploadToDatabank(
   ocrType: string,
   file: File,
+  datasetId?: string,
 ): Promise<DatabankDataset & { added_samples?: number }> {
   const form = new FormData();
   form.append("file", file);
+  const q = new URLSearchParams({ ocr_type: ocrType });
+  if (datasetId) q.set("dataset_id", datasetId);
+  const url = datasetId
+    ? `/v1/databank/datasets/${encodeURIComponent(datasetId)}/upload`
+    : `/v1/databank/upload?${q.toString()}`;
   const { data } = await apiClient.post<
     DatabankDataset & { added_samples?: number }
-  >(`/v1/databank/upload?ocr_type=${encodeURIComponent(ocrType)}`, form, {
+  >(url, form, {
     timeout: 300_000,
   });
   return data;
@@ -29,12 +39,18 @@ export async function uploadToDatabank(
 export async function uploadRawToDatabank(
   ocrType: string,
   file: File,
+  datasetId?: string,
 ): Promise<DatabankDataset & { added_samples?: number; message?: string | null }> {
   const form = new FormData();
   form.append("file", file);
+  const q = new URLSearchParams({ ocr_type: ocrType });
+  if (datasetId) q.set("dataset_id", datasetId);
+  const url = datasetId
+    ? `/v1/databank/datasets/${encodeURIComponent(datasetId)}/upload-raw?${q.toString()}`
+    : `/v1/databank/upload-raw?${q.toString()}`;
   const { data } = await apiClient.post<
     DatabankDataset & { added_samples?: number; message?: string | null }
-  >(`/v1/databank/upload-raw?ocr_type=${encodeURIComponent(ocrType)}`, form, {
+  >(url, form, {
     timeout: 300_000,
   });
   return data;
@@ -65,6 +81,25 @@ export async function listDatabankSamples(
 ): Promise<ListDatabankSamplesResponse> {
   const { data } = await apiClient.get<ListDatabankSamplesResponse>(
     `/v1/databank/datasets/${datasetId}/samples`,
+    { params },
+  );
+  return data;
+}
+
+export async function getDatabankCategoryCounts(
+  datasetId: string,
+  params: {
+    within_review_status?: "all" | "reviewed" | "unreviewed";
+    search?: string;
+    has_filename_gt?: boolean;
+    has_prediction?: "has" | "missing" | "error";
+    upload_match?: "yes" | "no" | "none";
+    has_final_gt?: boolean;
+    has_rerun?: "has" | "missing" | "ok" | "miss";
+  } = {},
+): Promise<Record<string, number>> {
+  const { data } = await apiClient.get<Record<string, number>>(
+    `/v1/databank/datasets/${datasetId}/category-counts`,
     { params },
   );
   return data;
@@ -246,9 +281,15 @@ export async function extractDatabankSampleWithGemini(
   datasetId: string,
   sampleId: string,
   params: { prompt: string; api_key?: string; model?: string },
-): Promise<{ extracted_value: string; model: string; prompt: string }> {
+): Promise<{
+  extracted_value: string;
+  bbox?: DatabankBBox | null;
+  model: string;
+  prompt: string;
+}> {
   const { data } = await apiClient.post<{
     extracted_value: string;
+    bbox?: DatabankBBox | null;
     model: string;
     prompt: string;
   }>(
@@ -273,4 +314,62 @@ export async function batchSetDatabankSampleCategory(
   });
   return data;
 }
+
+export async function batchMoveDatabankSamples(
+  datasetId: string,
+  payload: {
+    sample_ids: string[];
+    target_dataset_id: string;
+    target_category: string;
+  },
+): Promise<{
+  moved_count: number;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  target_category: string;
+}> {
+  const { data } = await apiClient.post<{
+    moved_count: number;
+    source_dataset_id: string;
+    target_dataset_id: string;
+    target_category: string;
+  }>(`/v1/databank/datasets/${datasetId}/batch-move`, payload);
+  return data;
+}
+
+export async function listDatabankDatasets(
+  ocrType?: string,
+  params: {
+    status?: string;
+    search?: string;
+    dataset_type?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ total: number; datasets: DatabankDataset[] }> {
+  const { data } = await apiClient.get<{ total: number; datasets: DatabankDataset[] }>(
+    "/v1/databank/datasets",
+    { params: { ocr_type: ocrType, ...params } },
+  );
+  return data;
+}
+
+export async function createDatabankDataset(body: {
+  ocr_type?: string;
+  name: string;
+  version?: string;
+  description?: string;
+  dataset_type?: string;
+}): Promise<DatabankDataset> {
+  const { data } = await apiClient.post<DatabankDataset>(
+    "/v1/databank/datasets",
+    body,
+  );
+  return data;
+}
+
+export async function deleteDatabankDataset(datasetId: string): Promise<void> {
+  await apiClient.delete(`/v1/databank/datasets/${datasetId}`);
+}
+
 

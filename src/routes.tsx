@@ -27,6 +27,9 @@ import {
 import { BillModelsProfilesPage } from "@/pages/bill/models/BillModelsProfilesPage";
 import { BillReviewQueuePage } from "@/pages/bill/BillReviewQueuePage";
 import { DatabankListPage } from "@/pages/DatabankListPage";
+import { RawDataPage } from "@/pages/RawDataPage";
+import { LabelDataPage } from "@/pages/LabelDataPage";
+import { DatabankDatasetsPage } from "@/pages/DatabankDatasetsPage";
 import { EvaluatedHardDatasetPage } from "@/pages/EvaluatedHardDatasetPage";
 import { EvaluationComparisonPage } from "@/pages/EvaluationComparisonPage";
 import { EvaluationDatasetsPage } from "@/pages/EvaluationDatasetsPage";
@@ -153,7 +156,14 @@ export function AppRoutes() {
           element={<AugmentationDatasetPage />}
         />
         <Route path="/ocr" element={<OcrPlaygroundPage />} />
-        <Route path="/scraper" element={<ScraperPage />} />
+        <Route path="/scraper" element={<Navigate to="/scraper/spyder" replace />} />
+        <Route path="/scraper/spyder" element={<ScraperPage defaultTab="spyder" />} />
+        <Route path="/scraper/data" element={<ScraperPage defaultTab="data" />} />
+        <Route path="/scraper/categories" element={<ScraperPage defaultTab="categories" />} />
+        <Route path="/databank" element={<Navigate to="/databank/raw" replace />} />
+        <Route path="/databank/raw" element={<RawDataPage />} />
+        <Route path="/databank/label-data" element={<LabelDataPage />} />
+        <Route path="/databank/datasets" element={<DatabankDatasetsPage />} />
         <Route
           path="/bill"
           element={<Navigate to="/bill/documents" replace />}

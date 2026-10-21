@@ -77,4 +77,8 @@ export interface ScraperStats {
   total_sessions: number;
   categories: { id: string; name: string; image_count: number }[];
   active_sessions: number;
+  images_with_gt?: number;
+  images_without_gt?: number;
+  total_size_bytes?: number;
+  uncategorized_images?: number;
 }

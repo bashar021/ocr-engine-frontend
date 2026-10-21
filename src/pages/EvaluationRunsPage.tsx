@@ -1,7 +1,11 @@
-import { Alert, App, Button, Modal, Popconfirm, Select, Space } from "antd";
-import { useMemo, useState } from "react";
+import { Alert, App, Button, Form, Modal, Popconfirm, Select, Space } from "antd";
+import { PlayCircleOutlined } from "@ant-design/icons";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
 
 import { getApiErrorMessage } from "@/api/client";
+import { getDatabank, listDatabankDatasets } from "@/api/databank";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EvaluationResultsDrawer } from "@/components/evaluation/EvaluationResultsDrawer";
@@ -12,9 +16,10 @@ import {
   useDeleteAllEvaluations,
   useDeleteEvaluation,
   useReEvaluate,
+  useStartEvaluation,
 } from "@/features/evaluation/useEvaluationMutations";
 import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
-import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
+import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
 import { useTaskContext } from "@/features/tasks/TaskContext";
 import type { EvaluationRun } from "@/types/evaluation";
 import {
@@ -41,10 +46,19 @@ export function EvaluationRunsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [resultsRunId, setResultsRunId] = useState<string | null>(null);
+  const [runModalOpen, setRunModalOpen] = useState(false);
+  const [runForm] = Form.useForm<{
+    dataset_id: string;
+    model_ref: string;
+    evaluation_type: string;
+  }>();
+
   const cancelMutation = useCancelEvaluation();
   const deleteMutation = useDeleteEvaluation();
   const deleteAllMutation = useDeleteAllEvaluations();
   const reEvaluateMutation = useReEvaluate();
+  const startEvaluationMutation = useStartEvaluation();
+
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
   const [reEvaluateLoadingId, setReEvaluateLoadingId] = useState<string | null>(
     null,
@@ -53,12 +67,71 @@ export function EvaluationRunsPage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [bulkReEvaluateLoading, setBulkReEvaluateLoading] = useState(false);
 
-  const datasetsQuery = useDatasetsQuery({
-    scope: "evaluation",
-    ocr_type: activeTaskKey,
-    status: "ready",
-    limit: 200,
+  // 1. Query only real Label Data datasets (excluding any raw datasets)
+  const labelDatasetsQuery = useQuery({
+    queryKey: ["databank", "datasets-list", activeTaskKey, "label"],
+    queryFn: () => listDatabankDatasets(activeTaskKey, { dataset_type: "label" }),
   });
+
+  const defaultBankQuery = useQuery({
+    queryKey: ["databank", "default-label-bank", activeTaskKey],
+    queryFn: () => getDatabank(activeTaskKey, "label"),
+  });
+
+  const labelDatasets = useMemo(() => {
+    const list = labelDatasetsQuery.data?.datasets || [];
+    const filtered = list.filter((d) => {
+      const type = (d.metadata as Record<string, unknown> | undefined)?.dataset_type;
+      const isRaw = type === "raw" || d.name === "raw-data-bank" || d.name.startsWith("raw-");
+      return !isRaw;
+    });
+    if (filtered.length === 0 && defaultBankQuery.data) {
+      return [defaultBankQuery.data];
+    }
+    return filtered;
+  }, [labelDatasetsQuery.data?.datasets, defaultBankQuery.data]);
+
+  const datasetOptions = useMemo(
+    () =>
+      labelDatasets.map((d) => ({
+        value: d.id,
+        label: `${d.name} (${d.sample_count ?? 0} samples)`,
+      })),
+    [labelDatasets],
+  );
+
+  // 2. Query available model pipelines for running evaluation
+  const modelRefsQuery = useModelRefsQuery(
+    { ocr_type: activeTaskKey, include_metrics: false },
+    runModalOpen || true,
+  );
+
+  const availableModelRefOptions = useMemo(() => {
+    const refs = (modelRefsQuery.data?.refs ?? []).filter(
+      (r) => r.status === "active" || r.status === "draft",
+    );
+    return refs.map((r) => ({
+      value: r.model_ref,
+      label: `${r.model_ref} (${r.status}${r.is_default ? ", default" : ""})`,
+      isDefault: r.is_default,
+    }));
+  }, [modelRefsQuery.data?.refs]);
+
+  // Pre-fill modal fields when opened
+  useEffect(() => {
+    if (runModalOpen) {
+      const defaultDs = datasetId || labelDatasets[0]?.id || "";
+      const defaultModel =
+        availableModelRefOptions.find((m) => m.isDefault)?.value ||
+        availableModelRefOptions[0]?.value ||
+        "";
+      runForm.setFieldsValue({
+        dataset_id: defaultDs,
+        model_ref: defaultModel,
+        evaluation_type: "test",
+      });
+    }
+  }, [runModalOpen, datasetId, labelDatasets, availableModelRefOptions, runForm]);
 
   const params = useMemo(
     () => ({
@@ -94,17 +167,11 @@ export function EvaluationRunsPage() {
     for (const run of query.data?.evaluations ?? []) {
       if (run.model_ref) refs.add(run.model_ref);
     }
+    for (const m of availableModelRefOptions) {
+      refs.add(m.value);
+    }
     return [...refs].sort().map((r) => ({ value: r, label: r }));
-  }, [query.data?.evaluations]);
-
-  const datasetOptions = useMemo(
-    () =>
-      (datasetsQuery.data?.datasets ?? []).map((d) => ({
-        value: d.id,
-        label: `${d.name} v${d.version}`,
-      })),
-    [datasetsQuery.data?.datasets],
-  );
+  }, [query.data?.evaluations, availableModelRefOptions]);
 
   const handleCancel = async (run: EvaluationRun) => {
     try {
@@ -148,6 +215,51 @@ export function EvaluationRunsPage() {
     }
   };
 
+  const executeEvaluation = async (
+    values: { dataset_id: string; model_ref: string; evaluation_type: string },
+    force = false,
+  ) => {
+    await startEvaluationMutation.mutateAsync({
+      dataset_id: values.dataset_id,
+      ocr_type: activeTaskKey,
+      model_ref: values.model_ref,
+      evaluation_type: values.evaluation_type,
+      force,
+    });
+    message.success(
+      force ? "Re-evaluation queued" : "Evaluation run queued successfully",
+    );
+    setRunModalOpen(false);
+    runForm.resetFields();
+    setPage(1);
+  };
+
+  const handleStartEvaluationSubmit = async () => {
+    try {
+      const values = await runForm.validateFields();
+      await executeEvaluation(values, false);
+    } catch (error) {
+      if (error && typeof error === "object" && "errorFields" in error) return;
+      const errorCode =
+        axios.isAxiosError(error) &&
+        (error.response?.data as { error_code?: string } | undefined)?.error_code;
+      if (errorCode === "EVALUATION_ALREADY_EXISTS") {
+        Modal.confirm({
+          title: "Evaluation already exists",
+          content:
+            "An evaluation already exists for this dataset and pipeline. Re-evaluate by deleting the prior run and queueing a new one?",
+          okText: "Re-evaluate",
+          onOk: async () => {
+            const vals = runForm.getFieldsValue();
+            await executeEvaluation(vals, true);
+          },
+        });
+        return;
+      }
+      message.error(getApiErrorMessage(error));
+    }
+  };
+
   const handleReEvaluateSelected = () => {
     if (!canBulkReEvaluate) return;
     Modal.confirm({
@@ -184,6 +296,14 @@ export function EvaluationRunsPage() {
         title="Evaluation runs"
         actions={
           <Space wrap>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={() => setRunModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-500 font-medium shadow-xs"
+            >
+              Run Evaluation
+            </Button>
             <Button
               disabled={!canBulkReEvaluate}
               loading={bulkReEvaluateLoading}
@@ -225,12 +345,12 @@ export function EvaluationRunsPage() {
               <Select
                 allowClear
                 placeholder="Dataset"
-                className="min-w-[200px]"
+                className="min-w-[220px]"
                 showSearch
                 optionFilterProp="label"
                 value={datasetId}
                 options={datasetOptions}
-                loading={datasetsQuery.isLoading}
+                loading={labelDatasetsQuery.isLoading}
                 onChange={(v) => {
                   setDatasetId(v);
                   setPage(1);
@@ -306,6 +426,63 @@ export function EvaluationRunsPage() {
         evaluationId={resultsRunId}
         onClose={() => setResultsRunId(null)}
       />
+
+      {/* Modal to Run Evaluation on Label Dataset */}
+      <Modal
+        title="Run Evaluation on Label Dataset"
+        open={runModalOpen}
+        onCancel={() => setRunModalOpen(false)}
+        onOk={handleStartEvaluationSubmit}
+        confirmLoading={startEvaluationMutation.isPending}
+        okText="Start Evaluation"
+        okButtonProps={{ className: "bg-blue-600 hover:bg-blue-500 font-medium" }}
+        destroyOnHidden
+      >
+        <Form form={runForm} layout="vertical" className="pt-2">
+          <Form.Item
+            name="dataset_id"
+            label="Label Dataset"
+            rules={[{ required: true, message: "Please select a label dataset" }]}
+            extra="Only verified real label datasets are available for evaluation."
+          >
+            <Select
+              placeholder="Select label dataset"
+              options={datasetOptions}
+              showSearch
+              optionFilterProp="label"
+              loading={labelDatasetsQuery.isLoading}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="model_ref"
+            label="Model / Pipeline"
+            rules={[{ required: true, message: "Please select a model pipeline" }]}
+          >
+            <Select
+              placeholder="Select model pipeline"
+              options={availableModelRefOptions}
+              showSearch
+              optionFilterProp="label"
+              loading={modelRefsQuery.isLoading}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="evaluation_type"
+            label="Evaluation Type"
+            rules={[{ required: true }]}
+          >
+            <Select
+              options={[
+                { value: "test", label: "Test (Standard Evaluation)" },
+                { value: "benchmark", label: "Benchmark" },
+                { value: "validation", label: "Validation" },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

@@ -40,9 +40,15 @@ export interface DatabankDataset {
   sample_count: number;
   reviewed_count: number;
   unreviewed_count: number;
+  has_gt_count?: number;
+  no_gt_count?: number;
   blurry_count?: number;
   raw_pending_count?: number;
-  category_counts?: Record<string, { total: number; reviewed: number }>;
+  dataset_type?: string;
+  category_counts?: Record<
+    string,
+    { total: number; reviewed: number; unreviewed?: number; has_gt?: number; no_gt?: number }
+  >;
   custom_categories?: string[];
   reviewed_eval_chunk_count?: number;
   model_ref?: string | null;
@@ -100,6 +106,7 @@ export interface DatabankSample {
   corrected_bbox?: DatabankBBox | null;
   bbox_cleared?: boolean;
   display_bbox?: DatabankBBox | null;
+  bbox?: DatabankBBox | null;
   width?: number | null;
   height?: number | null;
   size_bytes?: number | null;

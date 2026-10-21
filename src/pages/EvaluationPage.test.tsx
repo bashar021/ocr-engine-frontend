@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { EvaluationDatasetsPage } from '@/pages/EvaluationDatasetsPage'
@@ -17,9 +17,19 @@ describe('Evaluation pages', () => {
     })
 
     expect(screen.getByText(/polling every 10s/i)).toBeInTheDocument()
+    expect(screen.getByText('Total Datasets')).toBeInTheDocument()
+    expect(screen.getByText('Ready for Use')).toBeInTheDocument()
+    expect(screen.getByText('Total Samples')).toBeInTheDocument()
+    expect(screen.getByText('Active Pipelines')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /upload dataset/i })).toBeInTheDocument()
+
     await waitFor(() => {
       expect(screen.getByText('dashboard-eval')).toBeInTheDocument()
     })
+
+    // The Evaluate button feature has been removed from this Datasets tab
+    expect(screen.queryByRole('button', { name: /^evaluate$/i })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /samples/i }).length).toBeGreaterThan(0)
   })
 
   it('lists evaluation runs with metric columns', async () => {
@@ -30,5 +40,24 @@ describe('Evaluation pages', () => {
     })
     expect(screen.getAllByText('E2E accuracy').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /results/i })).toBeInTheDocument()
+  })
+
+  it('opens Run Evaluation modal with label datasets only and shows label datasets in dropdown filter', async () => {
+    renderWithProviders(<EvaluationRunsPage />, { route: '/evaluation/runs' })
+
+    const runEvalBtn = screen.getByRole('button', { name: /run evaluation/i })
+    expect(runEvalBtn).toBeInTheDocument()
+
+    fireEvent.click(runEvalBtn)
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('Run Evaluation on Label Dataset')).toBeInTheDocument()
+    expect(within(dialog).getByText('Label Dataset')).toBeInTheDocument()
+    expect(within(dialog).getByText('Model / Pipeline')).toBeInTheDocument()
+    expect(within(dialog).getByText('Evaluation Type')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /start evaluation/i })).toBeInTheDocument()
   })
 })

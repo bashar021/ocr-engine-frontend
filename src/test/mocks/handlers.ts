@@ -473,27 +473,302 @@ export const handlers = [
   http.get("*/v1/databank/bank", ({ request }) => {
     const url = new URL(request.url);
     const ocrType = url.searchParams.get("ocr_type") || "odometer";
+    const datasetType = url.searchParams.get("dataset_type");
+
+    if (datasetType === "raw") {
+      return HttpResponse.json({
+        id: "raw-bank-1",
+        ocr_type: ocrType,
+        name: "raw-data-bank",
+        version: "1.0.0",
+        description: "Default Raw Data repository",
+        status: "ready",
+        sample_count: 25,
+        reviewed_count: 0,
+        unreviewed_count: 0,
+        has_gt_count: 0,
+        no_gt_count: 25,
+        raw_pending_count: 25,
+        category_counts: {
+          raw: { total: 25, reviewed: 0, unreviewed: 25, has_gt: 0, no_gt: 25 },
+        },
+        custom_categories: [],
+        metadata: { dataset_type: "raw" },
+      });
+    }
+
     return HttpResponse.json({
       id: ocrType === "bill" ? "bill-bank-1" : "odo-bank-1",
       ocr_type: ocrType,
       name: "data-bank",
       version: "1.0.0",
+      description: "Default databank",
       status: "ready",
-      sample_count: 0,
+      sample_count: 50,
+      reviewed_count: 20,
+      unreviewed_count: 30,
+      has_gt_count: 35,
+      no_gt_count: 15,
+      raw_pending_count: 0,
+      category_counts: {
+        general: { total: 40, reviewed: 15, unreviewed: 25, has_gt: 30, no_gt: 10 },
+        blurry: { total: 5, reviewed: 2, unreviewed: 3, has_gt: 3, no_gt: 2 },
+        dead: { total: 5, reviewed: 3, unreviewed: 2, has_gt: 2, no_gt: 3 },
+      },
+      custom_categories: [],
+      metadata: { dataset_type: "label" },
+    });
+  }),
+
+  http.get("*/v1/databank/raw-bank", ({ request }) => {
+    const url = new URL(request.url);
+    const ocrType = url.searchParams.get("ocr_type") || "odometer";
+    return HttpResponse.json({
+      id: "raw-bank-1",
+      ocr_type: ocrType,
+      name: "raw-data-bank",
+      version: "1.0.0",
+      description: "Default Raw Data repository",
+      status: "ready",
+      sample_count: 25,
       reviewed_count: 0,
       unreviewed_count: 0,
-      category_counts: {},
+      has_gt_count: 0,
+      no_gt_count: 25,
+      raw_pending_count: 25,
+      category_counts: {
+        raw: { total: 25, reviewed: 0, unreviewed: 25, has_gt: 0, no_gt: 25 },
+      },
       custom_categories: [],
+      metadata: { dataset_type: "raw" },
+    });
+  }),
+
+  http.get("*/v1/databank/datasets", ({ request }) => {
+    const url = new URL(request.url);
+    const ocrType = url.searchParams.get("ocr_type") || "odometer";
+    const datasetType = url.searchParams.get("dataset_type");
+    const search = (url.searchParams.get("search") || "").toLowerCase().trim();
+    let datasets = [
+        {
+          id: ocrType === "bill" ? "bill-bank-1" : "odo-bank-1",
+          ocr_type: ocrType,
+          name: "data-bank",
+          version: "1.0.0",
+          description: "Default databank",
+          status: "ready",
+          sample_count: 50,
+          reviewed_count: 20,
+          unreviewed_count: 30,
+          has_gt_count: 35,
+          no_gt_count: 15,
+          raw_pending_count: 0,
+          category_counts: {
+            general: { total: 40, reviewed: 15, unreviewed: 25, has_gt: 30, no_gt: 10 },
+            blurry: { total: 5, reviewed: 2, unreviewed: 3, has_gt: 3, no_gt: 2 },
+            dead: { total: 5, reviewed: 3, unreviewed: 2, has_gt: 2, no_gt: 3 },
+          },
+          custom_categories: [],
+          metadata: { dataset_type: "label" },
+        },
+        {
+          id: "raw-ds-1",
+          ocr_type: ocrType,
+          name: "raw-batch-2026",
+          version: "1.0.0",
+          description: "Raw batch upload",
+          status: "ready",
+          sample_count: 25,
+          reviewed_count: 0,
+          unreviewed_count: 0,
+          has_gt_count: 0,
+          no_gt_count: 25,
+          raw_pending_count: 25,
+          category_counts: {
+            raw: { total: 25, reviewed: 0, unreviewed: 25, has_gt: 0, no_gt: 25 },
+          },
+          custom_categories: [],
+          metadata: { dataset_type: "raw" },
+        },
+        {
+          id: "label-ds-1",
+          ocr_type: ocrType,
+          name: "curated-meters-v1",
+          version: "1.0.0",
+          description: "Curated meters dataset",
+          status: "ready",
+          sample_count: 15,
+          reviewed_count: 10,
+          unreviewed_count: 5,
+          has_gt_count: 12,
+          no_gt_count: 3,
+          raw_pending_count: 0,
+          category_counts: {
+            general: { total: 10, reviewed: 8, unreviewed: 2, has_gt: 10, no_gt: 0 },
+            high_glare: { total: 5, reviewed: 2, unreviewed: 3, has_gt: 2, no_gt: 3 },
+          },
+          custom_categories: ["high_glare"],
+          metadata: { dataset_type: "label" },
+        },
+    ];
+
+    if (datasetType && datasetType !== "all") {
+      datasets = datasets.filter((d) => d.metadata.dataset_type === datasetType);
+    }
+
+    if (search) {
+      datasets = datasets.filter((d) => d.name.toLowerCase().includes(search) || (d.description || "").toLowerCase().includes(search));
+    }
+
+    return HttpResponse.json({
+      total: datasets.length,
+      datasets,
+    });
+  }),
+
+  http.get("*/v1/databank/datasets/:datasetId/category-counts", ({ request }) => {
+    const url = new URL(request.url);
+    const within = url.searchParams.get("within_review_status");
+    const hasGt = url.searchParams.get("has_filename_gt");
+
+    if (within === "reviewed") {
+      return HttpResponse.json({ general: 15, blurry: 2, dead: 3 });
+    }
+    if (within === "unreviewed") {
+      return HttpResponse.json({ general: 25, blurry: 3, dead: 2 });
+    }
+    if (hasGt === "true") {
+      return HttpResponse.json({ general: 30, blurry: 3, dead: 2 });
+    }
+    if (hasGt === "false") {
+      return HttpResponse.json({ general: 10, blurry: 2, dead: 3 });
+    }
+    return HttpResponse.json({ general: 40, blurry: 5, dead: 5 });
+  }),
+
+  http.get("*/v1/databank/datasets/:datasetId", ({ params }) => {
+    return HttpResponse.json({
+      id: String(params.datasetId),
+      ocr_type: "odometer",
+      name: "data-bank",
+      version: "1.0.0",
+      status: "ready",
+      sample_count: 50,
+      reviewed_count: 20,
+      unreviewed_count: 30,
+      has_gt_count: 35,
+      no_gt_count: 15,
+      category_counts: {
+        general: { total: 40, reviewed: 15, unreviewed: 25, has_gt: 30, no_gt: 10 },
+        blurry: { total: 5, reviewed: 2, unreviewed: 3, has_gt: 3, no_gt: 2 },
+        dead: { total: 5, reviewed: 3, unreviewed: 2, has_gt: 2, no_gt: 3 },
+      },
+      custom_categories: [],
+    });
+  }),
+
+  http.post("*/v1/databank/datasets", async ({ request }) => {
+    const body = (await request.json()) as { name?: string; ocr_type?: string };
+    return HttpResponse.json(
+      {
+        id: "new-ds-1",
+        ocr_type: body.ocr_type || "odometer",
+        name: body.name || "new-dataset",
+        version: "1.0.0",
+        status: "ready",
+        sample_count: 0,
+        reviewed_count: 0,
+        unreviewed_count: 0,
+        category_counts: {},
+        custom_categories: [],
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.delete("*/v1/databank/datasets/:datasetId", () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get("*/v1/databank/datasets/:datasetId/export.csv", () => {
+    return new HttpResponse("filename,gt\nsample1.jpg,12345\n", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": 'attachment; filename="databank.csv"',
+      },
+    });
+  }),
+
+  http.post("*/v1/databank/upload-raw", () => {
+    return HttpResponse.json({
+      id: "odo-bank-1",
+      status: "ready",
+      accepted: true,
+      message: "Uploaded 1 raw sample",
+      added_samples: 1,
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/upload-raw", ({ params }) => {
+    return HttpResponse.json({
+      id: String(params.datasetId),
+      status: "ready",
+      accepted: true,
+      message: "Uploaded 1 raw sample",
+      added_samples: 1,
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/batch-category", async ({ request, params }) => {
+    const body = (await request.json()) as { sample_ids: string[]; category: string };
+    return HttpResponse.json({
+      dataset_id: String(params.datasetId),
+      count: body.sample_ids.length,
+      category: body.category,
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/batch-move", async ({ request, params }) => {
+    const body = (await request.json()) as {
+      sample_ids: string[];
+      target_dataset_id: string;
+      target_category: string;
+    };
+    return HttpResponse.json({
+      moved_count: body.sample_ids.length,
+      source_dataset_id: String(params.datasetId),
+      target_dataset_id: body.target_dataset_id,
+      target_category: body.target_category,
     });
   }),
 
   http.get("*/v1/databank/datasets/:datasetId/samples", () => {
     return HttpResponse.json({
-      total: 0,
+      total: 1,
       limit: 25,
       offset: 0,
-      samples: [],
+      samples: [
+        {
+          id: "sample-1",
+          dataset_id: "odo-bank-1",
+          filename: "1-887512.jpg",
+          relative_path: "samples/1-887512.jpg",
+          has_ground_truth: true,
+          ground_truth: "887512",
+          review_status: "reviewed",
+          category: "",
+          is_blurry: false,
+          display_bbox: { x1: 20, y1: 15, x2: 80, y2: 65, confidence: 0.95, label: "gemini" },
+          bbox: { x1: 20, y1: 15, x2: 80, y2: 65, confidence: 0.95, label: "gemini" },
+          created_at: "2026-01-05T10:00:00+00:00",
+        },
+      ],
     });
+  }),
+
+  http.get("*/v1/databank/datasets/:datasetId/samples/:sampleId/image", () => {
+    return new HttpResponse(new Blob(["mock-image"], { type: "image/jpeg" }));
   }),
 
   http.patch(
@@ -509,6 +784,50 @@ export const handlers = [
       });
     },
   ),
+
+  http.get("*/v1/scraper/prompts", () => {
+    return HttpResponse.json({
+      prompts: [
+        {
+          id: "odometer_reading",
+          name: "Odometer Digits & Bounding Box",
+          prompt:
+            "1 - Does this image relate to a car dashboard?\n2 - Does this image relate to an odometer?\n3 - Is this image natural?\nIf all 3 points are true, read the odometer digits from this image and detect the 2D boundary / bounding box of the odometer digits or display area.\nReturn JSON ONLY in this format:\n{\n  \"ground_truth\": \"<numeric digits>\",\n  \"box_2d\": [ymin, xmin, ymax, xmax]\n}\nwhere box_2d is [ymin, xmin, ymax, xmax] in normalized coordinates from 0 to 1000.\nIf any point fails from the 3, or if the digits/odometer are unreadable, return {\"ground_truth\": null, \"box_2d\": null}.",
+        },
+      ],
+    });
+  }),
+
+  http.get("*/v1/scraper/gemini-config", () => {
+    return HttpResponse.json({
+      has_api_key: true,
+      default_model: "gemini-3.5-flash-lite",
+      available_models: [
+        { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite (Fastest & Stable)" },
+      ],
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/samples/:sampleId/extract-gemini", () => {
+    return HttpResponse.json({
+      extracted_value: "887512",
+      bbox: { x1: 20, y1: 15, x2: 80, y2: 65, confidence: 0.95, label: "gemini" },
+      model: "gemini-3.5-flash-lite",
+      prompt: "Extract odometer digits and box_2d",
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/samples/:sampleId/review", async ({ request }) => {
+    const body = (await request.json()) as { corrected_gt?: string; corrected_bbox?: Record<string, unknown> };
+    return HttpResponse.json({
+      id: "sample-1",
+      dataset_id: "odo-bank-1",
+      filename: "1-887512.jpg",
+      corrected_gt: body.corrected_gt,
+      corrected_bbox: body.corrected_bbox,
+      review_status: "reviewed",
+    });
+  }),
 
   http.get("*/v1/settings", () => {
     return HttpResponse.json({

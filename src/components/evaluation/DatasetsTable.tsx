@@ -1,3 +1,4 @@
+import { EyeOutlined } from "@ant-design/icons";
 import { Button, Progress, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -43,7 +44,6 @@ interface DatasetsTableProps {
   pageSize: number;
   onPageChange: (page: number, pageSize: number) => void;
   onViewSamples: (dataset: EvaluationDataset) => void;
-  onStartEvaluation: (dataset: EvaluationDataset) => void;
   onSoftDelete: (dataset: EvaluationDataset) => void;
   onHardDelete: (dataset: EvaluationDataset) => void;
 }
@@ -57,7 +57,6 @@ export function DatasetsTable({
   pageSize,
   onPageChange,
   onViewSamples,
-  onStartEvaluation,
   onSoftDelete,
   onHardDelete,
 }: DatasetsTableProps) {
@@ -158,7 +157,7 @@ export function DatasetsTable({
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 360,
+      width: 250,
       render: (_, row) => {
         const del = getDatasetDeleteAvailability(row, {
           mutating: deletePending,
@@ -172,7 +171,7 @@ export function DatasetsTable({
               onSoftDelete(row);
             }}
           >
-            Soft delete
+            Archive
           </Button>
         );
         const hardBtn = (
@@ -185,35 +184,31 @@ export function DatasetsTable({
               onHardDelete(row);
             }}
           >
-            Hard delete
+            Delete
           </Button>
         );
         return (
           <Space size="small" wrap>
-            <Button size="small" onClick={() => onViewSamples(row)}>
-              Samples
-            </Button>
             <Button
               size="small"
               type="primary"
-              disabled={
-                row.status !== "ready" || row.evaluation_eligible === false
-              }
-              onClick={() => onStartEvaluation(row)}
+              ghost
+              icon={<EyeOutlined />}
+              onClick={() => onViewSamples(row)}
             >
-              Evaluate
+              Samples
             </Button>
             {del.canSoftDelete ? (
               softBtn
             ) : (
-              <Tooltip title={del.softReason ?? "Soft delete unavailable"}>
+              <Tooltip title={del.softReason ?? "Archive unavailable"}>
                 <span>{softBtn}</span>
               </Tooltip>
             )}
             {del.canHardDelete ? (
               hardBtn
             ) : (
-              <Tooltip title={del.hardReason ?? "Hard delete unavailable"}>
+              <Tooltip title={del.hardReason ?? "Delete permanently unavailable"}>
                 <span>{hardBtn}</span>
               </Tooltip>
             )}

@@ -83,6 +83,12 @@ export async function getImages(params?: {
   category_id?: string;
   session_id?: string;
   search?: string;
+  has_ground_truth?: boolean;
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
+  sort_by?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ images: ScraperImage[]; total: number }> {
@@ -90,6 +96,27 @@ export async function getImages(params?: {
     images: ScraperImage[];
     total: number;
   }>("/v1/scraper/images", { params });
+  return data;
+}
+
+export async function batchDeleteImages(
+  imageIds: string[],
+): Promise<{ deleted_count: number }> {
+  const { data } = await apiClient.post<{ deleted_count: number }>(
+    "/v1/scraper/images/batch-delete",
+    { image_ids: imageIds },
+  );
+  return data;
+}
+
+export async function batchUpdateImageCategory(
+  imageIds: string[],
+  categoryId: string | null,
+): Promise<{ updated_count: number }> {
+  const { data } = await apiClient.post<{ updated_count: number }>(
+    "/v1/scraper/images/batch-category",
+    { image_ids: imageIds, category_id: categoryId },
+  );
   return data;
 }
 

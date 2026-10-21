@@ -38,7 +38,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import {
@@ -215,8 +215,15 @@ export function DatabankListPage() {
   const { activeTaskKey } = useTaskContext();
   const { modal, message: appMessage } = App.useApp();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
+
+  useEffect(() => {
+    if (tabFromUrl === "raw") {
+      navigate("/databank/raw", { replace: true });
+    }
+  }, [tabFromUrl, navigate]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [rawUploadOpen, setRawUploadOpen] = useState(false);
   const [reviewTab, setReviewTab] = useState<string>(() =>
