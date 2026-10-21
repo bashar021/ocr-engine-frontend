@@ -381,6 +381,8 @@ export type AugmentationStrategy = {
   key: string;
   label: string;
   description: string;
+  category?: string;
+  has_bbox_transform?: boolean;
 };
 
 export async function listAugmentationStrategies(): Promise<
@@ -392,9 +394,45 @@ export async function listAugmentationStrategies(): Promise<
   return data.strategies;
 }
 
+export interface AugmentationPreviewPayload {
+  source_dataset_id?: string;
+  sample_id?: string;
+  image_base64?: string;
+  bbox?: { x1: number; y1: number; x2: number; y2: number };
+  strategies: string[];
+}
+
+export interface AugmentationPreviewResponse {
+  original: {
+    data_url: string;
+    width: number;
+    height: number;
+    bbox?: { x1: number; y1: number; x2: number; y2: number };
+  };
+  augmented: {
+    data_url: string;
+    width: number;
+    height: number;
+    bbox?: { x1: number; y1: number; x2: number; y2: number };
+  };
+  strategies_applied: string[];
+}
+
+export async function previewAugmentation(
+  payload: AugmentationPreviewPayload,
+): Promise<AugmentationPreviewResponse> {
+  const { data } = await apiClient.post<AugmentationPreviewResponse>(
+    "/v1/training/augmentation/preview",
+    payload,
+  );
+  return data;
+}
+
 export async function createAugmentedDataset(payload: {
   source_dataset_id: string;
-  strategy: string;
+  strategy?: string;
+  strategies?: string[];
+  multiplier?: number;
   name?: string;
 }) {
   const { data } = await apiClient.post(

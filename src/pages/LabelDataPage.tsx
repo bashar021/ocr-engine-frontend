@@ -1166,7 +1166,7 @@ export function LabelDataPage() {
                 type="primary"
                 icon={<UploadOutlined />}
                 onClick={() => setUploadModalOpen(true)}
-                className="bg-blue-600 font-medium shadow-xs hover:bg-blue-500"
+                className="bg-teal-700 font-medium shadow-xs hover:bg-teal-800 text-white"
               >
                 Upload Data
               </Button>
@@ -1525,7 +1525,7 @@ export function LabelDataPage() {
                       className="site-badge-count-4"
                       style={{
                         backgroundColor:
-                          activeCategoryTab === c.key ? "#2563eb" : "#f1f5f9",
+                          activeCategoryTab === c.key ? "#0f766e" : "#f1f5f9",
                         color: activeCategoryTab === c.key ? "#ffffff" : "#64748b",
                         boxShadow: "none",
                         fontSize: 11,
@@ -1542,10 +1542,10 @@ export function LabelDataPage() {
         {/* Batch Action Toolbar (When rows are selected)                      */}
         {/* ------------------------------------------------------------------ */}
         {selectedRowKeys.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between rounded-xl border border-blue-200 bg-blue-50/90 px-4 py-2.5 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 shadow-xs">
             <div className="flex items-center gap-3">
-              <Badge count={selectedRowKeys.length} style={{ backgroundColor: "#2563eb" }} />
-              <Typography.Text strong className="text-sm text-blue-900">
+              <Badge count={selectedRowKeys.length} style={{ backgroundColor: "#0f766e" }} />
+              <Typography.Text strong className="text-sm text-slate-800">
                 {selectedRowKeys.length} sample{selectedRowKeys.length > 1 ? "s" : ""} selected
               </Typography.Text>
             </div>
@@ -1560,9 +1560,9 @@ export function LabelDataPage() {
                 Move to Data Bank
               </Button>
 
-              <div className="h-4 w-px bg-blue-200" />
+              <div className="h-4 w-px bg-slate-200" />
 
-              <span className="text-xs font-semibold text-blue-800">Tag as Category:</span>
+              <span className="text-xs font-semibold text-teal-900">Tag as Category:</span>
               <Select
                 size="small"
                 value={batchTargetCategory}
@@ -1576,13 +1576,13 @@ export function LabelDataPage() {
               <Button
                 size="small"
                 type="primary"
-                className="bg-blue-600 hover:bg-blue-500"
+                className="bg-teal-700 hover:bg-teal-800 text-white"
                 onClick={() => handleBatchTagCategory(batchTargetCategory)}
               >
                 Apply Category
               </Button>
 
-              <div className="h-4 w-px bg-blue-200" />
+              <div className="h-4 w-px bg-slate-200" />
 
               <Button
                 size="small"
@@ -1686,7 +1686,7 @@ export function LabelDataPage() {
                   hoverable
                   className={`relative overflow-hidden rounded-xl border transition ${
                     isSelected
-                      ? "border-blue-500 bg-blue-50/30 shadow-md ring-2 ring-blue-400/40"
+                      ? "border-teal-500 bg-teal-50/30 shadow-md ring-2 ring-teal-400/40"
                       : "border-slate-200 bg-white"
                   }`}
                   styles={{ body: { padding: "10px" } }}
@@ -1952,7 +1952,7 @@ export function LabelDataPage() {
         }}
         confirmLoading={batchMoveMutation.isPending}
         okText="Move Entries"
-        okButtonProps={{ className: "bg-blue-600 hover:bg-blue-500" }}
+        okButtonProps={{ className: "bg-teal-700 hover:bg-teal-800 text-white" }}
         destroyOnClose
         centered
       >

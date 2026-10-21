@@ -300,7 +300,7 @@ export function EvaluationRunsPage() {
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={() => setRunModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-500 font-medium shadow-xs"
+              className="bg-teal-700 hover:bg-teal-800 font-medium shadow-xs text-white"
             >
               Run Evaluation
             </Button>
@@ -435,7 +435,7 @@ export function EvaluationRunsPage() {
         onOk={handleStartEvaluationSubmit}
         confirmLoading={startEvaluationMutation.isPending}
         okText="Start Evaluation"
-        okButtonProps={{ className: "bg-blue-600 hover:bg-blue-500 font-medium" }}
+        okButtonProps={{ className: "bg-teal-700 hover:bg-teal-800 font-medium text-white" }}
         destroyOnHidden
       >
         <Form form={runForm} layout="vertical" className="pt-2">

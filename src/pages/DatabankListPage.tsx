@@ -1233,10 +1233,10 @@ export function DatabankListPage() {
         />
 
         {reviewTab === "raw" && selectedRowKeys.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/80 px-4 py-2.5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-2.5 shadow-sm">
             <div className="flex items-center gap-2">
-              <CheckSquareOutlined className="text-base text-blue-600" />
-              <span className="text-sm font-semibold text-blue-900">
+              <CheckSquareOutlined className="text-base text-teal-600" />
+              <span className="text-sm font-semibold text-teal-900">
                 {selectedRowKeys.length} sample{selectedRowKeys.length > 1 ? "s" : ""} selected (current page)
               </span>
               <Button
@@ -2242,9 +2242,9 @@ function DatabankGetValueModal({
         )}
 
         {/* Response Review Section */}
-        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+        <div className="space-y-1.5 rounded-lg border border-teal-200 bg-teal-50/40 p-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-blue-900">
+            <label className="text-sm font-semibold text-teal-900">
               Review Extracted Value (Ground Truth):
             </label>
             <Space size="small">

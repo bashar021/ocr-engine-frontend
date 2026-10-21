@@ -829,6 +829,72 @@ export const handlers = [
     });
   }),
 
+  http.get("*/v1/training/augmentation/strategies", () => {
+    return HttpResponse.json({
+      strategies: [
+        { key: "rotate_small", label: "Small Rotation", category: "geometric", description: "Random tilt", has_bbox_transform: true },
+        { key: "rotate_90", label: "Rotate 90°", category: "geometric", description: "Clockwise 90", has_bbox_transform: true },
+        { key: "flip_h", label: "Flip Horizontal", category: "geometric", description: "Mirror", has_bbox_transform: true },
+        { key: "brightness", label: "Brightness High", category: "photometric", description: "Increase exposure", has_bbox_transform: false },
+        { key: "sun_glare", label: "Sun Glare", category: "photometric", description: "Glare flare", has_bbox_transform: false },
+        { key: "motion_blur", label: "Motion Blur", category: "noise_blur", description: "Vibration blur", has_bbox_transform: false },
+        { key: "noise", label: "Noise", category: "noise_blur", description: "Sensor grain", has_bbox_transform: false },
+        { key: "cutout", label: "Cutout", category: "occlusion", description: "Obstruction patch", has_bbox_transform: false },
+      ],
+    });
+  }),
+
+  http.post("*/v1/training/augmentation/preview", () => {
+    return HttpResponse.json({
+      original: {
+        data_url: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+        width: 640,
+        height: 480,
+        bbox: { x1: 100, y1: 120, x2: 300, y2: 240 },
+      },
+      augmented: {
+        data_url: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+        width: 640,
+        height: 480,
+        bbox: { x1: 340, y1: 120, x2: 540, y2: 240 },
+      },
+      strategies_applied: ["rotate_small", "sun_glare"],
+    });
+  }),
+
+  http.post("*/v1/training/suggest-version", () => {
+    return HttpResponse.json({
+      name: "odometer-detector-v8s",
+      parent_version: "1.0.0",
+      suggested_version: "1.1.0",
+      bump_level: "minor",
+    });
+  }),
+
+  http.post("*/v1/training/runs", () => {
+    return HttpResponse.json({
+      id: "run-test-123",
+      name: "odometer-detector-v8s",
+      version: "1.1.0",
+      role: "detection",
+      status: "queued",
+      progress_pct: 0,
+    });
+  }),
+
+  http.get("*/v1/training/adapters", () => {
+    return HttpResponse.json({
+      adapters: [
+        {
+          id: "ultralytics_detection",
+          name: "Ultralytics YOLO Detection",
+          roles: ["detection"],
+          default_hyperparameters: {},
+        },
+      ],
+    });
+  }),
+
   http.get("*/v1/settings", () => {
     return HttpResponse.json({
       inference: {

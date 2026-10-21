@@ -16,6 +16,7 @@ import {
   LinkOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
+  PlusCircleOutlined,
   ProfileOutlined,
   ScanOutlined,
   SettingOutlined,
@@ -267,6 +268,32 @@ export function AppSidebar() {
         label: "Training Center",
         children: [
           {
+            key: "/training/new-detector",
+            icon: <PlusCircleOutlined />,
+            label: (
+              <Link to="/training/new-detector">New Detection Model</Link>
+            ),
+          },
+          {
+            key: "/training/fine-tune",
+            icon: <ToolOutlined />,
+            label: (
+              <Link to="/training/fine-tune">Fine-tune Model</Link>
+            ),
+          },
+          {
+            key: "/training/augmentation",
+            icon: <ExperimentOutlined />,
+            label: (
+              <Link to="/training/augmentation">Data Augmentation</Link>
+            ),
+          },
+          {
+            key: "/training/runs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/training/runs">Training Runs</Link>,
+          },
+          {
             key: "/evaluation/training-datasets",
             icon: <DatabaseOutlined />,
             label: (
@@ -277,18 +304,6 @@ export function AppSidebar() {
             key: "/training/curate",
             icon: <EditOutlined />,
             label: <Link to="/training/curate">Curate failures</Link>,
-          },
-          {
-            key: "/training/augmentation",
-            icon: <ExperimentOutlined />,
-            label: (
-              <Link to="/training/augmentation">Augmentation Dataset</Link>
-            ),
-          },
-          {
-            key: "/training/runs",
-            icon: <PlayCircleOutlined />,
-            label: <Link to="/training/runs">Runs</Link>,
           },
         ],
       },
@@ -401,7 +416,7 @@ export function AppSidebar() {
     if (path.startsWith("/evaluation/dataset-list")) {
       const tab = new URLSearchParams(search).get("tab");
       if (tab === "raw") return "/databank/raw";
-      return "/evaluation/dataset-list";
+      return "/databank/label-data";
     }
     if (path.startsWith("/databank/raw")) return "/databank/raw";
     if (path.startsWith("/databank/label-data")) return "/databank/label-data";
@@ -412,13 +427,17 @@ export function AppSidebar() {
       return "/databank/datasets";
     }
     if (path.startsWith("/databank")) return "/databank/raw";
-    if (path.startsWith("/evaluation")) return "/evaluation/datasets";
+    if (path.startsWith("/evaluation")) return "/evaluation/runs";
     if (path.startsWith("/training-center")) return "/training/runs";
+    if (path.startsWith("/training/new-detector"))
+      return "/training/new-detector";
+    if (path.startsWith("/training/fine-tune"))
+      return "/training/fine-tune";
     if (path.startsWith("/training/runs")) return "/training/runs";
     if (path.startsWith("/training/augmentation"))
       return "/training/augmentation";
     if (path.startsWith("/training/curate")) return "/training/curate";
-    if (path.startsWith("/training")) return "/training/runs";
+    if (path.startsWith("/training")) return "/training/new-detector";
     if (path.startsWith("/scraper/data")) return "/scraper/data";
     if (path.startsWith("/scraper/categories")) return "/scraper/categories";
     if (path.startsWith("/scraper/spyder") || path.startsWith("/scraper"))
@@ -471,9 +490,7 @@ export function AppSidebar() {
       setOpenKeys(["client-group"]);
     } else if (
       location.pathname.startsWith("/evaluation/training-datasets") ||
-      location.pathname.startsWith("/training/curate") ||
-      location.pathname.startsWith("/training/augmentation") ||
-      location.pathname.startsWith("/training/runs") ||
+      location.pathname.startsWith("/training") ||
       location.pathname.startsWith("/training-center")
     ) {
       setOpenKeys(["training-dataset-group"]);
@@ -519,6 +536,15 @@ export function AppSidebar() {
         selectedKeys={[selectedKey]}
         openKeys={openKeys}
         onOpenChange={handleOpenChange}
+        onClick={({ key, domEvent }) => {
+          const target = (domEvent as React.MouseEvent)?.target as HTMLElement | undefined;
+          if (target?.closest("a")) {
+            return;
+          }
+          if (key && typeof key === "string" && key.startsWith("/")) {
+            navigate(key);
+          }
+        }}
         items={navItems}
         className="!border-none !bg-transparent pt-2"
       />

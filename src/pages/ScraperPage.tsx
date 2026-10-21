@@ -731,7 +731,7 @@ export function SpyderPage() {
                       type="button"
                       className={`rounded px-1.5 py-0.5 text-xs transition ${
                         maxImages === cnt
-                          ? "bg-blue-600 text-white font-medium"
+                          ? "bg-teal-700 text-white font-medium"
                           : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                       }`}
                       onClick={() => setMaxImages(cnt)}
@@ -1555,10 +1555,10 @@ export function ScrapeDataPage() {
 
         {/* Batch Actions Bar (visible when items selected) */}
         {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/70 px-4 py-2.5 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50/70 px-4 py-2.5 text-sm">
             <Space>
-              <CheckCircleOutlined className="text-blue-600" />
-              <span className="font-semibold text-blue-900">
+              <CheckCircleOutlined className="text-teal-600" />
+              <span className="font-semibold text-teal-900">
                 {selectedIds.length} image{selectedIds.length !== 1 ? "s" : ""} selected
               </span>
             </Space>
@@ -2369,9 +2369,9 @@ function GetValueModal({
         )}
 
         {/* Response Review Section */}
-        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+        <div className="space-y-1.5 rounded-lg border border-teal-200 bg-teal-50/40 p-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-blue-900">
+            <label className="text-sm font-semibold text-teal-900">
               Review Extracted Value (Ground Truth):
             </label>
             <Space size="small">

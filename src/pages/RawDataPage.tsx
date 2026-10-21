@@ -1111,7 +1111,7 @@ export function RawDataPage() {
                     overflowCount={9999}
                     style={{
                       backgroundColor:
-                        categoryFilter === t.key ? "#2563eb" : "#f1f5f9",
+                        categoryFilter === t.key ? "#0f766e" : "#f1f5f9",
                       color: categoryFilter === t.key ? "#ffffff" : "#64748b",
                       boxShadow: "none",
                       fontSize: 11,
@@ -1125,9 +1125,9 @@ export function RawDataPage() {
 
         {/* Selection summary indicator */}
         {selectedRowKeys.length > 0 && (
-          <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50/80 px-4 py-2 text-xs text-blue-900 shadow-2xs">
+          <div className="flex items-center justify-between rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-2 text-xs text-teal-900 shadow-2xs">
             <div className="flex items-center gap-2">
-              <CheckSquareOutlined className="text-blue-600 text-sm" />
+              <CheckSquareOutlined className="text-teal-600 text-sm" />
               <span className="font-semibold">
                 {selectedRowKeys.length} sample{selectedRowKeys.length > 1 ? "s" : ""} selected
               </span>
@@ -1369,7 +1369,7 @@ export function RawDataPage() {
         onOk={() => batchMoveMutation.mutate()}
         confirmLoading={batchMoveMutation.isPending}
         okText="Move Entries"
-        okButtonProps={{ className: "bg-blue-600 hover:bg-blue-500" }}
+        okButtonProps={{ className: "bg-teal-700 hover:bg-teal-800 text-white" }}
         destroyOnHidden
         centered
       >
@@ -2016,9 +2016,9 @@ function RawGetValueModal({
         )}
 
         {/* Reviewed Value Editor */}
-        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+        <div className="space-y-1.5 rounded-lg border border-teal-200 bg-teal-50/40 p-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-blue-900">
+            <label className="text-sm font-semibold text-teal-900">
               Review Extracted Ground Truth:
             </label>
             {usedModelTag && <Tag color="geekblue">Model: {usedModelTag}</Tag>}

@@ -53,6 +53,8 @@ import {
 } from "@/pages/TrainingCenterSections";
 import { TrainingCycleDetailPage } from "@/pages/TrainingCycleDetailPage";
 import { AugmentationDatasetPage } from "@/pages/AugmentationDatasetPage";
+import { TrainDetectorPage } from "@/pages/TrainDetectorPage";
+import { FineTuneModelPage } from "@/pages/FineTuneModelPage";
 import { TrainingCurationPage } from "@/pages/TrainingCurationPage";
 import { TrainingDatasetsPage } from "@/pages/TrainingDatasetsPage";
 import { TrainingOverviewPage } from "@/pages/TrainingOverviewPage";
@@ -145,10 +147,22 @@ export function AppRoutes() {
           element={<TrainingRunDetailPage />}
         />
         <Route
+          path="/training/new-detector"
+          element={<TrainDetectorPage />}
+        />
+        <Route
+          path="/training/fine-tune"
+          element={<FineTuneModelPage />}
+        />
+        <Route
           path="/training/datasets"
           element={<Navigate to="/evaluation/training-datasets" replace />}
         />
         <Route path="/training/curate" element={<TrainingCurationPage />} />
+        <Route
+          path="/training/curation"
+          element={<Navigate to="/training/curate" replace />}
+        />
         <Route
           path="/training/augmentation"
           element={<AugmentationDatasetPage />}

@@ -26,6 +26,18 @@ export default function App() {
             fontFamily:
               '"IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
           },
+          components: {
+            Menu: {
+              darkItemSelectedBg: '#0f766e',
+              darkItemHoverBg: 'rgba(255, 255, 255, 0.08)',
+            },
+            Tabs: {
+              itemActiveColor: '#0f766e',
+              itemSelectedColor: '#0f766e',
+              inkBarColor: '#0f766e',
+              itemHoverColor: '#0d9488',
+            },
+          },
         }}
       >
         <AntdApp>
