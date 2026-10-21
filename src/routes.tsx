@@ -58,7 +58,6 @@ import { TrainingDatasetsPage } from "@/pages/TrainingDatasetsPage";
 import { TrainingOverviewPage } from "@/pages/TrainingOverviewPage";
 import { TrainingRunDetailPage } from "@/pages/TrainingRunDetailPage";
 import { TrainingRunsPage } from "@/pages/TrainingRunsPage";
-import { OverviewPage } from "@/pages/platform/OverviewPage";
 import {
   AuditHistoryPage,
   ClientsPage,
@@ -70,8 +69,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/overview" replace />} />
-        <Route path="/overview" element={<OverviewPage />} />
+        <Route index element={<Navigate to="/ocr" replace />} />
         <Route path="/releases" element={<ReleasesPage />} />
         <Route path="/deployments" element={<DeploymentsPage />} />
         <Route path="/clients" element={<ClientsPage />} />
@@ -219,7 +217,7 @@ export function AppRoutes() {
         <Route path="/import-export" element={<ImportExportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/overview" replace />} />
+      <Route path="*" element={<Navigate to="/ocr" replace />} />
     </Routes>
   );
 }

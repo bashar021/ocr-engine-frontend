@@ -7,7 +7,6 @@ import {
   ClusterOutlined,
   GlobalOutlined,
   CommentOutlined,
-  DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
   ExperimentOutlined,
@@ -80,11 +79,6 @@ export function AppSidebar() {
   const navItems: MenuItem[] = useMemo(() => {
     if (isBillTask) {
       return [
-        {
-          key: "/overview",
-          icon: <DashboardOutlined />,
-          label: <Link to="/overview">Overview</Link>,
-        },
         {
           key: "/ocr",
           icon: <ScanOutlined />,
@@ -195,11 +189,6 @@ export function AppSidebar() {
 
     return [
       {
-        key: "/overview",
-        icon: <DashboardOutlined />,
-        label: <Link to="/overview">Overview</Link>,
-      },
-      {
         key: "/ocr",
         icon: <ScanOutlined />,
         label: <Link to="/ocr">Live OCR</Link>,
@@ -275,7 +264,7 @@ export function AppSidebar() {
       {
         key: "training-dataset-group",
         icon: <ThunderboltOutlined />,
-        label: "Training Dataset",
+        label: "Training Center",
         children: [
           {
             key: "/evaluation/training-datasets",
@@ -295,6 +284,11 @@ export function AppSidebar() {
             label: (
               <Link to="/training/augmentation">Augmentation Dataset</Link>
             ),
+          },
+          {
+            key: "/training/runs",
+            icon: <PlayCircleOutlined />,
+            label: <Link to="/training/runs">Runs</Link>,
           },
         ],
       },
@@ -323,21 +317,16 @@ export function AppSidebar() {
         ],
       },
       {
-        key: "training-group",
-        icon: <ThunderboltOutlined />,
-        label: "Training",
+        key: "client-group",
+        icon: <ApiOutlined />,
+        label: "Client",
         children: [
           {
-            key: "/training/runs",
-            icon: <PlayCircleOutlined />,
-            label: <Link to="/training/runs">Runs</Link>,
+            key: "/clients",
+            icon: <ApiOutlined />,
+            label: <Link to="/clients">Apis</Link>,
           },
         ],
-      },
-      {
-        key: "/clients",
-        icon: <ApiOutlined />,
-        label: <Link to="/clients">API clients</Link>,
       },
       {
         key: "/history",
@@ -365,7 +354,6 @@ export function AppSidebar() {
   const selectedKey = useMemo(() => {
     const path = location.pathname;
     const search = location.search;
-    if (path.startsWith("/overview")) return "/overview";
     if (path.startsWith("/ocr")) return "/ocr";
     if (path.startsWith("/settings")) return "/settings";
 
@@ -438,105 +426,81 @@ export function AppSidebar() {
     return path;
   }, [location.pathname, location.search, isBillTask]);
 
-  const [openKeys, setOpenKeys] = useState<string[]>(() =>
-    isBillTask
-      ? ["bill-group", "bill-models-group", "bill-dataset-group"]
-      : [
-          "models-group",
-          "databank-group",
-          "evaluation-group",
-          "training-dataset-group",
-          "eval-runs-group",
-          "training-group",
-          "scraper-group",
-        ],
-  );
+  const sidebarGroupKeys = isBillTask
+    ? ["bill-group", "bill-models-group", "bill-dataset-group"]
+    : [
+        "models-group",
+        "databank-group",
+        "training-dataset-group",
+        "eval-runs-group",
+        "scraper-group",
+        "client-group",
+      ];
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
 
   useEffect(() => {
     if (isBillTask) {
-      setOpenKeys((keys) => {
-        const billKeys = new Set(
-          keys.filter(
-            (k) =>
-              k === "bill-group" ||
-              k === "bill-models-group" ||
-              k === "bill-dataset-group",
-          ),
-        );
-        billKeys.add("bill-group");
-        if (location.pathname.startsWith("/bill/models")) {
-          billKeys.add("bill-models-group");
-        }
-        if (
-          location.pathname.startsWith("/bill/datasets") ||
-          location.pathname.startsWith("/bill/evaluation-datasets") ||
-          location.pathname.startsWith("/bill/annotations") ||
-          location.pathname.startsWith("/bill/dataset-review") ||
-          location.pathname.startsWith("/bill/jobs") ||
-          location.pathname.startsWith("/bill/evaluation") ||
-          location.pathname.startsWith("/bill/versions") ||
-          location.pathname.startsWith("/bill/issues")
-        ) {
-          billKeys.add("bill-dataset-group");
-        }
-        return Array.from(billKeys);
-      });
+      if (location.pathname.startsWith("/bill/models")) {
+        setOpenKeys(["bill-models-group"]);
+      } else if (
+        location.pathname.startsWith("/bill/datasets") ||
+        location.pathname.startsWith("/bill/evaluation-datasets") ||
+        location.pathname.startsWith("/bill/annotations") ||
+        location.pathname.startsWith("/bill/dataset-review") ||
+        location.pathname.startsWith("/bill/jobs") ||
+        location.pathname.startsWith("/bill/evaluation") ||
+        location.pathname.startsWith("/bill/versions") ||
+        location.pathname.startsWith("/bill/issues")
+      ) {
+        setOpenKeys(["bill-dataset-group"]);
+      } else if (location.pathname.startsWith("/bill")) {
+        setOpenKeys(["bill-group"]);
+      } else {
+        setOpenKeys([]);
+      }
       return;
     }
 
-    setOpenKeys((keys) => {
-      let next = keys.filter(
-        (k) =>
-          k !== "bill-group" &&
-          k !== "bill-dataset-group" &&
-          k !== "bill-models-group",
-      );
-      if (
-        location.pathname.startsWith("/models") ||
-        location.pathname.startsWith("/releases") ||
-        location.pathname.startsWith("/deployments")
-      ) {
-        next = next.includes("models-group") ? next : [...next, "models-group"];
-      }
-      if (
-        location.pathname.startsWith("/evaluation/training-datasets") ||
-        location.pathname.startsWith("/training/curate") ||
-        location.pathname.startsWith("/training/augmentation")
-      ) {
-        next = next.includes("training-dataset-group")
-          ? next
-          : [...next, "training-dataset-group"];
-      }
-      if (
-        location.pathname.startsWith("/evaluation/runs") ||
-        location.pathname.startsWith("/evaluation/comparison") ||
-        location.pathname.startsWith("/evaluation/hard-cases")
-      ) {
-        next = next.includes("eval-runs-group")
-          ? next
-          : [...next, "eval-runs-group"];
-      }
-      if (
-        location.pathname.startsWith("/training") ||
-        location.pathname.startsWith("/training-center")
-      ) {
-        next = next.includes("training-group")
-          ? next
-          : [...next, "training-group"];
-      }
-      if (location.pathname.startsWith("/scraper")) {
-        next = next.includes("scraper-group")
-          ? next
-          : [...next, "scraper-group"];
-      }
-      if (location.pathname.startsWith("/databank")) {
-        next = next.includes("databank-group")
-          ? next
-          : [...next, "databank-group"];
-      }
-      return next;
-    });
+    if (
+      location.pathname.startsWith("/models") ||
+      location.pathname.startsWith("/releases") ||
+      location.pathname.startsWith("/deployments")
+    ) {
+      setOpenKeys(["models-group"]);
+    } else if (location.pathname.startsWith("/clients")) {
+      setOpenKeys(["client-group"]);
+    } else if (
+      location.pathname.startsWith("/evaluation/training-datasets") ||
+      location.pathname.startsWith("/training/curate") ||
+      location.pathname.startsWith("/training/augmentation") ||
+      location.pathname.startsWith("/training/runs") ||
+      location.pathname.startsWith("/training-center")
+    ) {
+      setOpenKeys(["training-dataset-group"]);
+    } else if (
+      location.pathname.startsWith("/evaluation/runs") ||
+      location.pathname.startsWith("/evaluation/comparison") ||
+      location.pathname.startsWith("/evaluation/hard-cases")
+    ) {
+      setOpenKeys(["eval-runs-group"]);
+    } else if (location.pathname.startsWith("/scraper")) {
+      setOpenKeys(["scraper-group"]);
+    } else if (
+      location.pathname.startsWith("/databank") ||
+      location.pathname.startsWith("/evaluation/datasets")
+    ) {
+      setOpenKeys(["databank-group"]);
+    } else {
+      setOpenKeys([]);
+    }
   }, [location.pathname, isBillTask]);
+
+  const handleOpenChange = (keys: string[]) => {
+    const newlyOpenedGroup = keys.find(
+      (key) => sidebarGroupKeys.includes(key) && !openKeys.includes(key),
+    );
+    setOpenKeys(newlyOpenedGroup ? [newlyOpenedGroup] : []);
+  };
 
   return (
     <Sider
@@ -554,7 +518,7 @@ export function AppSidebar() {
         mode="inline"
         selectedKeys={[selectedKey]}
         openKeys={openKeys}
-        onOpenChange={setOpenKeys}
+        onOpenChange={handleOpenChange}
         items={navItems}
         className="!border-none !bg-transparent pt-2"
       />

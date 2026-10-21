@@ -8,7 +8,6 @@ import { useTaskContext } from "@/features/tasks/TaskContext";
 const { Header } = Layout;
 
 const ROUTE_LABELS: Record<string, string> = {
-  overview: "Overview",
   ocr: "Live OCR",
   models: "Models",
   list: "Model list",
@@ -73,7 +72,7 @@ export function AppTopBar() {
         {crumbs.length > 0 && (
           <Breadcrumb
             className="hidden md:block"
-            items={[{ title: <Link to="/overview">Home</Link> }, ...crumbs]}
+            items={[{ title: <Link to="/ocr">Home</Link> }, ...crumbs]}
           />
         )}
       </Space>

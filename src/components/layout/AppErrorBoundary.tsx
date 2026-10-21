@@ -30,10 +30,10 @@ export class AppErrorBoundary extends Component<Props, State> {
             type="primary"
             onClick={() => {
               this.setState({ error: null });
-              window.location.assign("/overview");
+              window.location.assign("/ocr");
             }}
           >
-            Back to overview
+            Back to Live OCR
           </Button>
         </div>
       );

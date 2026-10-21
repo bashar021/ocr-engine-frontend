@@ -154,7 +154,7 @@ export function AnnotationReviewPage() {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
         breadcrumbs={[
-          { title: 'Dashboard', path: '/overview' },
+          { title: 'Live OCR', path: '/ocr' },
           { title: 'Annotation review' },
         ]}
         actions={
