@@ -229,6 +229,29 @@ export const mockRuns: EvaluationRun[] = [
     created_by: "dev-key-1",
     error_message: null,
   },
+  {
+    id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    dataset_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    dataset_name: "dashboard-eval",
+    dataset_version: "1.0.0",
+    ocr_type: "odometer",
+    model_ref: "v2",
+    detection_artifact_id: "11111111-1111-1111-1111-111111111111",
+    recognition_artifact_id: "22222222-2222-2222-2222-222222222222",
+    evaluation_type: "test",
+    evaluator_version: "eval-v1.0.0",
+    evaluation_config: null,
+    status: "completed",
+    total_samples: 2,
+    processed_samples: 2,
+    successful_samples: 2,
+    failed_samples: 0,
+    started_at: "2026-01-03T11:05:00+00:00",
+    completed_at: "2026-01-03T11:06:00+00:00",
+    created_at: "2026-01-03T11:04:00+00:00",
+    created_by: "dev-key-1",
+    error_message: null,
+  },
 ];
 
 export const handlers = [
@@ -399,24 +422,119 @@ export const handlers = [
 
   http.get("*/v1/evaluations", () => {
     return HttpResponse.json({
-      evaluations: mockRuns.map((run) => ({
+      evaluations: mockRuns.map((run, idx) => ({
         ...run,
         metrics: {
-          detection_success_rate: 0.98,
+          detection_success_rate: idx === 1 ? 0.99 : 0.98,
           detection_miss_rate: 0.02,
           avg_detection_confidence: 0.91,
           recognition_success_rate: 0.95,
-          exact_match_accuracy: 0.9,
-          end_to_end_accuracy: 0.9,
-          end_to_end_success_rate: 0.93,
+          exact_match_accuracy: idx === 1 ? 0.96 : 0.9,
+          end_to_end_accuracy: idx === 1 ? 0.95 : 0.9,
+          end_to_end_success_rate: idx === 1 ? 0.96 : 0.93,
           low_confidence_rate: 0.05,
-          latency_p50_ms: 45,
-          latency_p95_ms: 120,
+          latency_p50_ms: idx === 1 ? 38 : 45,
+          latency_p95_ms: idx === 1 ? 95 : 120,
         },
       })),
       total: mockRuns.length,
       limit: 50,
       offset: 0,
+    });
+  }),
+
+  http.get("*/v1/evaluations/compare", ({ request }) => {
+    const url = new URL(request.url);
+    const leftId = url.searchParams.get("left");
+    const rightId = url.searchParams.get("right");
+    const left = mockRuns.find((r) => r.id === leftId) || mockRuns[0];
+    const right = mockRuns.find((r) => r.id === rightId) || mockRuns[1] || mockRuns[0];
+
+    return HttpResponse.json({
+      benchmark_compatible: true,
+      warning: null,
+      left: {
+        ...left,
+        metrics: {
+          end_to_end_accuracy: 0.9,
+          detection_success_rate: 0.98,
+          exact_match_accuracy: 0.92,
+          recognition_char_accuracy: 0.96,
+          latency_p50_ms: 50,
+          latency_p95_ms: 120,
+        },
+      },
+      right: {
+        ...right,
+        metrics: {
+          end_to_end_accuracy: 0.95,
+          detection_success_rate: 0.99,
+          exact_match_accuracy: 0.96,
+          recognition_char_accuracy: 0.98,
+          latency_p50_ms: 38,
+          latency_p95_ms: 95,
+        },
+      },
+      champion: "left",
+      candidate: "right",
+      matrix: {
+        CC: 90,
+        CW: 2,
+        WC: 7,
+        WW: 1,
+        definitions: {
+          CC: "champion correct, candidate correct",
+          CW: "champion correct, candidate wrong (regression)",
+          WC: "champion wrong, candidate correct (improvement)",
+          WW: "both wrong",
+        },
+      },
+      aggregates: {
+        left_end_to_end_accuracy: 0.9,
+        right_end_to_end_accuracy: 0.95,
+        improved: 7,
+        regressed: 2,
+        unchanged: 90,
+        still_failing: 1,
+        left_failure_type_counts: {
+          OK: 90,
+          MISMATCH: 6,
+          DETECTION_FAILURE: 3,
+          INVALID_IMAGE: 1,
+        },
+        right_failure_type_counts: {
+          OK: 95,
+          MISMATCH: 3,
+          DETECTION_FAILURE: 1,
+          INVALID_IMAGE: 1,
+        },
+      },
+      samples: [
+        {
+          dataset_sample_id: "s1",
+          status: "improved",
+          matrix: "WC",
+          left_correct: false,
+          right_correct: true,
+          left_failure_type: "MISMATCH",
+          right_failure_type: null,
+          left_predicted: "123450",
+          right_predicted: "123456",
+          ground_truth: "123456",
+        },
+        {
+          dataset_sample_id: "s2",
+          status: "regressed",
+          matrix: "CW",
+          left_correct: true,
+          right_correct: false,
+          left_failure_type: null,
+          right_failure_type: "MISMATCH",
+          left_predicted: "789012",
+          right_predicted: "789019",
+          ground_truth: "789012",
+        },
+      ],
     });
   }),
 

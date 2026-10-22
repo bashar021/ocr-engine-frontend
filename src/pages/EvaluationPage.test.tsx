@@ -39,8 +39,8 @@ describe('Evaluation pages', () => {
       expect(screen.getByText('v1')).toBeInTheDocument()
     })
     expect(screen.getAllByText('E2E accuracy').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /results/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /metrics/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /results/i }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /metrics/i }).length).toBeGreaterThan(0)
   })
 
   it('opens evaluation metrics modal showing small metrics and failure type metrics with count and percentage', async () => {
@@ -50,7 +50,7 @@ describe('Evaluation pages', () => {
       expect(screen.getByText('v1')).toBeInTheDocument()
     })
 
-    const metricsBtn = screen.getByRole('button', { name: /metrics/i })
+    const metricsBtn = screen.getAllByRole('button', { name: /metrics/i })[0]
     expect(metricsBtn).toBeInTheDocument()
     fireEvent.click(metricsBtn)
 
