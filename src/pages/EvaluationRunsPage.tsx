@@ -29,6 +29,7 @@ import {
   sortEvaluations,
   type EvaluationSortKey,
 } from "@/utils/evaluationSort";
+import { isRealLabelDataset } from "@/utils/datasetFilters";
 
 const RUN_STATUSES = [
   { value: "queued", label: "Queued" },
@@ -84,12 +85,8 @@ export function EvaluationRunsPage() {
 
   const labelDatasets = useMemo(() => {
     const list = labelDatasetsQuery.data?.datasets || [];
-    const filtered = list.filter((d) => {
-      const type = (d.metadata as Record<string, unknown> | undefined)?.dataset_type;
-      const isRaw = type === "raw" || d.name === "raw-data-bank" || d.name.startsWith("raw-");
-      return !isRaw;
-    });
-    if (filtered.length === 0 && defaultBankQuery.data) {
+    const filtered = list.filter((d) => isRealLabelDataset(d));
+    if (filtered.length === 0 && defaultBankQuery.data && isRealLabelDataset(defaultBankQuery.data)) {
       return [defaultBankQuery.data];
     }
     return filtered;
@@ -116,8 +113,11 @@ export function EvaluationRunsPage() {
     );
     return refs.map((r) => ({
       value: r.model_ref,
-      label: `${r.model_ref} (${r.status}${r.is_default ? ", default" : ""})`,
+      label: r.is_llm
+        ? `${r.model_ref} (LLM direct evaluation, ${r.status})`
+        : `${r.model_ref} (${r.status}${r.is_default ? ", default" : ""})`,
       isDefault: r.is_default,
+      isLlm: r.is_llm,
     }));
   }, [modelRefsQuery.data?.refs]);
 
@@ -484,6 +484,7 @@ export function EvaluationRunsPage() {
             name="model_ref"
             label="Model / Pipeline"
             rules={[{ required: true, message: "Please select a model pipeline" }]}
+            extra="Choose qwen2.5vl:7b for a direct LLM evaluation. Its accuracy and run metrics are saved alongside the OCR pipeline metrics."
           >
             <Select
               placeholder="Select model pipeline"

@@ -140,20 +140,15 @@ export function ModelRefsTable({
       },
       {
         id: "detection",
-        header: "Detection model",
-        cell: ({ row }) => (
-          <BoundModelCell
-            label="detection"
-            name={row.original.detection?.name}
-            version={row.original.detection?.version}
-            runtime={row.original.detection?.runtime}
-          />
-        ),
+        header: "Detection / LLM model",
+        cell: ({ row }) => row.original.is_llm ? (
+          <BoundModelCell label="llm" name={row.original.llm?.name} version={row.original.llm?.version} runtime={row.original.llm?.runtime} />
+        ) : <BoundModelCell label="detection" name={row.original.detection?.name} version={row.original.detection?.version} runtime={row.original.detection?.runtime} />,
       },
       {
         id: "recognition",
         header: "Recognition model",
-        cell: ({ row }) => (
+        cell: ({ row }) => row.original.is_llm ? <Tag color="purple">Direct vision</Tag> : (
           <BoundModelCell
             label="recognition"
             name={row.original.recognition?.name}

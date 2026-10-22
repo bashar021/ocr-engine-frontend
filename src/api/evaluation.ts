@@ -516,3 +516,30 @@ export async function compareEvaluations(
   );
   return data;
 }
+
+export interface GeminiExtractResponse {
+  extracted_value: string;
+  bbox?: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    confidence?: number;
+    label?: string;
+  } | null;
+  model: string;
+  prompt: string;
+}
+
+export async function extractEvaluationSampleWithGemini(
+  datasetId: string,
+  sampleId: string,
+  params: { prompt: string; api_key?: string; model?: string },
+): Promise<GeminiExtractResponse> {
+  const { data } = await apiClient.post<GeminiExtractResponse>(
+    `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}/extract-gemini`,
+    params,
+  );
+  return data;
+}
+

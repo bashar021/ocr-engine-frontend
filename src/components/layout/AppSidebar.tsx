@@ -303,7 +303,7 @@ export function AppSidebar() {
           {
             key: "/training/curate",
             icon: <EditOutlined />,
-            label: <Link to="/training/curate">Curate failures</Link>,
+            label: <Link to="/training/curate">Curate & Label Failures</Link>,
           },
         ],
       },
@@ -324,9 +324,9 @@ export function AppSidebar() {
           },
           {
             key: "/evaluation/hard-cases",
-            icon: <ExperimentOutlined />,
+            icon: <AuditOutlined />,
             label: (
-              <Link to="/evaluation/hard-cases">Evaluated hard dataset</Link>
+              <Link to="/evaluation/hard-cases">Evaluation Review</Link>
             ),
           },
         ],

@@ -9,6 +9,7 @@ import {
   type ModelFilterState,
 } from "@/components/models/ModelFilters";
 import { ModelsTable } from "@/components/models/ModelsTable";
+import { QwenModelPanel } from "@/components/models/QwenModelPanel";
 import { UploadModelModal } from "@/components/models/UploadModelModal";
 import { useArtifactMutations } from "@/features/models/useArtifactMutations";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
@@ -17,7 +18,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 
 const DEFAULT_FILTERS: ModelFilterState = { search: "" };
 
-type RoleTab = "detection" | "recognition";
+type RoleTab = "detection" | "recognition" | "llm";
 type ActivationFilter = "activated" | "deactivated";
 
 export function ModelListPage() {
@@ -31,6 +32,7 @@ export function ModelListPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const debouncedSearch = useDebounce(filters.search, 300);
   const mutations = useArtifactMutations();
+  const isLlmTab = roleTab === "llm";
 
   const params = useMemo(() => {
     const deactivated = activationFilter === "deactivated";
@@ -42,7 +44,7 @@ export function ModelListPage() {
     return {
       search: debouncedSearch || undefined,
       ocr_type: activeTaskKey,
-      role: roleTab,
+      role: isLlmTab ? undefined : roleTab,
       runtime: filters.runtime,
       status: conflict
         ? "retired"
@@ -65,11 +67,12 @@ export function ModelListPage() {
     activationFilter,
     activeTaskKey,
     roleTab,
+    isLlmTab,
     page,
     pageSize,
   ]);
 
-  const query = useModelsQuery(params);
+  const query = useModelsQuery(params, !isLlmTab);
 
   const actionLoadingId = useMemo(() => {
     if (mutations.retire.isPending && mutations.retire.variables) {
@@ -95,6 +98,19 @@ export function ModelListPage() {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader title="Model list" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
+        <Tabs
+          activeKey={roleTab}
+          onChange={(key) => {
+            setRoleTab(key as RoleTab);
+            setPage(1);
+          }}
+          items={[
+            { key: "detection", label: "Detection" },
+            { key: "recognition", label: "Recognition" },
+            { key: "llm", label: "LLM" },
+          ]}
+        />
+        {isLlmTab ? <QwenModelPanel /> : <>
         <ModelFilters
           tab="models"
           value={filters}
@@ -129,17 +145,6 @@ export function ModelListPage() {
             </Button>
           }
         />
-        <Tabs
-          activeKey={roleTab}
-          onChange={(key) => {
-            setRoleTab(key as RoleTab);
-            setPage(1);
-          }}
-          items={[
-            { key: "detection", label: "Detection" },
-            { key: "recognition", label: "Recognition" },
-          ]}
-        />
         {query.isError ? (
           <Alert
             type="error"
@@ -171,7 +176,7 @@ export function ModelListPage() {
             onDelete={(art) => mutations.remove.mutateAsync(art.id)}
           />
         </div>
-      </div>
+        </>}</div>
       <UploadModelModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}

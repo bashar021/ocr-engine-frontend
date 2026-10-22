@@ -220,6 +220,7 @@ export interface ListDatasetsParams {
   /** evaluation = main Datasets tab; training = curated/merged tab */
   scope?: "evaluation" | "training";
   include_archived?: boolean;
+  exclude_categories?: boolean;
   limit?: number;
   offset?: number;
 }

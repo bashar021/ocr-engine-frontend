@@ -12,6 +12,11 @@ import {
   Tag,
   message,
 } from "antd";
+import {
+  ClearOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -21,11 +26,13 @@ import { getApiErrorMessage } from "@/api/client";
 import {
   bulkReviewEvaluationResults,
   exportHardCases,
+  extractEvaluationSampleWithGemini,
   fetchSampleImageObjectUrl,
   listAllEvaluationResults,
   listEvaluations,
   reviewEvaluationResult,
 } from "@/api/evaluation";
+import { getGeminiConfig, getGeminiPrompts } from "@/api/scraper";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useTaskContext } from "@/features/tasks/TaskContext";
 import { FAILURE_TYPES, formatFailureType } from "@/utils/failureTaxonomy";
@@ -34,6 +41,18 @@ import {
   type DrawnBox,
 } from "@/components/training/BboxAnnotator";
 import type { EvaluationResult, EvaluationRun } from "@/types/evaluation";
+
+const DEFAULT_ODOMETER_PROMPT = `1 - Does this image relate to a car dashboard?
+2 - Does this image relate to an odometer?
+3 - Is this image natural?
+If all 3 points are true, read the odometer digits from this image and detect the 2D boundary / bounding box of the odometer digits or display area.
+Return JSON ONLY in this format:
+{
+  "ground_truth": "<numeric digits>",
+  "box_2d": [ymin, xmin, ymax, xmax]
+}
+where box_2d is [ymin, xmin, ymax, xmax] in normalized coordinates from 0 to 1000.
+If any point fails from the 3, or if the digits/odometer are unreadable, return {"ground_truth": null, "box_2d": null}.`;
 
 function boxPayload(box: DrawnBox | null): Record<string, number> | null {
   if (!box) return null;
@@ -65,6 +84,50 @@ export function TrainingCurationPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
+
+  // Gemini AI state
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("odometer_reading");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem("gemini_api_key") || "",
+  );
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const [geminiSuccess, setGeminiSuccess] = useState<string | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+
+  const promptsQuery = useQuery({
+    queryKey: ["scraper", "prompts"],
+    queryFn: getGeminiPrompts,
+  });
+
+  const configQuery = useQuery({
+    queryKey: ["scraper", "gemini-config"],
+    queryFn: getGeminiConfig,
+  });
+
+  const effectiveModel =
+    selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
+
+  const activePromptText =
+    customPrompt !== null
+      ? customPrompt
+      : (promptsQuery.data?.find((p) => p.id === selectedPromptId)?.prompt ??
+        (selectedPromptId === "odometer_reading"
+          ? DEFAULT_ODOMETER_PROMPT
+          : (promptsQuery.data?.[0]?.prompt || DEFAULT_ODOMETER_PROMPT)));
+
+  const serverHasKey = Boolean(configQuery.data?.has_api_key);
+
+  const modelOptions =
+    configQuery.data?.available_models && configQuery.data.available_models.length > 0
+      ? configQuery.data.available_models.map((m) => ({ label: m.name, value: m.id }))
+      : [
+          { label: "Gemini 3.5 Flash Lite (Fastest & Stable)", value: "gemini-3.5-flash-lite" },
+          { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
+          { label: "Gemini 3 Flash Preview", value: "gemini-3-flash-preview" },
+        ];
 
   const evalsQuery = useQuery({
     queryKey: ["evaluation", "runs", "completed-for-curation", activeTaskKey],
@@ -182,13 +245,16 @@ export function TrainingCurationPage() {
     let cancelled = false;
     let url: string | null = null;
     async function load() {
-      if (!active?.dataset_id || !active.dataset_sample_id) {
+      const targetDsId =
+        active?.dataset_id ||
+        completedEvals.find((e) => e.id === evaluationId)?.dataset_id;
+      if (!targetDsId || !active?.dataset_sample_id) {
         setPreviewUrl(null);
         return;
       }
       try {
         url = await fetchSampleImageObjectUrl(
-          active.dataset_id,
+          targetDsId,
           active.dataset_sample_id,
         );
         if (!cancelled) setPreviewUrl(url);
@@ -204,7 +270,77 @@ export function TrainingCurationPage() {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
+  }, [active, completedEvals, evaluationId]);
+
+  useEffect(() => {
+    setGeminiError(null);
+    setGeminiSuccess(null);
   }, [active]);
+
+  const handleGeminiExtract = async () => {
+    if (!active) return;
+    const targetDatasetId =
+      active.dataset_id ||
+      completedEvals.find((e) => e.id === evaluationId)?.dataset_id;
+    if (!targetDatasetId || !active.dataset_sample_id) {
+      message.error("Sample dataset ID or sample ID is missing.");
+      return;
+    }
+
+    setGeminiLoading(true);
+    setGeminiError(null);
+    setGeminiSuccess(null);
+    if (apiKey) {
+      localStorage.setItem("gemini_api_key", apiKey.trim());
+    }
+
+    try {
+      const res = await extractEvaluationSampleWithGemini(
+        targetDatasetId,
+        active.dataset_sample_id,
+        {
+          prompt: activePromptText.trim(),
+          api_key: apiKey.trim() || undefined,
+          model: effectiveModel,
+        },
+      );
+
+      const patch: Partial<LocalLabel> = {};
+      if (res.extracted_value !== undefined && res.extracted_value !== null) {
+        patch.corrected_gt = res.extracted_value;
+      }
+      if (res.bbox) {
+        patch.bbox = {
+          x1: Number(res.bbox.x1),
+          y1: Number(res.bbox.y1),
+          x2: Number(res.bbox.x2),
+          y2: Number(res.bbox.y2),
+        };
+      }
+
+      updateLabel(active.id, patch);
+
+      const details: string[] = [];
+      if (res.extracted_value) {
+        details.push(`GT: "${res.extracted_value}"`);
+      }
+      if (res.bbox) {
+        details.push(
+          `BBox: [${Math.round(res.bbox.x1)}, ${Math.round(res.bbox.y1)}, ${Math.round(res.bbox.x2)}, ${Math.round(res.bbox.y2)}]`,
+        );
+      }
+      const summary =
+        details.length > 0 ? details.join(" & ") : "Extracted successfully";
+      setGeminiSuccess(`Gemini fetched: ${summary}`);
+      message.success(`Gemini auto-detected ${summary}!`);
+    } catch (err) {
+      const msg = getApiErrorMessage(err);
+      setGeminiError(msg);
+      message.error(msg);
+    } finally {
+      setGeminiLoading(false);
+    }
+  };
 
   const includedIds = useMemo(
     () =>
@@ -412,7 +548,7 @@ export function TrainingCurationPage() {
         breadcrumbs={[
           { title: "Dashboard", path: "/" },
           { title: "Training", path: "/training" },
-          { title: "Curate failures" },
+          { title: "Curate & Label Failures" },
         ]}
         actions={
           <Button
@@ -543,59 +679,242 @@ export function TrainingCurationPage() {
       </div>
 
       <Modal
-        title={active?.filename || "Label sample"}
+        title={
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{active?.filename || "Label sample"}</span>
+            <Tag color="blue">Curate & Label</Tag>
+          </div>
+        }
         open={Boolean(active)}
         onCancel={() => setActive(null)}
-        width={960}
+        width={1060}
         footer={null}
         destroyOnHidden
       >
         {active && currentLabel ? (
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
-            <div>
-              {previewUrl ? (
-                <BboxAnnotator
-                  src={previewUrl}
-                  value={currentLabel.bbox}
-                  onChange={(box) => updateLabel(active.id, { bbox: box })}
-                  imageWidth={active.image_size?.width}
-                  imageHeight={active.image_size?.height}
-                />
-              ) : (
-                <div className="flex h-60 items-center justify-center text-slate-500">
-                  Loading image…
-                </div>
-              )}
+          <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_340px]">
+            {/* Left side: Annotation Canvas & Box controls */}
+            <div className="flex flex-col space-y-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-900/5 p-1 overflow-hidden flex items-center justify-center min-h-[380px]">
+                {previewUrl ? (
+                  <BboxAnnotator
+                    src={previewUrl}
+                    value={currentLabel.bbox}
+                    onChange={(box) => updateLabel(active.id, { bbox: box })}
+                    imageWidth={active.image_size?.width}
+                    imageHeight={active.image_size?.height}
+                  />
+                ) : (
+                  <div className="flex h-60 items-center justify-center text-slate-500">
+                    Loading image…
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                <span>
+                  {currentLabel.bbox ? (
+                    <span className="font-mono text-slate-700">
+                      BBox: [{Math.round(currentLabel.bbox.x1)}, {Math.round(currentLabel.bbox.y1)}, {Math.round(currentLabel.bbox.x2)}, {Math.round(currentLabel.bbox.y2)}]
+                    </span>
+                  ) : (
+                    <span>Click and drag on the image to draw bounding box</span>
+                  )}
+                </span>
+                {currentLabel.bbox && (
+                  <Button
+                    size="small"
+                    type="link"
+                    icon={<ClearOutlined />}
+                    className="p-0 text-xs text-red-600 hover:text-red-700"
+                    onClick={() => updateLabel(active.id, { bbox: null })}
+                  >
+                    Clear box
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="space-y-3 text-sm">
-              <div>
-                <Tag color={active.failure_type === "OK" ? "green" : "orange"}>
-                  {formatFailureType(active.failure_type) || "—"}
-                </Tag>
-                {active.fail_stage ? <Tag>{active.fail_stage}</Tag> : null}
-                {active.is_correct != null ? (
-                  <Tag color={active.is_correct ? "green" : "red"}>
-                    {active.is_correct ? "correct" : "incorrect"}
+
+            {/* Right side: Information, Gemini AI Auto-Detect, and Ground Truth Labeling */}
+            <div className="space-y-3.5 text-sm">
+              {/* Failure metadata & predictions */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Tag color={active.failure_type === "OK" ? "green" : "orange"}>
+                    {formatFailureType(active.failure_type) || "—"}
                   </Tag>
-                ) : null}
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">
-                  Original GT (immutable)
+                  {active.fail_stage ? <Tag>{active.fail_stage}</Tag> : null}
+                  {active.is_correct != null ? (
+                    <Tag color={active.is_correct ? "green" : "red"}>
+                      {active.is_correct ? "correct" : "incorrect"}
+                    </Tag>
+                  ) : null}
                 </div>
-                <div className="font-mono">
-                  {active.ground_truth_normalized ?? "—"}
+                <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-200">
+                  <div>
+                    <span className="text-slate-500 block">Original GT:</span>
+                    <span className="font-mono font-medium text-slate-700">
+                      {active.ground_truth_normalized ?? "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Predicted:</span>
+                    <span className="font-mono font-medium text-blue-700">
+                      {active.predicted_normalized ?? "—"}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-slate-500">Predicted</div>
-                <div className="font-mono">
-                  {active.predicted_normalized ?? "—"}
+
+              {/* Gemini AI Auto-Detect Card */}
+              <div className="rounded-xl border border-amber-200 bg-linear-to-b from-amber-50/70 to-orange-50/40 p-3 space-y-2.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ThunderboltOutlined className="text-amber-500 text-base" />
+                    <span className="font-semibold text-slate-800 text-xs tracking-tight">
+                      Gemini AI Auto-Detect
+                    </span>
+                  </div>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<SettingOutlined />}
+                    className="p-0 text-xs text-amber-800 hover:text-amber-900"
+                    onClick={() => setShowConfig(!showConfig)}
+                  >
+                    {showConfig ? "Hide Config" : "Config"}
+                  </Button>
                 </div>
+
+                {showConfig && (
+                  <div className="space-y-2 rounded-lg border border-amber-200 bg-white p-2.5 text-xs">
+                    <div>
+                      <label className="mb-0.5 block font-medium text-slate-600 text-[11px]">
+                        Prompt Preset:
+                      </label>
+                      <Select
+                        size="small"
+                        className="w-full text-xs"
+                        value={selectedPromptId}
+                        onChange={(pId) => {
+                          setSelectedPromptId(pId);
+                          const found = (promptsQuery.data ?? []).find((p) => p.id === pId);
+                          setCustomPrompt(found ? found.prompt : "");
+                        }}
+                        loading={promptsQuery.isLoading}
+                        options={(promptsQuery.data ?? []).map((p) => ({
+                          label: p.name,
+                          value: p.id,
+                        }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block font-medium text-slate-600 text-[11px]">
+                        Gemini Model:
+                      </label>
+                      <Select
+                        size="small"
+                        className="w-full text-xs"
+                        value={effectiveModel}
+                        onChange={setSelectedModel}
+                        loading={configQuery.isLoading}
+                        options={modelOptions}
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-0.5 flex items-center justify-between text-[11px]">
+                        <span className="font-medium text-slate-600">Gemini API Key:</span>
+                        {serverHasKey ? (
+                          <Tag color="success" className="mr-0 text-[10px] leading-4">
+                            Server key set
+                          </Tag>
+                        ) : null}
+                      </div>
+                      <Input.Password
+                        size="small"
+                        placeholder={
+                          serverHasKey
+                            ? "Optional custom override API key"
+                            : "Enter Gemini API key (saved in browser)"
+                        }
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                      />
+                    </div>
+                    {customPrompt !== null && (
+                      <div>
+                        <div className="mb-0.5 flex items-center justify-between text-[11px]">
+                          <span className="font-medium text-slate-600">Custom Prompt:</span>
+                          <Button
+                            type="link"
+                            size="small"
+                            className="p-0 text-[10px]"
+                            onClick={() => setCustomPrompt(null)}
+                          >
+                            Reset
+                          </Button>
+                        </div>
+                        <Input.TextArea
+                          rows={3}
+                          value={activePromptText}
+                          onChange={(e) => setCustomPrompt(e.target.value)}
+                          className="font-mono text-[11px]"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  type="primary"
+                  block
+                  icon={<ThunderboltOutlined />}
+                  loading={geminiLoading}
+                  onClick={handleGeminiExtract}
+                  className="bg-amber-600 hover:bg-amber-500 border-amber-600 text-xs font-medium"
+                >
+                  {geminiLoading ? "Detecting GT & BBox..." : "Auto-Detect GT & BBox (Gemini)"}
+                </Button>
+
+                {geminiSuccess && (
+                  <Alert
+                    type="success"
+                    showIcon
+                    message={geminiSuccess}
+                    className="text-xs p-2"
+                  />
+                )}
+                {geminiError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    closable
+                    onClose={() => setGeminiError(null)}
+                    message={geminiError}
+                    className="text-xs p-2"
+                  />
+                )}
               </div>
-              <div>
-                <div className="mb-1 text-xs text-slate-500">
-                  Corrected ground truth
+
+              {/* Ground Truth Editor */}
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700">
+                    Corrected Ground Truth:
+                  </span>
+                  {active.predicted_normalized && (
+                    <Button
+                      type="link"
+                      size="small"
+                      className="p-0 text-[11px] text-blue-600"
+                      onClick={() =>
+                        updateLabel(active.id, {
+                          corrected_gt: active.predicted_normalized || "",
+                        })
+                      }
+                    >
+                      Copy Pred
+                    </Button>
+                  )}
                 </div>
                 <Input
                   value={currentLabel.corrected_gt}
@@ -603,19 +922,43 @@ export function TrainingCurationPage() {
                     updateLabel(active.id, { corrected_gt: e.target.value })
                   }
                   placeholder="e.g. 123456"
+                  className="font-mono font-medium"
                 />
+                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                  <span>
+                    BBox:{" "}
+                    {currentLabel.bbox ? (
+                      <Tag color="cyan" className="font-mono mr-0 text-[10px]">
+                        ✓ Set
+                      </Tag>
+                    ) : (
+                      <Tag color="default" className="mr-0 text-[10px]">
+                        Not set
+                      </Tag>
+                    )}
+                  </span>
+                  <span>
+                    GT:{" "}
+                    {currentLabel.corrected_gt ? (
+                      <Tag color="cyan" className="font-mono mr-0 text-[10px]">
+                        ✓ Set
+                      </Tag>
+                    ) : (
+                      <Tag color="default" className="mr-0 text-[10px]">
+                        Empty
+                      </Tag>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="text-xs text-slate-500">
-                Box:{" "}
-                {currentLabel.bbox
-                  ? `${Math.round(currentLabel.bbox.x1)},${Math.round(currentLabel.bbox.y1)} → ${Math.round(currentLabel.bbox.x2)},${Math.round(currentLabel.bbox.y2)}`
-                  : "not set — drag on image"}
-              </div>
-              <Space direction="vertical" className="w-full">
+
+              {/* Inclusion and Exclusion buttons */}
+              <Space direction="vertical" className="w-full" size="small">
                 <Button
                   type="primary"
                   block
                   loading={saving}
+                  disabled={!currentLabel.corrected_gt || !currentLabel.bbox}
                   onClick={() => void saveCurrent("include")}
                 >
                   Include in training copy
@@ -629,11 +972,12 @@ export function TrainingCurationPage() {
                   Exclude (false / bad image)
                 </Button>
               </Space>
+
               <Alert
                 type="warning"
                 showIcon
-                className="text-xs"
-                message="Source dataset is never modified. Only the new copied dataset gets this image."
+                className="text-[11px] leading-tight"
+                message="Source dataset is never modified. Only the new copied training dataset gets this curated sample."
               />
             </div>
           </div>

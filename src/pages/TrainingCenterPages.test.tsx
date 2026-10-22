@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AugmentationDatasetPage } from "@/pages/AugmentationDatasetPage";
 import { FineTuneModelPage } from "@/pages/FineTuneModelPage";
 import { TrainDetectorPage } from "@/pages/TrainDetectorPage";
+import { TrainingCurationPage } from "@/pages/TrainingCurationPage";
 import { server } from "@/test/mocks/server";
 import { renderWithProviders } from "@/test/test-utils";
 
@@ -79,5 +80,17 @@ describe("Training Center Pages", () => {
     expect(screen.getByText("Interactive Live Preview")).toBeInTheDocument();
     expect(screen.getByText("4. Output Dataset Generation")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Create Augmented Dataset/i })).toBeInTheDocument();
+  });
+
+  it("renders TrainingCurationPage with Curate & Label Failures header and statistics", async () => {
+    renderWithProviders(<TrainingCurationPage />, {
+      route: "/training/curate",
+    });
+
+    expect(screen.getByText("Curate & Label Failures")).toBeInTheDocument();
+    expect(screen.getByText("Model ref")).toBeInTheDocument();
+    expect(screen.getByText("Evaluation samples")).toBeInTheDocument();
+    expect(screen.getByText("Included (labeled)")).toBeInTheDocument();
+    expect(screen.getByText("Excluded (false/bad)")).toBeInTheDocument();
   });
 });

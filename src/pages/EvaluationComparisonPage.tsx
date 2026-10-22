@@ -45,6 +45,7 @@ import {
   type MetricCategory,
 } from "@/utils/evaluationComparisonMetrics";
 import { formatPercent } from "@/utils/format";
+import { isCategoryDatasetName } from "@/utils/datasetFilters";
 
 function evalLabel(run: EvaluationRun, isDefault = false): string {
   const model = run.model_ref ? `${run.model_ref}${isDefault ? " ★ Default" : ""}` : "Unnamed";
@@ -94,10 +95,11 @@ export function EvaluationComparisonPage() {
     if (completed.length === 0) return;
     if (datasetId && leftId && rightId) return;
 
-    // Group runs by dataset_id
+    // Group runs by dataset_id, skipping any category dataset runs
     const runsByDataset = new Map<string, EvaluationRun[]>();
     for (const r of completed) {
       if (!r.dataset_id) continue;
+      if (isCategoryDatasetName(r.dataset_name)) continue;
       const list = runsByDataset.get(r.dataset_id) || [];
       list.push(r);
       runsByDataset.set(r.dataset_id, list);
@@ -137,9 +139,12 @@ export function EvaluationComparisonPage() {
     }
 
     // Preference 3: fallback
-    if (!targetDs && completed.length > 0) {
-      targetDs = completed[0].dataset_id;
-      targetLeft = completed[0].id;
+    if (!targetDs) {
+      const firstValidRun = completed.find((r) => !isCategoryDatasetName(r.dataset_name));
+      if (firstValidRun) {
+        targetDs = firstValidRun.dataset_id;
+        targetLeft = firstValidRun.id;
+      }
     }
 
     if (targetDs && !datasetId) setDatasetId(targetDs);
@@ -147,11 +152,12 @@ export function EvaluationComparisonPage() {
     if (targetRight && !rightId) setRightId(targetRight);
   }, [completed, defaultModelRef, datasetId, leftId, rightId]);
 
-  // Unique datasets list
+  // Unique datasets list (strictly real label datasets, no category datasets)
   const datasetOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const run of completed) {
       if (!run.dataset_id) continue;
+      if (isCategoryDatasetName(run.dataset_name)) continue;
       const label = run.dataset_name
         ? `${run.dataset_name}${run.dataset_version ? ` v${run.dataset_version}` : ""}`
         : run.dataset_id.slice(0, 8);

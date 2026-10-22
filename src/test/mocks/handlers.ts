@@ -192,6 +192,7 @@ export const mockDatasets: EvaluationDataset[] = [
     description: "Test set",
     source_type: "zip_upload",
     source_reference: "samples.zip",
+    origin: "upload",
     image_mode: "full_dashboard",
     sample_count: 2,
     status: "ready",
@@ -200,6 +201,46 @@ export const mockDatasets: EvaluationDataset[] = [
     metadata: null,
     created_at: "2026-01-03T10:00:00+00:00",
     created_by: "dev-key-1",
+    archived_at: null,
+    locked_at: null,
+  },
+  {
+    id: "cat-dataset-1",
+    name: "data-bank-reviewed",
+    ocr_type: "odometer",
+    version: "1.0.0",
+    description: "Category slice",
+    source_type: "system",
+    source_reference: null,
+    origin: "databank_reviewed",
+    image_mode: "full_dashboard",
+    sample_count: 5,
+    status: "ready",
+    storage_path: null,
+    manifest_digest: null,
+    metadata: { origin: "databank_reviewed", purpose: "databank_reviewed_mirror" },
+    created_at: "2026-01-03T10:00:00+00:00",
+    created_by: "system",
+    archived_at: null,
+    locked_at: null,
+  },
+  {
+    id: "raw-dataset-1",
+    name: "raw-data-bank",
+    ocr_type: "odometer",
+    version: "1.0.0",
+    description: "Raw layer",
+    source_type: "system",
+    source_reference: null,
+    origin: "databank_raw_dataset",
+    image_mode: "full_dashboard",
+    sample_count: 10,
+    status: "ready",
+    storage_path: null,
+    manifest_digest: null,
+    metadata: { dataset_type: "raw" },
+    created_at: "2026-01-03T10:00:00+00:00",
+    created_by: "system",
     archived_at: null,
     locked_at: null,
   },
@@ -440,6 +481,112 @@ export const handlers = [
       total: mockRuns.length,
       limit: 50,
       offset: 0,
+    });
+  }),
+
+  http.get("*/v1/evaluations/hard-failures", () => {
+    return HttpResponse.json({
+      dataset_id: mockDatasets[0]!.id,
+      evaluation_id: mockRuns[0]!.id,
+      model_ref: "v1",
+      total: 2,
+      limit: 20,
+      offset: 0,
+      failure_type_counts: {
+        MISMATCH: 1,
+        DETECTION_FAILURE: 1,
+      },
+      results: [
+        {
+          id: "res-1",
+          evaluation_id: mockRuns[0]!.id,
+          dataset_id: mockDatasets[0]!.id,
+          dataset_sample_id: "s1",
+          filename: "1-887512.png",
+          relative_path: "samples/1-887512.png",
+          predicted_value: "887510",
+          predicted_normalized: "887510",
+          ground_truth: "887512",
+          ground_truth_normalized: "887512",
+          is_correct: false,
+          confidence: 0.92,
+          processing_time_ms: 45,
+          detection_success: true,
+          recognition_success: false,
+          detection_confidence: 0.98,
+          recognition_confidence: 0.92,
+          error_type: "MISMATCH",
+          error_message: null,
+          failure_type: "MISMATCH",
+          image_available: true,
+          image_size: { width: 100, height: 80 },
+        },
+        {
+          id: "res-2",
+          evaluation_id: mockRuns[0]!.id,
+          dataset_id: mockDatasets[0]!.id,
+          dataset_sample_id: "s2",
+          filename: "2-123456.png",
+          relative_path: "samples/2-123456.png",
+          predicted_value: "12345",
+          predicted_normalized: "12345",
+          ground_truth: "123456",
+          ground_truth_normalized: "123456",
+          is_correct: false,
+          confidence: 0.88,
+          processing_time_ms: 50,
+          detection_success: false,
+          recognition_success: false,
+          detection_confidence: 0.45,
+          recognition_confidence: 0.88,
+          error_type: "DETECTION_FAILURE",
+          error_message: null,
+          failure_type: "DETECTION_FAILURE",
+          image_available: true,
+          image_size: { width: 120, height: 90 },
+        },
+      ],
+    });
+  }),
+
+  http.patch(
+    "*/v1/evaluation/datasets/:datasetId/samples/:sampleId",
+    async ({ request, params }) => {
+      const body = (await request.json()) as { ground_truth?: string };
+      return HttpResponse.json({
+        id: String(params.sampleId),
+        dataset_id: String(params.datasetId),
+        ground_truth: body.ground_truth ?? "887512",
+        ground_truth_normalized: body.ground_truth ?? "887512",
+      });
+    },
+  ),
+
+  http.post(
+    "*/v1/evaluations/:evaluationId/results/:resultId/review",
+    async ({ request, params }) => {
+      const body = (await request.json()) as {
+        review_status: string;
+        corrected_gt?: string;
+      };
+      return HttpResponse.json({
+        id: String(params.resultId),
+        evaluation_id: String(params.evaluationId),
+        review_status: body.review_status,
+        corrected_gt: body.corrected_gt,
+      });
+    },
+  ),
+
+  http.get("*/v1/evaluation/datasets/:datasetId/samples/:sampleId/image", () => {
+    return new HttpResponse(new Blob(["mock-image-data"], { type: "image/png" }), {
+      headers: { "Content-Type": "image/png" },
+    });
+  }),
+
+  http.get("*/v1/evaluations/:evaluationId/results/:resultId/image", () => {
+    return new HttpResponse(new Blob(["mock-image-data"], { type: "image/png" }), {
+      headers: { "Content-Type": "image/png" },
     });
   }),
 
@@ -1012,6 +1159,15 @@ export const handlers = [
   }),
 
   http.post("*/v1/databank/datasets/:datasetId/samples/:sampleId/extract-gemini", () => {
+    return HttpResponse.json({
+      extracted_value: "887512",
+      bbox: { x1: 20, y1: 15, x2: 80, y2: 65, confidence: 0.95, label: "gemini" },
+      model: "gemini-3.5-flash-lite",
+      prompt: "Extract odometer digits and box_2d",
+    });
+  }),
+
+  http.post("*/v1/evaluation/datasets/:datasetId/samples/:sampleId/extract-gemini", () => {
     return HttpResponse.json({
       extracted_value: "887512",
       bbox: { x1: 20, y1: 15, x2: 80, y2: 65, confidence: 0.95, label: "gemini" },

@@ -145,6 +145,13 @@ export interface PipelineRef {
   notes: string | null;
   detection_artifact_id: string;
   recognition_artifact_id: string;
+  is_llm?: boolean;
+  llm?: {
+    name: string;
+    version: string;
+    runtime: string;
+    framework?: string | null;
+  } | null;
   detection: BoundArtifactInfo | null;
   recognition: BoundArtifactInfo | null;
   created_at: string | null;

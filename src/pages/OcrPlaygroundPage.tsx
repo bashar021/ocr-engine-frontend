@@ -18,6 +18,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
+import { QwenVisionPanel } from "@/components/ocr/QwenVisionPanel";
 import { runTaskOcr } from "@/api/ocr";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
 import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
@@ -26,6 +27,7 @@ import type { OcrJobResult } from "@/types/ocr";
 import { formatPercent } from "@/utils/format";
 
 type Mode = "single" | "batch";
+type Workspace = "pipeline" | "qwen";
 
 function statusColor(status?: string) {
   if (status === "success") return "green";
@@ -36,6 +38,7 @@ function statusColor(status?: string) {
 
 export function OcrPlaygroundPage() {
   const { activeTaskKey } = useTaskContext();
+  const [workspace, setWorkspace] = useState<Workspace>("pipeline");
   const [mode, setMode] = useState<Mode>("single");
   const [modelRef, setModelRef] = useState<string | undefined>();
   const [jobs, setJobs] = useState<OcrJobResult[]>([]);
@@ -136,29 +139,45 @@ export function OcrPlaygroundPage() {
           </div>
           <div>
             <div className="font-display text-2xl font-bold tracking-tight text-white">
-              OCR Playground
+              {workspace === "qwen" ? "Qwen Vision Chat" : "OCR Playground"}
             </div>
             <div className="mt-0.5 text-sm text-slate-400">
-              {activeTaskKey === "bill"
+              {workspace === "qwen"
+                ? "Direct local Qwen2.5-VL image chat — OCR pipeline bypassed"
+                : activeTaskKey === "bill"
                 ? "Generic OCR endpoint — use Bill OCR Documents for full document intelligence"
                 : "Odometer detection & recognition studio"}
             </div>
           </div>
         </div>
-        <Button
-          type="primary"
-          size="large"
-          icon={<ThunderboltOutlined />}
-          loading={running}
-          onClick={() => void runAll()}
-          disabled={!jobs.length}
-          className="!h-11 !border-cyan-400/40 !bg-cyan-500 !px-6 !text-base !shadow-lg !shadow-cyan-500/20 hover:!bg-cyan-400"
-        >
-          Run OCR
-        </Button>
+        <div className="flex items-center gap-3">
+          <Radio.Group
+            value={workspace}
+            onChange={(event) => setWorkspace(event.target.value)}
+            optionType="button"
+            buttonStyle="solid"
+            options={[
+              { value: "pipeline", label: "OCR pipeline" },
+              { value: "qwen", label: "Qwen2.5-VL direct" },
+            ]}
+          />
+          {workspace === "pipeline" ? (
+            <Button
+              type="primary"
+              size="large"
+              icon={<ThunderboltOutlined />}
+              loading={running}
+              onClick={() => void runAll()}
+              disabled={!jobs.length}
+              className="!h-11 !border-cyan-400/40 !bg-cyan-500 !px-6 !text-base !shadow-lg !shadow-cyan-500/20 hover:!bg-cyan-400"
+            >
+              Run OCR
+            </Button>
+          ) : null}
+        </div>
       </header>
 
-      {activeTaskKey === "bill" ? (
+      {workspace === "pipeline" && activeTaskKey === "bill" ? (
         <div className="relative z-10 px-8 pt-4">
           <Alert
             type="info"
@@ -179,7 +198,7 @@ export function OcrPlaygroundPage() {
         </div>
       ) : null}
 
-      <div className="relative z-10 min-h-0 flex-1 overflow-auto">
+      {workspace === "qwen" ? <QwenVisionPanel /> : <div className="relative z-10 min-h-0 flex-1 overflow-auto">
         <div className="mx-auto grid max-w-[1440px] gap-10 p-8 lg:grid-cols-[380px_minmax(0,1fr)] lg:p-10">
           <aside className="space-y-6">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
@@ -468,7 +487,7 @@ export function OcrPlaygroundPage() {
             )}
           </section>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -120,6 +120,10 @@ export function AppRoutes() {
           path="/evaluation/hard-cases"
           element={<EvaluatedHardDatasetPage />}
         />
+        <Route
+          path="/evaluation/review"
+          element={<EvaluatedHardDatasetPage />}
+        />
         <Route path="/training-center" element={<TrainingCenterLayout />}>
           <Route index element={<TrainingCenterOverviewPage />} />
           <Route path="detection" element={<TrainingCenterDetectionPage />} />
