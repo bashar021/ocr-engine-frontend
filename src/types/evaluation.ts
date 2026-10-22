@@ -311,6 +311,7 @@ export interface StartEvaluationPayload {
   detection_artifact_id?: string;
   recognition_artifact_id?: string;
   evaluation_type?: EvaluationType | string;
+  evaluation_config?: Record<string, unknown>;
   force?: boolean;
   reevaluate?: boolean;
 }

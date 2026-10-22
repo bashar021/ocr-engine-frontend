@@ -617,9 +617,18 @@ export function EvaluationMetricsModal({
               </span>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <span className="text-slate-400 block">Run Date</span>
+              <span className="text-slate-400 block">Performance & Speed</span>
               <span className="text-slate-800">
-                {run.created_at ? dayjs(run.created_at).format("YYYY-MM-DD HH:mm") : "—"}
+                {run.evaluation_config && (run.evaluation_config as Record<string, unknown>).samples_per_second ? (
+                  <Tag color="green" className="font-medium !mr-0">
+                    ⚡ {String((run.evaluation_config as Record<string, unknown>).samples_per_second)} imgs/sec
+                    {(run.evaluation_config as Record<string, unknown>).batch_size
+                      ? ` (b${String((run.evaluation_config as Record<string, unknown>).batch_size)})`
+                      : ""}
+                  </Tag>
+                ) : (
+                  run.created_at ? dayjs(run.created_at).format("YYYY-MM-DD HH:mm") : "—"
+                )}
               </span>
             </Col>
           </Row>

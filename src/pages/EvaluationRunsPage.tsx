@@ -53,6 +53,8 @@ export function EvaluationRunsPage() {
     dataset_id: string;
     model_ref: string;
     evaluation_type: string;
+    batch_size: number;
+    worker_threads: number;
   }>();
 
   const cancelMutation = useCancelEvaluation();
@@ -131,6 +133,8 @@ export function EvaluationRunsPage() {
         dataset_id: defaultDs,
         model_ref: defaultModel,
         evaluation_type: "test",
+        batch_size: 16,
+        worker_threads: 4,
       });
     }
   }, [runModalOpen, datasetId, labelDatasets, availableModelRefOptions, runForm]);
@@ -218,7 +222,13 @@ export function EvaluationRunsPage() {
   };
 
   const executeEvaluation = async (
-    values: { dataset_id: string; model_ref: string; evaluation_type: string },
+    values: {
+      dataset_id: string;
+      model_ref: string;
+      evaluation_type: string;
+      batch_size?: number;
+      worker_threads?: number;
+    },
     force = false,
   ) => {
     await startEvaluationMutation.mutateAsync({
@@ -226,6 +236,10 @@ export function EvaluationRunsPage() {
       ocr_type: activeTaskKey,
       model_ref: values.model_ref,
       evaluation_type: values.evaluation_type,
+      evaluation_config: {
+        batch_size: values.batch_size || 16,
+        worker_threads: values.worker_threads || 4,
+      },
       force,
     });
     message.success(
@@ -493,6 +507,49 @@ export function EvaluationRunsPage() {
               ]}
             />
           </Form.Item>
+
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+            <div className="mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              ⚡ Laptop Acceleration & Execution Tuning
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Form.Item
+                name="batch_size"
+                label="Batch Size"
+                initialValue={16}
+                rules={[{ required: true }]}
+                extra="Standard: 16 images per batch"
+                className="!mb-0"
+              >
+                <Select
+                  options={[
+                    { value: 8, label: "8 (Low RAM / Dual-core)" },
+                    { value: 16, label: "16 (Recommended for Laptops)" },
+                    { value: 32, label: "32 (High Performance)" },
+                    { value: 64, label: "64 (Workstation / Server)" },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="worker_threads"
+                label="Parallel Workers"
+                initialValue={4}
+                rules={[{ required: true }]}
+                extra="Standard: 4 threads"
+                className="!mb-0"
+              >
+                <Select
+                  options={[
+                    { value: 1, label: "1 (Single-threaded)" },
+                    { value: 2, label: "2 (Light / Background)" },
+                    { value: 4, label: "4 (Recommended for Laptops)" },
+                    { value: 8, label: "8 (High Performance)" },
+                  ]}
+                />
+              </Form.Item>
+            </div>
+          </div>
         </Form>
       </Modal>
     </div>
