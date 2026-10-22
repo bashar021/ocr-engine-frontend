@@ -111,6 +111,10 @@ export const mockRefs: PipelineRef[] = [
       evaluation_count_completed: 2,
       total_images_evaluated: 100,
       total_datasets_evaluated: 1,
+      total_samples: 100,
+      processed_samples: 100,
+      successful_samples: 90,
+      failed_samples: 10,
       detection_success_rate: 0.98,
       recognition_exact_match_accuracy: 0.91,
       end_to_end_accuracy: 0.9,
@@ -119,6 +123,62 @@ export const mockRefs: PipelineRef[] = [
       latency_p95_ms: 120,
       last_evaluated_at: "2026-01-02T00:00:00+00:00",
       latest_metrics: null,
+      metrics: {
+        exact_match_accuracy: 0.9,
+        end_to_end_accuracy: 0.9,
+        end_to_end_success_rate: 0.93,
+        low_confidence_rate: 0.05,
+        detection_success_rate: 0.98,
+        detection_miss_rate: 0.02,
+        avg_detection_confidence: 0.91,
+        detection_failure_rate: 0.02,
+        wrong_detection_rate: 0.0,
+        partial_detection_rate: 0.0,
+        multiple_detection_rate: 0.02,
+        duplicate_detection_rate: 0.0,
+        detection_ok_outcome_rate: 0.96,
+        vertical_orientation_diagnostic_rate: 0.1,
+        unusual_aspect_diagnostic_rate: 0.0,
+        low_gt_coverage_diagnostic_rate: 0.0,
+        low_iou_diagnostic_rate: 0.05,
+        recognition_success_rate: 0.95,
+      },
+      failure_types: [
+        {
+          key: "OK",
+          name: "OK / Clean Match",
+          count: 90,
+          percentage: 90.0,
+          stage: "Success / Passed",
+          stageColor: "green",
+        },
+        {
+          key: "MISMATCH",
+          name: "Mismatch",
+          count: 8,
+          percentage: 8.0,
+          stage: "Recognition",
+          stageColor: "orange",
+        },
+        {
+          key: "DETECTION_FAILURE",
+          name: "Detection Failure",
+          count: 2,
+          percentage: 2.0,
+          stage: "Detection",
+          stageColor: "volcano",
+        },
+      ],
+      evaluated_datasets: [
+        {
+          dataset_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+          dataset_name: "dashboard-eval",
+          dataset_version: "1.0.0",
+          sample_count: 100,
+          accuracy: 90.0,
+          completed_at: "2026-01-02T00:00:00+00:00",
+        },
+      ],
     },
   },
 ];
@@ -216,6 +276,10 @@ export const handlers = [
       filtered = filtered.filter((r) => r.status === status);
     }
     return HttpResponse.json({ refs: filtered, total: filtered.length });
+  }),
+
+  http.get("*/v1/models/refs/suggest", () => {
+    return HttpResponse.json({ suggested_model_ref: "v2" });
   }),
 
   http.post("*/v1/models/artifacts", async () => {
@@ -378,6 +442,27 @@ export const handlers = [
           created_at: "2026-01-03T11:01:00+00:00",
         },
       ],
+    });
+  }),
+
+  http.get("*/v1/evaluations/:id/slices", ({ params }) => {
+    return HttpResponse.json({
+      evaluation_id: String(params.id),
+      dimension: "failure_type",
+      min_samples: 1,
+      slices: [
+        {
+          key: "OK",
+          sample_count: 2,
+          correct: 2,
+          incorrect: 0,
+          accuracy: 1.0,
+          latency_p50_ms: 45,
+          meaningful: true,
+        },
+      ],
+      insufficient_sample_slices: [],
+      note: "",
     });
   }),
 

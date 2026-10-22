@@ -99,7 +99,41 @@ export interface PipelineRefMetrics {
   latency_p50_ms: number | null;
   latency_p95_ms: number | null;
   last_evaluated_at: string | null;
-  latest_metrics?: Record<string, Record<string, number>> | null;
+  latest_metrics?: Record<string, unknown> | null;
+  metrics?: Record<string, number> | null;
+  failure_types?: Array<{
+    key: string;
+    name: string;
+    rawKey?: string;
+    count: number;
+    percentage: number;
+    stage: string;
+    stageColor?: string;
+    description?: string;
+  }> | null;
+  fail_stages?: Array<{
+    stage: string;
+    count: number;
+    percentage: number;
+    color: string;
+    desc: string;
+  }> | null;
+  evaluated_datasets?: Array<{
+    dataset_id: string;
+    dataset_name: string;
+    dataset_version?: string | null;
+    sample_count: number;
+    processed_samples?: number;
+    successful_samples?: number;
+    failed_samples?: number;
+    accuracy?: number;
+    evaluation_id?: string;
+    completed_at?: string | null;
+  }> | null;
+  total_samples?: number | null;
+  processed_samples?: number | null;
+  successful_samples?: number | null;
+  failed_samples?: number | null;
 }
 
 export interface PipelineRef {

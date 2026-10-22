@@ -9,6 +9,7 @@ import {
   ModelFilters,
   type ModelFilterState,
 } from "@/components/models/ModelFilters";
+import { ModelRefMetricsModal } from "@/components/models/ModelRefMetricsModal";
 import { ModelRefsTable } from "@/components/models/ModelRefsTable";
 import { useModelRefsQuery } from "@/features/models/useModelRefsQuery";
 import { usePipelineRefMutations } from "@/features/models/usePipelineRefMutations";
@@ -60,6 +61,7 @@ export function ModelRefsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [createOpen, setCreateOpen] = useState(false);
+  const [metricsRef, setMetricsRef] = useState<PipelineRef | null>(null);
   const [sortKey, setSortKey] = useState<MetricSortKey>("none");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const debouncedSearch = useDebounce(filters.search, 300);
@@ -263,6 +265,7 @@ export function ModelRefsPage() {
               setPageSize(s);
             }}
             actionLoadingKey={actionLoadingKey}
+            onViewMetrics={(ref) => setMetricsRef(ref)}
             onActivate={(ref, setDefault) => {
               mutations.activate.mutate({
                 ocrType: ref.ocr_type,
@@ -288,6 +291,11 @@ export function ModelRefsPage() {
       <CreateModelRefModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
+      />
+      <ModelRefMetricsModal
+        open={Boolean(metricsRef)}
+        refItem={metricsRef}
+        onClose={() => setMetricsRef(null)}
       />
     </div>
   );

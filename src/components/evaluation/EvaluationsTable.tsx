@@ -1,3 +1,4 @@
+import { BarChartOutlined } from "@ant-design/icons";
 import { Button, Popconfirm, Progress, Space, Table } from "antd";
 import type { ColumnsType, TableRowSelection } from "antd/es/table/interface";
 import dayjs from "dayjs";
@@ -14,6 +15,7 @@ interface EvaluationsTableProps {
   pageSize: number;
   onPageChange: (page: number, pageSize: number) => void;
   onViewResults: (run: EvaluationRun) => void;
+  onViewMetrics?: (run: EvaluationRun) => void;
   onCancel: (run: EvaluationRun) => void;
   onDelete?: (run: EvaluationRun) => void;
   onReEvaluate?: (run: EvaluationRun) => void;
@@ -36,6 +38,7 @@ export function EvaluationsTable({
   pageSize,
   onPageChange,
   onViewResults,
+  onViewMetrics,
   onCancel,
   onDelete,
   onReEvaluate,
@@ -192,7 +195,7 @@ export function EvaluationsTable({
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 320,
+      width: 360,
       render: (_, row) => {
         const canCancel =
           row.status === "queued" || row.status === "running";
@@ -207,6 +210,13 @@ export function EvaluationsTable({
 
         return (
           <Space size="small" wrap>
+            <Button
+              size="small"
+              icon={<BarChartOutlined />}
+              onClick={() => onViewMetrics?.(row)}
+            >
+              Metrics
+            </Button>
             <Button size="small" onClick={() => onViewResults(row)}>
               Results
             </Button>

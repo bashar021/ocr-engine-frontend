@@ -1,3 +1,4 @@
+import { BarChartOutlined } from "@ant-design/icons";
 import {
   flexRender,
   getCoreRowModel,
@@ -37,6 +38,7 @@ interface ModelRefsTableProps {
   page: number;
   pageSize: number;
   onPageChange: (page: number, pageSize: number) => void;
+  onViewMetrics?: (ref: PipelineRef) => void;
   onActivate?: (ref: PipelineRef, setDefault: boolean) => void;
   onSetDefault?: (ref: PipelineRef) => void;
   onDeactivate?: (ref: PipelineRef) => void;
@@ -85,6 +87,7 @@ export function ModelRefsTable({
   page,
   pageSize,
   onPageChange,
+  onViewMetrics,
   onActivate,
   onSetDefault,
   onDeactivate,
@@ -263,6 +266,14 @@ export function ModelRefsTable({
 
           return (
             <Space size="small" wrap>
+              <Button
+                size="small"
+                icon={<BarChartOutlined />}
+                onClick={() => onViewMetrics?.(ref)}
+                disabled={!ref.evaluation_metrics?.total_images_evaluated}
+              >
+                Metrics
+              </Button>
               {canActivate ? (
                 <Dropdown menu={{ items: activateMenu }} trigger={["click"]}>
                   <Button size="small" type="primary" loading={busy}>
@@ -307,7 +318,14 @@ export function ModelRefsTable({
         },
       },
     ],
-    [actionLoadingKey, onActivate, onDeactivate, onSetDefault, previousActive],
+    [
+      actionLoadingKey,
+      onActivate,
+      onDeactivate,
+      onSetDefault,
+      onViewMetrics,
+      previousActive,
+    ],
   );
 
   const table = useReactTable({

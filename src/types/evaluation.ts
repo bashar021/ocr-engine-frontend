@@ -277,6 +277,25 @@ export interface EvaluationMetricsResponse {
   metrics: EvaluationMetric[];
 }
 
+export interface EvaluationSliceItem {
+  key: string;
+  sample_count: number;
+  correct: number;
+  incorrect: number;
+  accuracy: number | null;
+  latency_p50_ms: number | null;
+  meaningful?: boolean;
+}
+
+export interface EvaluationSlicesResponse {
+  evaluation_id: string;
+  dimension: string;
+  min_samples: number;
+  slices: EvaluationSliceItem[];
+  insufficient_sample_slices?: EvaluationSliceItem[];
+  note?: string;
+}
+
 export interface CreateDatasetPayload {
   ocr_type: string;
   name?: string;

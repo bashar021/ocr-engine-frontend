@@ -6,6 +6,7 @@ import type {
   DatasetSample,
   EvaluationDataset,
   EvaluationMetricsResponse,
+  EvaluationSlicesResponse,
   EvaluationRun,
   ListDatasetsParams,
   ListDatasetsResponse,
@@ -294,6 +295,20 @@ export async function getEvaluationMetrics(
 ): Promise<EvaluationMetricsResponse> {
   const { data } = await apiClient.get<EvaluationMetricsResponse>(
     `/v1/evaluations/${evaluationId}/metrics`,
+  );
+  return data;
+}
+
+export async function getEvaluationSlices(
+  evaluationId: string,
+  dimension: string = "failure_type",
+  minSamples: number = 1,
+): Promise<EvaluationSlicesResponse> {
+  const { data } = await apiClient.get<EvaluationSlicesResponse>(
+    `/v1/evaluations/${evaluationId}/slices`,
+    {
+      params: { dimension, min_samples: minSamples },
+    },
   );
   return data;
 }

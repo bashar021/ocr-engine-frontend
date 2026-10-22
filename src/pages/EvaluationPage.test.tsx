@@ -40,6 +40,40 @@ describe('Evaluation pages', () => {
     })
     expect(screen.getAllByText('E2E accuracy').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /results/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /metrics/i })).toBeInTheDocument()
+  })
+
+  it('opens evaluation metrics modal showing small metrics and failure type metrics with count and percentage', async () => {
+    renderWithProviders(<EvaluationRunsPage />, { route: '/evaluation/runs' })
+
+    await waitFor(() => {
+      expect(screen.getByText('v1')).toBeInTheDocument()
+    })
+
+    const metricsBtn = screen.getByRole('button', { name: /metrics/i })
+    expect(metricsBtn).toBeInTheDocument()
+    fireEvent.click(metricsBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('Evaluation Metrics & Failure Analysis')).toBeInTheDocument()
+    })
+
+    // Check top cards and sections
+    expect(screen.getByText('Total Samples')).toBeInTheDocument()
+    expect(screen.getByText('Exact Match (Acc)')).toBeInTheDocument()
+    expect(screen.getByText('Detection Success')).toBeInTheDocument()
+
+    // Check failure types tab and small metrics tabs
+    expect(screen.getByText(/Failure Types/i)).toBeInTheDocument()
+    expect(screen.getByText(/All Small Metrics/i)).toBeInTheDocument()
+    expect(screen.getByText(/Fail Stages Breakdown/i)).toBeInTheDocument()
+
+    // Switch to All Small Metrics tab
+    fireEvent.click(screen.getByText(/All Small Metrics/i))
+    await waitFor(() => {
+      expect(screen.getByText('Detection Metrics')).toBeInTheDocument()
+      expect(screen.getByText('Recognition Metrics')).toBeInTheDocument()
+    })
   })
 
   it('opens Run Evaluation modal with label datasets only and shows label datasets in dropdown filter', async () => {

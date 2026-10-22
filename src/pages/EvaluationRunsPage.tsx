@@ -8,6 +8,7 @@ import { getApiErrorMessage } from "@/api/client";
 import { getDatabank, listDatabankDatasets } from "@/api/databank";
 import { DataTableToolbar } from "@/components/common/DataTableToolbar";
 import { PageHeader } from "@/components/common/PageHeader";
+import { EvaluationMetricsModal } from "@/components/evaluation/EvaluationMetricsModal";
 import { EvaluationResultsDrawer } from "@/components/evaluation/EvaluationResultsDrawer";
 import { EvaluationsTable } from "@/components/evaluation/EvaluationsTable";
 import { EVALUATION_POLL_INTERVAL_MS } from "@/constants/polling";
@@ -46,6 +47,7 @@ export function EvaluationRunsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [resultsRunId, setResultsRunId] = useState<string | null>(null);
+  const [metricsRun, setMetricsRun] = useState<EvaluationRun | null>(null);
   const [runModalOpen, setRunModalOpen] = useState(false);
   const [runForm] = Form.useForm<{
     dataset_id: string;
@@ -411,6 +413,7 @@ export function EvaluationRunsPage() {
               setPageSize(s);
             }}
             onViewResults={(run) => setResultsRunId(run.id)}
+            onViewMetrics={(run) => setMetricsRun(run)}
             onCancel={(run) => void handleCancel(run)}
             onDelete={(run) => void handleDelete(run)}
             onReEvaluate={(run) => void handleReEvaluate(run)}
@@ -425,6 +428,15 @@ export function EvaluationRunsPage() {
         open={Boolean(resultsRunId)}
         evaluationId={resultsRunId}
         onClose={() => setResultsRunId(null)}
+      />
+      <EvaluationMetricsModal
+        open={Boolean(metricsRun)}
+        run={metricsRun}
+        onClose={() => setMetricsRun(null)}
+        onViewResults={(run) => {
+          setMetricsRun(null);
+          setResultsRunId(run.id);
+        }}
       />
 
       {/* Modal to Run Evaluation on Label Dataset */}
