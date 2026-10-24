@@ -655,6 +655,11 @@ function SampleReviewModal({
               <span className="font-mono font-bold text-slate-800">
                 {currentGt || "(none)"}
               </span>
+              {currentBbox && (
+                <span className="ml-2 font-mono text-[11px] text-slate-500">
+                  BBox: [{Math.round(currentBbox.x1)}, {Math.round(currentBbox.y1)}, {Math.round(currentBbox.x2)}, {Math.round(currentBbox.y2)}]
+                </span>
+              )}
             </div>
 
             <Input

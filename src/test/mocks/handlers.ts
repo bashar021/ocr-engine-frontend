@@ -1158,6 +1158,189 @@ export const handlers = [
     });
   }),
 
+  http.get("*/v1/models/recognition-configs", () => {
+    return HttpResponse.json({
+      configs: [
+        {
+          id: "rec-cfg-1",
+          name: "odometer-recognition",
+          version: "1.0.0",
+          status: "verified",
+          artifact_digest: "sha256:1234567890abcdef",
+          pipeline_impl_version: "odometer_rec_v1",
+          selection_strategy: "best_digit_confidence",
+          config: {
+            candidate_selection: {
+              strategy: "best_digit_confidence",
+              candidates: ["identity", "clahe", "adaptive_threshold", "otsu_threshold"],
+            },
+            image_preprocessing: {
+              adaptive_block_size: 15,
+              adaptive_c: 5,
+              clahe_clip: 2,
+              denoise_strength: 3,
+            },
+          },
+          created_at: "2026-01-01T12:00:00Z",
+        },
+      ],
+      defaults: {
+        candidate_selection: {
+          strategy: "best_digit_confidence",
+          candidates: ["identity", "clahe", "adaptive_threshold", "otsu_threshold"],
+        },
+        image_preprocessing: {
+          adaptive_block_size: 15,
+          adaptive_c: 5,
+          clahe_clip: 2,
+          denoise_strength: 3,
+        },
+      },
+      total: 1,
+    });
+  }),
+
+  http.post("*/v1/models/recognition-configs", async ({ request }) => {
+    const body = (await request.json()) as {
+      name: string;
+      version?: string;
+      bump?: string;
+      config: Record<string, unknown>;
+    };
+    return HttpResponse.json({
+      id: "rec-cfg-new",
+      name: body.name || "odometer-recognition",
+      version: body.version || "1.0.1",
+      status: "verified",
+      artifact_digest: "sha256:fedcba0987654321",
+      pipeline_impl_version: "odometer_rec_v1",
+      selection_strategy: "best_digit_confidence",
+      config: body.config,
+      created_at: new Date().toISOString(),
+    });
+  }),
+
+  http.delete("*/v1/models/recognition-configs/:id", ({ params }) => {
+    return HttpResponse.json({
+      deleted: true,
+      retired: false,
+      message: `Deleted config ${params.id}`,
+      id: String(params.id),
+      name: "odometer-recognition",
+      version: "1.0.0",
+    });
+  }),
+
+  http.get("*/v1/models/recognition-configs/preview-cases", ({ request }) => {
+    const url = new URL(request.url);
+    const failureType = url.searchParams.get("failure_type");
+    const failuresOnly = url.searchParams.get("failures_only") === "true";
+
+    let cases = [
+      {
+        result_id: "res-1",
+        filename: "sample1.png",
+        ground_truth: "887512",
+        predicted: "887510",
+        is_correct: false,
+        failure_type: "MISMATCH",
+        bbox_source: "corrected",
+      },
+      {
+        result_id: "res-2",
+        filename: "sample2.png",
+        ground_truth: "123456",
+        predicted: "123456",
+        is_correct: true,
+        failure_type: "OK",
+        bbox_source: "detected",
+      },
+    ];
+
+    if (failureType === "failures" || failuresOnly) {
+      cases = cases.filter((c) => !c.is_correct);
+    } else if (failureType === "correct") {
+      cases = cases.filter((c) => c.is_correct);
+    } else if (failureType && failureType !== "all") {
+      cases = cases.filter((c) => c.failure_type === failureType);
+    }
+
+    return HttpResponse.json({
+      evaluation_id: "eval-1",
+      dataset_id: "ds-1",
+      total: cases.length,
+      cases,
+      failure_type_counts: {
+        MISMATCH: 1,
+        OK: 1,
+      },
+    });
+  }),
+
+  http.post("*/v1/models/recognition-configs/preview", () => {
+    return HttpResponse.json({
+      summary: {
+        attempted: 2,
+        matches_gt: 2,
+        match_rate: 1.0,
+      },
+      previews: [
+        {
+          result_id: "res-1",
+          filename: "sample1.png",
+          ground_truth: "887512",
+          prior_predicted: "887510",
+          prior_correct: false,
+          ok: true,
+          predicted: "887512",
+          matches_gt: true,
+          improved: true,
+          selected_candidate: "otsu_threshold",
+          confidence: 0.98,
+          visuals: {
+            crop_image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            candidate_images: [
+              {
+                name: "identity",
+                image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              },
+              {
+                name: "otsu_threshold",
+                image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              },
+            ],
+          },
+        },
+        {
+          result_id: "res-2",
+          filename: "sample2.png",
+          ground_truth: "123456",
+          prior_predicted: "123456",
+          prior_correct: true,
+          ok: true,
+          predicted: "123456",
+          matches_gt: true,
+          improved: false,
+          selected_candidate: "adaptive_threshold",
+          confidence: 0.99,
+          visuals: {
+            crop_image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            candidate_images: [
+              {
+                name: "identity",
+                image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              },
+              {
+                name: "adaptive_threshold",
+                image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              },
+            ],
+          },
+        },
+      ],
+    });
+  }),
+
   http.post("*/v1/databank/datasets/:datasetId/samples/:sampleId/extract-gemini", () => {
     return HttpResponse.json({
       extracted_value: "887512",

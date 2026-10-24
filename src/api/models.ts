@@ -326,7 +326,13 @@ export interface RecognitionPreviewCase {
   filename: string | null;
   ground_truth: string | null;
   predicted: string | null;
+  raw_predicted?: string | null;
   is_correct: boolean | null;
+  failure_type?: string | null;
+  confidence?: number | null;
+  error_type?: string | null;
+  ocr_status?: string | null;
+  fail_stage?: string | null;
   bbox: { x1: number; y1: number; x2: number; y2: number };
   bbox_source: string;
   image_path: string;
@@ -352,6 +358,11 @@ export interface RecognitionPreviewResult {
   ground_truth?: string | null;
   prior_predicted?: string | null;
   prior_correct?: boolean | null;
+  prior_confidence?: number | null;
+  failure_type?: string | null;
+  error_type?: string | null;
+  ocr_status?: string | null;
+  fail_stage?: string | null;
   ok?: boolean;
   error?: string;
   predicted?: string;
@@ -382,15 +393,18 @@ export interface RecognitionPreviewResponse {
 }
 
 export async function listRecognitionPreviewCases(params: {
-  evaluation_id: string;
+  evaluation_id?: string;
+  dataset_id?: string;
   limit?: number;
   offset?: number;
   failures_only?: boolean;
+  failure_type?: string;
 }): Promise<{
   evaluation_id: string;
   dataset_id: string;
   cases: RecognitionPreviewCase[];
   total: number;
+  failure_type_counts?: Record<string, number>;
 }> {
   const { data } = await apiClient.get(
     "/v1/models/recognition-configs/preview-cases",
@@ -401,7 +415,8 @@ export async function listRecognitionPreviewCases(params: {
 
 export async function previewRecognitionConfig(payload: {
   config: RecognitionConfigBody;
-  evaluation_id: string;
+  evaluation_id?: string;
+  dataset_id?: string;
   result_ids: string[];
   include_images?: boolean;
 }): Promise<RecognitionPreviewResponse> {
