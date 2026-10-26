@@ -1169,6 +1169,8 @@ export const handlers = [
           artifact_digest: "sha256:1234567890abcdef",
           pipeline_impl_version: "odometer_rec_v1",
           selection_strategy: "best_digit_confidence",
+          is_linked: false,
+          linked_pipeline_refs: [],
           config: {
             candidate_selection: {
               strategy: "best_digit_confidence",
@@ -1215,8 +1217,30 @@ export const handlers = [
       artifact_digest: "sha256:fedcba0987654321",
       pipeline_impl_version: "odometer_rec_v1",
       selection_strategy: "best_digit_confidence",
+      is_linked: false,
+      linked_pipeline_refs: [],
       config: body.config,
       created_at: new Date().toISOString(),
+    });
+  }),
+
+  http.put("*/v1/models/recognition-configs/:id", async ({ request, params }) => {
+    const body = (await request.json()) as {
+      name?: string;
+      config?: Record<string, unknown>;
+    };
+    return HttpResponse.json({
+      id: String(params.id),
+      name: body.name || "odometer-recognition",
+      version: "1.0.0",
+      status: "verified",
+      artifact_digest: "sha256:updateddigest1234",
+      pipeline_impl_version: "odometer_rec_v1",
+      selection_strategy: "best_digit_confidence",
+      is_linked: false,
+      linked_pipeline_refs: [],
+      config: body.config,
+      updated_at: new Date().toISOString(),
     });
   }),
 

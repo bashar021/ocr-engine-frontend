@@ -231,6 +231,8 @@ export interface RecognitionConfigArtifact extends ModelArtifact {
   pipeline_impl_version?: string;
   selection_strategy?: string;
   config_digest?: string;
+  is_linked?: boolean;
+  linked_pipeline_refs?: string[];
 }
 
 export async function listRecognitionConfigs(params: {
@@ -277,6 +279,20 @@ export async function createRecognitionConfig(payload: {
 }): Promise<RecognitionConfigArtifact> {
   const { data } = await apiClient.post(
     "/v1/models/recognition-configs",
+    payload,
+  );
+  return data;
+}
+
+export async function updateRecognitionConfig(
+  artifactId: string,
+  payload: {
+    name?: string;
+    config?: RecognitionConfigBody;
+  },
+): Promise<RecognitionConfigArtifact> {
+  const { data } = await apiClient.put(
+    `/v1/models/recognition-configs/${encodeURIComponent(artifactId)}`,
     payload,
   );
   return data;

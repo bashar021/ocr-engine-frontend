@@ -47,6 +47,7 @@ import {
   listRecognitionPreviewCases,
   previewRecognitionConfig,
   suggestModelRef,
+  updateRecognitionConfig,
   type RecognitionConfigArtifact,
   type RecognitionConfigBody,
   type RecognitionPreviewCase,
@@ -85,6 +86,12 @@ const CANDIDATE_OPTIONS = [
     label: "Auto-Orientation",
     hint: "Automatically horizontalizes vertical crops",
     badge: "NEW",
+  },
+  {
+    value: "auto_correct_direction",
+    label: "Auto-Correct Direction",
+    hint: "Detects and rotates upside-down or sideways crops",
+    badge: "DIRECTION",
   },
   { value: "invert", label: "Invert (Negative)", hint: "Invert bright/dark for inverted LCDs" },
   { value: "rotate_90", label: "Rotate 90° CW", hint: "Clockwise rotation" },
@@ -186,6 +193,7 @@ type EditorForm = {
   adaptive_block_size: number;
   adaptive_c: number;
   crop_rotation: string;
+  auto_correct_direction: boolean;
   padding_ratio: number;
   min_short_side: number;
   reject_too_small: boolean;
@@ -216,6 +224,7 @@ const DEFAULT_FORM_VALUES: EditorForm = {
   adaptive_block_size: 15,
   adaptive_c: 5,
   crop_rotation: "0",
+  auto_correct_direction: true,
   padding_ratio: 0.05,
   min_short_side: 24,
   reject_too_small: true,
@@ -313,6 +322,7 @@ function configToForm(
     adaptive_block_size: Number(ip.adaptive_block_size ?? 15),
     adaptive_c: Number(ip.adaptive_c ?? 5),
     crop_rotation: String(cq.crop_rotation ?? "0"),
+    auto_correct_direction: cq.auto_correct_direction !== false,
     padding_ratio: Number(cq.padding_ratio ?? 0.05),
     min_short_side: Number(cq.min_short_side ?? 24),
     reject_too_small: cq.reject_too_small !== false,
@@ -351,6 +361,7 @@ function formToConfig(values: EditorForm): RecognitionConfigBody {
     },
     crop_quality: {
       crop_rotation: values.crop_rotation,
+      auto_correct_direction: values.auto_correct_direction,
       padding_ratio: values.padding_ratio,
       min_short_side: values.min_short_side,
       reject_too_small: values.reject_too_small,
@@ -555,6 +566,9 @@ interface RecognitionStudioModalProps {
   activeTaskKey: string;
   onSuccessSave: (created: RecognitionConfigArtifact) => void;
   onOpenBench: (config: RecognitionConfigBody, name: string) => void;
+  mode?: "create" | "edit";
+  editingArtifact?: RecognitionConfigArtifact | null;
+  onSuccessUpdate?: (updated: RecognitionConfigArtifact) => void;
 }
 
 function RecognitionStudioModal({
@@ -566,6 +580,9 @@ function RecognitionStudioModal({
   activeTaskKey,
   onSuccessSave,
   onOpenBench,
+  mode = "create",
+  editingArtifact = null,
+  onSuccessUpdate,
 }: RecognitionStudioModalProps) {
   const [form] = Form.useForm<EditorForm>();
 
@@ -592,6 +609,22 @@ function RecognitionStudioModal({
     mutationFn: createRecognitionConfig,
     onSuccess: (created) => {
       onSuccessSave(created);
+    },
+    onError: (e) => message.error(getApiErrorMessage(e)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      name,
+      config,
+    }: {
+      id: string;
+      name?: string;
+      config?: RecognitionConfigBody;
+    }) => updateRecognitionConfig(id, { name, config }),
+    onSuccess: (updated) => {
+      onSuccessUpdate?.(updated);
     },
     onError: (e) => message.error(getApiErrorMessage(e)),
   });
@@ -632,14 +665,22 @@ function RecognitionStudioModal({
         message.error("Strategy 'fixed_single' requires exactly one candidate");
         return;
       }
-      await saveMutation.mutateAsync({
-        ocr_type: activeTaskKey,
-        name: values.name,
-        version: values.version || undefined,
-        bump: values.bump,
-        config: formToConfig(values),
-        clone_from_artifact_id: cloneFrom?.id,
-      });
+      if (mode === "edit" && editingArtifact) {
+        await updateMutation.mutateAsync({
+          id: editingArtifact.id,
+          name: values.name,
+          config: formToConfig(values),
+        });
+      } else {
+        await saveMutation.mutateAsync({
+          ocr_type: activeTaskKey,
+          name: values.name,
+          version: values.version || undefined,
+          bump: values.bump,
+          config: formToConfig(values),
+          clone_from_artifact_id: cloneFrom?.id,
+        });
+      }
     } catch {
       message.error("Please correct the form fields before saving");
     }
@@ -663,16 +704,29 @@ function RecognitionStudioModal({
       title={
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-            <ThunderboltOutlined className="text-base" />
+            {mode === "edit" ? (
+              <EditOutlined className="text-base" />
+            ) : (
+              <ThunderboltOutlined className="text-base" />
+            )}
           </div>
           <div>
-            <div className="text-base font-bold text-slate-800">
-              {cloneFrom
-                ? `Clone & Test: ${cloneFrom.name} (v${cloneFrom.version})`
-                : "Recognition Config Studio"}
+            <div className="flex items-center gap-2">
+              <span className="text-base font-bold text-slate-800">
+                {mode === "edit"
+                  ? `Edit Recognition Config: ${editingArtifact?.name} (v${editingArtifact?.version})`
+                  : cloneFrom
+                  ? `Clone & Test: ${cloneFrom.name} (v${cloneFrom.version})`
+                  : "Recognition Config Studio"}
+              </span>
+              {mode === "edit" && (
+                <Tag color="green">Unlinked (In-Place Edit)</Tag>
+              )}
             </div>
             <div className="text-xs font-normal text-slate-500">
-              Configure recognition pipeline, Otsu & Adaptive preprocessing, candidates, and post-processing.
+              {mode === "edit"
+                ? "Updating existing configuration in-place without SemVer increment (unlinked to detection models)."
+                : "Configure recognition pipeline, Otsu & Adaptive preprocessing, candidates, and post-processing."}
             </div>
           </div>
         </div>
@@ -699,13 +753,27 @@ function RecognitionStudioModal({
           </Button>
           <Space>
             <Button onClick={onClose}>Cancel</Button>
-            <Button
-              type="primary"
-              loading={saveMutation.isPending}
-              onClick={handleSave}
-            >
-              Save Immutable Version
-            </Button>
+            {mode === "edit" ? (
+              <Button
+                type="primary"
+                onClick={handleSave}
+                loading={updateMutation.isPending}
+                icon={<CheckOutlined />}
+                className="bg-emerald-600 hover:bg-emerald-700 font-semibold"
+              >
+                Save Changes (v{editingArtifact?.version})
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                onClick={handleSave}
+                loading={saveMutation.isPending}
+                icon={<CheckOutlined />}
+                className="bg-indigo-600 hover:bg-indigo-700 font-semibold"
+              >
+                Save Immutable Version
+              </Button>
+            )}
           </Space>
         </div>
       }
@@ -752,31 +820,41 @@ function RecognitionStudioModal({
                 <Input placeholder="e.g. odometer-recognition" />
               </Form.Item>
             </div>
-            <div className="col-span-4">
-              <Form.Item
-                name="bump"
-                label="SemVer Bump"
-                rules={[{ required: true }]}
-                className="mb-0"
-              >
-                <Select
-                  options={[
-                    { value: "patch", label: "patch (tune / additive change)" },
-                    { value: "minor", label: "minor (candidate / preprocessing change)" },
-                    { value: "major", label: "major (breaking pipeline change)" },
-                  ]}
-                />
-              </Form.Item>
-            </div>
-            <div className="col-span-3">
-              <Form.Item
-                name="version"
-                label="Explicit Version (Optional)"
-                className="mb-0"
-              >
-                <Input placeholder="auto-bump" />
-              </Form.Item>
-            </div>
+            {mode === "edit" ? (
+              <div className="col-span-7 flex items-center justify-end pb-1">
+                <Tag color="cyan" className="py-1 px-3 text-xs">
+                  Updating version <span className="font-mono font-bold">v{editingArtifact?.version}</span> directly in-place
+                </Tag>
+              </div>
+            ) : (
+              <>
+                <div className="col-span-4">
+                  <Form.Item
+                    name="bump"
+                    label="SemVer Bump"
+                    rules={[{ required: true }]}
+                    className="mb-0"
+                  >
+                    <Select
+                      options={[
+                        { value: "patch", label: "patch (tune / additive change)" },
+                        { value: "minor", label: "minor (candidate / preprocessing change)" },
+                        { value: "major", label: "major (breaking pipeline change)" },
+                      ]}
+                    />
+                  </Form.Item>
+                </div>
+                <div className="col-span-3">
+                  <Form.Item
+                    name="version"
+                    label="Explicit Version (Optional)"
+                    className="mb-0"
+                  >
+                    <Input placeholder="auto-bump" />
+                  </Form.Item>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -989,8 +1067,31 @@ function RecognitionStudioModal({
                         ]}
                       />
                     </Form.Item>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-slate-500 mb-3">
                       Auto mode inspects aspect ratio: if height &gt; width * 1.25, it rotates 90° counter-clockwise to horizontalize digits.
+                    </div>
+
+                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-800">
+                              🔄 Auto-Correct Wrong Image Direction
+                            </span>
+                            <Tag color="cyan">Upside-Down &amp; Sideways Solver</Tag>
+                          </div>
+                          <p className="mt-1 text-[11px] text-slate-500 mb-0">
+                            Checks if digits are upside-down (180°) or sideways (90° / 270°), automatically rotates the crop to the upright direction so text is read properly.
+                          </p>
+                        </div>
+                        <Form.Item
+                          name="auto_correct_direction"
+                          valuePropName="checked"
+                          className="mb-0"
+                        >
+                          <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                        </Form.Item>
+                      </div>
                     </div>
                   </Card>
 
@@ -2122,7 +2223,19 @@ function RecognitionEvaluationBenchDrawer({
             </Button>
             <Button
               size="small"
-              onClick={() => setSelectedIds(cases.slice(0, 20).map((c) => c.result_id))}
+              onClick={() => setSelectedIds(cases.slice(0, 50).map((c) => c.result_id))}
+            >
+              Pick 50
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setSelectedIds(cases.slice(0, 100).map((c) => c.result_id))}
+            >
+              Pick 100
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setSelectedIds(cases.slice(0, 200).map((c) => c.result_id))}
             >
               Select All
             </Button>
@@ -2142,7 +2255,7 @@ function RecognitionEvaluationBenchDrawer({
               allowClear
             />
             <span className="font-mono text-[11px] text-slate-500">
-              {selectedIds.length}/20 selected ({cases.length} available)
+              {selectedIds.length} selected ({cases.length} available, max 200)
             </span>
           </div>
         </div>
@@ -2375,10 +2488,10 @@ function RecognitionEvaluationBenchDrawer({
                 scroll={{ y: "calc(86vh - 350px)" }}
                 rowSelection={{
                   selectedRowKeys: selectedIds,
-                  onChange: (keys) => setSelectedIds((keys as string[]).slice(0, 20)),
+                  onChange: (keys) => setSelectedIds((keys as string[]).slice(0, 200)),
                   getCheckboxProps: (record) => ({
                     disabled:
-                      selectedIds.length >= 20 &&
+                      selectedIds.length >= 200 &&
                       !selectedIds.includes(record.result_id),
                   }),
                   preserveSelectedRowKeys: true,
@@ -2401,6 +2514,8 @@ export function RecognitionConfigsPage() {
   const { activeTaskKey } = useTaskContext();
   const queryClient = useQueryClient();
   const [studioOpen, setStudioOpen] = useState(false);
+  const [studioMode, setStudioMode] = useState<"create" | "edit">("create");
+  const [editingArtifact, setEditingArtifact] = useState<RecognitionConfigArtifact | null>(null);
   const [benchOpen, setBenchOpen] = useState(false);
   const [benchConfig, setBenchConfig] = useState<RecognitionConfigBody | null>(null);
   const [benchConfigName, setBenchConfigName] = useState<string>("odometer-recognition");
@@ -2495,8 +2610,27 @@ export function RecognitionConfigsPage() {
           const cands = (cs.candidates as string[]) || [];
           return (
             <div>
-              <div className="font-semibold text-slate-800">
-                {r.name} <span className="text-slate-500 font-normal">v{r.version}</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-slate-800">
+                  {r.name} <span className="text-slate-500 font-normal">v{r.version}</span>
+                </span>
+                {r.is_linked ? (
+                  <Tooltip
+                    title={`Linked to detection model in: ${
+                      r.linked_pipeline_refs?.join(", ") || "pipeline ref"
+                    }`}
+                  >
+                    <Tag color="purple" className="m-0 text-[10px]">
+                      Linked to Detection
+                    </Tag>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Unlinked to any detection model — can be edited directly in-place">
+                    <Tag color="green" className="m-0 text-[10px]">
+                      Unlinked (Editable)
+                    </Tag>
+                  </Tooltip>
+                )}
               </div>
               <div className="text-xs text-slate-400">
                 {r.pipeline_impl_version || "—"} · {r.selection_strategy || "—"}
@@ -2576,13 +2710,40 @@ export function RecognitionConfigsPage() {
       {
         title: "Actions",
         key: "actions",
-        width: 380,
+        width: 420,
         render: (_, r) => (
           <Space size="small" wrap>
+            <Tooltip
+              title={
+                r.is_linked
+                  ? `Locked: Linked to detection model in ${
+                      r.linked_pipeline_refs?.join(", ") || "pipeline ref"
+                    }. Clone to make changes.`
+                  : "Edit this recognition config in-place (unlinked to detection model)"
+              }
+            >
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                disabled={Boolean(r.is_linked)}
+                onClick={() => {
+                  setStudioMode("edit");
+                  setEditingArtifact(r);
+                  setCloneFrom(r);
+                  setBenchConfig(r.config as RecognitionConfigBody);
+                  setBenchConfigName(r.name);
+                  setStudioOpen(true);
+                }}
+              >
+                Edit
+              </Button>
+            </Tooltip>
             <Button
               size="small"
               icon={<ThunderboltOutlined />}
               onClick={() => {
+                setStudioMode("create");
+                setEditingArtifact(null);
                 setCloneFrom(r);
                 setBenchConfig(r.config as RecognitionConfigBody);
                 setBenchConfigName(r.name);
@@ -2595,6 +2756,8 @@ export function RecognitionConfigsPage() {
               size="small"
               icon={<ExperimentOutlined />}
               onClick={() => {
+                setStudioMode("create");
+                setEditingArtifact(null);
                 setCloneFrom(r);
                 setBenchConfig(r.config as RecognitionConfigBody);
                 setBenchConfigName(r.name);
@@ -2655,6 +2818,8 @@ export function RecognitionConfigsPage() {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
+              setStudioMode("create");
+              setEditingArtifact(null);
               setCloneFrom(null);
               setBenchConfig(null);
               setBenchConfigName(defaultRecognitionConfigName(activeTaskKey));
@@ -2711,11 +2876,23 @@ export function RecognitionConfigsPage() {
       <RecognitionStudioModal
         open={studioOpen}
         onClose={() => setStudioOpen(false)}
+        mode={studioMode}
+        editingArtifact={editingArtifact}
         cloneFrom={cloneFrom}
         defaultConfig={query.data?.defaults}
         draftConfig={benchConfig}
         activeTaskKey={activeTaskKey}
         onSuccessSave={handleSavedSuccess}
+        onSuccessUpdate={async (updated) => {
+          message.success(`Updated ${updated.name} v${updated.version}`);
+          setStudioOpen(false);
+          await queryClient.invalidateQueries({
+            queryKey: ["models", "recognition-configs"],
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["models", "artifacts"],
+          });
+        }}
         onOpenBench={(cfg, name) => {
           setBenchConfig(cfg);
           setBenchConfigName(name);

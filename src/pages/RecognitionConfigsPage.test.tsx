@@ -29,6 +29,9 @@ describe("RecognitionConfigsPage & Studio", () => {
 
     // Check action buttons
     expect(
+      screen.getByRole("button", { name: /edit/i }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: /clone & tune/i }),
     ).toBeInTheDocument();
     expect(
@@ -262,6 +265,74 @@ describe("RecognitionConfigsPage & Studio", () => {
       });
       expect(screen.getAllByText("Winning Preprocess")[0]).toBeInTheDocument();
       expect(await screen.findByText("✨ Fixed Prior Miss")).toBeInTheDocument();
+    },
+    15000,
+  );
+
+  it(
+    "supports editing unlinked recognition config in-place and controls auto-direction",
+    async () => {
+      renderWithProviders(<RecognitionConfigsPage />, {
+        route: "/models/recognition-configs",
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("odometer-recognition")).toBeInTheDocument();
+      });
+
+      // Verify unlinked badge
+      expect(screen.getByText(/unlinked \(editable\)/i)).toBeInTheDocument();
+
+      // Click Edit
+      const editBtn = screen.getByRole("button", { name: /edit/i });
+      expect(editBtn).toBeEnabled();
+      fireEvent.click(editBtn);
+
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).getByText(/edit recognition config/i),
+      ).toBeInTheDocument();
+
+      // Check sub-tab for orientation & wrong direction auto-correction
+      const geomTab = within(dialog).getByText(/crop orientation & geometry/i);
+      fireEvent.click(geomTab);
+
+      expect(
+        within(dialog).getByText(/auto-correct wrong image direction/i),
+      ).toBeInTheDocument();
+
+      // Save Changes button
+      const saveChangesBtn = within(dialog).getByRole("button", {
+        name: /save changes/i,
+      });
+      expect(saveChangesBtn).toBeInTheDocument();
+      fireEvent.click(saveChangesBtn);
+    },
+    15000,
+  );
+
+  it(
+    "supports picking more than 20 samples in evaluation bench",
+    async () => {
+      renderWithProviders(<RecognitionConfigsPage />, {
+        route: "/models/recognition-configs",
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("odometer-recognition")).toBeInTheDocument();
+      });
+
+      const benchBtn = screen.getByRole("button", { name: /evaluation bench/i });
+      fireEvent.click(benchBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("sample1.png")).toBeInTheDocument();
+      });
+
+      // Quick pick buttons > 20
+      expect(screen.getByRole("button", { name: /pick 50/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /pick 100/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /select all/i })).toBeInTheDocument();
     },
     15000,
   );
