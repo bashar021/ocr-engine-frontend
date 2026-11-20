@@ -2,6 +2,7 @@ import {
   DownloadOutlined,
   ExportOutlined,
   EyeOutlined,
+  PictureOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
@@ -20,7 +21,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getApiErrorMessage } from "@/api/client";
+import { getApiErrorCode, getApiErrorMessage } from "@/api/client";
 import {
   downloadFilteredCropsZip,
   exportHardCases,
@@ -147,6 +148,7 @@ export function EvaluationResultsDrawer({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewMissing, setPreviewMissing] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [trainingExportOpen, setTrainingExportOpen] = useState(false);
   const [exportForm] = Form.useForm();
@@ -225,10 +227,12 @@ export function EvaluationResultsDrawer({
       if (!preview) {
         setPreviewUrl(null);
         setPreviewError(null);
+        setPreviewMissing(false);
         return;
       }
       setPreviewLoading(true);
       setPreviewError(null);
+      setPreviewMissing(false);
       try {
         let url: string;
         if (preview.evaluation_id && preview.id) {
@@ -262,7 +266,10 @@ export function EvaluationResultsDrawer({
           );
         } else {
           setPreviewUrl(null);
-          setPreviewError("Missing sample reference");
+          setPreviewMissing(true);
+          setPreviewError(
+            "This result isn't linked to a dataset sample, so its image can't be located.",
+          );
           return;
         }
         if (cancelled) {
@@ -274,7 +281,15 @@ export function EvaluationResultsDrawer({
       } catch (error) {
         if (!cancelled) {
           setPreviewUrl(null);
-          setPreviewError(getApiErrorMessage(error));
+          const code = getApiErrorCode(error);
+          const missing =
+            code === "SAMPLE_IMAGE_MISSING" || code === "SAMPLE_NOT_FOUND";
+          setPreviewMissing(missing);
+          setPreviewError(
+            missing
+              ? "Original image no longer available for this run (the dataset was regenerated or the sample wasn't retained)."
+              : getApiErrorMessage(error),
+          );
         }
       } finally {
         if (!cancelled) setPreviewLoading(false);
@@ -676,8 +691,15 @@ export function EvaluationResultsDrawer({
                   Loading image…
                 </div>
               ) : previewError ? (
-                <div className="flex h-60 items-center justify-center text-sm text-red-600">
-                  {previewError}
+                <div
+                  className={`flex h-60 flex-col items-center justify-center gap-1 px-6 text-center text-sm ${
+                    previewMissing ? "text-slate-500" : "text-red-600"
+                  }`}
+                >
+                  {previewMissing ? (
+                    <PictureOutlined className="text-2xl text-slate-400" />
+                  ) : null}
+                  <span>{previewError}</span>
                 </div>
               ) : previewUrl ? (
                 <OcrImageViewer
