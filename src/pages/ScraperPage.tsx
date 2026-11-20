@@ -25,6 +25,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Col,
   Empty,
   Input,
@@ -32,6 +33,7 @@ import {
   Modal,
   Pagination,
   Popconfirm,
+  Progress,
   Row,
   Segmented,
   Select,
@@ -96,6 +98,24 @@ const SUGGESTED_KEYWORDS = [
 ];
 
 const PRESET_IMAGE_COUNTS = [50, 100, 250, 500, 1000, 5000];
+
+// Preferred Gemini prompt id per category ocr_type (falls back to the first
+// available prompt when there's no match).
+const PROMPT_BY_OCR_TYPE: Record<string, string> = {
+  odometer: "odometer_reading",
+  bill: "invoice_total",
+};
+
+// Lightweight, format-level ground-truth validation per ocr_type (frontend guard
+// only — returns an error message or null).
+function validateGroundTruth(value: string, ocrType?: string): string | null {
+  const v = value.trim();
+  if (!v) return null; // emptiness is handled by the caller
+  if (ocrType === "odometer" && !/^\d+(\.\d+)?$/.test(v)) {
+    return "Odometer ground truth should be digits only (with an optional decimal point).";
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Image Thumbnail helper component with blob caching
@@ -205,7 +225,14 @@ export function SpyderPage() {
   const sessionsQuery = useQuery({
     queryKey: ["scraper", "sessions"],
     queryFn: () => getSessions({ limit: 100 }),
-    refetchInterval: 3000,
+    // Only poll while a session is actually pending/running; idle otherwise.
+    refetchInterval: (query) => {
+      const list = query.state.data?.sessions ?? [];
+      const anyActive = list.some(
+        (s) => s.status === "pending" || s.status === "running",
+      );
+      return anyActive ? 3000 : false;
+    },
   });
 
   const scrapeMutation = useMutation({
@@ -313,18 +340,30 @@ export function SpyderPage() {
       dataIndex: "status",
       key: "status",
       width: 120,
-      render: (status: ScraperSessionStatus) => (
-        <Tag color={STATUS_COLORS[status]}>
-          {status === "running" ? (
-            <Space size={4}>
-              <Spin size="small" />
-              <span>running</span>
-            </Space>
-          ) : (
-            status
-          )}
-        </Tag>
-      ),
+      render: (status: ScraperSessionStatus, record: ScraperSession) => {
+        // A "completed" run that saved nothing is really an empty result, not a success.
+        if (status === "completed" && (record.image_count ?? 0) === 0) {
+          return (
+            <Tooltip title={record.error || "No images were found for this query."}>
+              <Tag color="warning" icon={<ExclamationCircleOutlined />}>
+                empty
+              </Tag>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tag color={STATUS_COLORS[status]}>
+            {status === "running" ? (
+              <Space size={4}>
+                <Spin size="small" />
+                <span>running</span>
+              </Space>
+            ) : (
+              status
+            )}
+          </Tag>
+        );
+      },
     },
     {
       title: "Category",
@@ -407,7 +446,7 @@ export function SpyderPage() {
     <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/50">
       <PageHeader
         title="Spyder"
-        description="Autonomous multi-engine web crawler & sessions monitor"
+        description="Harvest images from the web and monitor crawl sessions"
         actions={
           <Space>
             <Button
@@ -640,17 +679,20 @@ export function SpyderPage() {
           <Alert
             type="info"
             showIcon
-            message="Zero Duplicate Parallel Crawler"
+            message="How harvesting works"
             description={
               <div className="mt-1 space-y-1 text-xs text-slate-600">
                 <div>
-                  • <strong>Dual-Layer Deduplication:</strong> Checks both URL hash and SHA-256 binary hash against existing images in the chosen category.
+                  • <strong>Keywords only (default):</strong> searches Bing Images &amp; Wikimedia Commons for your query. Max Pages / Depth do not apply.
                 </div>
                 <div>
-                  • <strong>Smart Memory Cursors:</strong> Remembers search pagination offsets per category so repeated runs never retrieve already-seen images.
+                  • <strong>Google image-search URL:</strong> a <code>google.com</code> image-search link is rendered in a browser and scraped (may hit a CAPTCHA).
                 </div>
                 <div>
-                  • <strong>Concurrent Workers:</strong> Automatically verifies aspect ratios, discards corrupt files, and downloads images in parallel.
+                  • <strong>Any other Seed URL:</strong> crawls that site's same-origin pages up to Max Pages / Depth, keeping images that match your keywords.
+                </div>
+                <div className="text-slate-500">
+                  Duplicates are skipped by URL and image hash within the chosen category.
                 </div>
               </div>
             }
@@ -659,7 +701,7 @@ export function SpyderPage() {
           <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
             <div>
               <label className="mb-1 block text-sm font-semibold text-slate-700">
-                Search Keywords / Query <span className="text-red-500">*</span>
+                Search Keywords / Query
               </label>
               <Input
                 placeholder="e.g. odometer reading dashboard, speed meter display"
@@ -669,6 +711,9 @@ export function SpyderPage() {
                 prefix={<SearchOutlined className="text-slate-400" />}
                 allowClear
               />
+              <div className="mt-1 text-xs text-slate-500">
+                Required unless you set a Seed URL under Optional Crawler Settings.
+              </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                 <span className="font-medium text-slate-600">Quick queries:</span>
                 {SUGGESTED_KEYWORDS.map((kw) => (
@@ -718,7 +763,7 @@ export function SpyderPage() {
                 </label>
                 <InputNumber
                   min={1}
-                  max={100000}
+                  max={10000}
                   value={maxImages}
                   onChange={(v) => setMaxImages(v ?? 100)}
                   style={{ width: "100%" }}
@@ -740,6 +785,15 @@ export function SpyderPage() {
                     </button>
                   ))}
                 </div>
+                {maxImages > 1000 && (
+                  <div className="mt-1.5 flex items-start gap-1 text-xs text-amber-600">
+                    <ExclamationCircleOutlined className="mt-0.5" />
+                    <span>
+                      Large target — the harvest runs in the background and can
+                      take a long time. Start smaller to sample quality first.
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -761,9 +815,20 @@ export function SpyderPage() {
 
               {showAdvanced && (
                 <div className="mt-3 space-y-3">
+                  <Alert
+                    type="warning"
+                    showIcon
+                    className="py-1.5"
+                    message={
+                      <span className="text-xs">
+                        These settings apply only when you provide a Seed URL
+                        (site crawl). In keyword-only mode they are ignored.
+                      </span>
+                    }
+                  />
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Seed URL (Optional web page direct entry)
+                      Seed URL (optional — crawl a specific site)
                     </label>
                     <Input
                       placeholder="https://example.com/gallery"
@@ -977,6 +1042,7 @@ export function ScrapeDataPage() {
   // Modals state
   const [selectedImage, setSelectedImage] = useState<ScraperImage | null>(null);
   const [getValueImage, setGetValueImage] = useState<ScraperImage | null>(null);
+  const [bulkLabelOpen, setBulkLabelOpen] = useState(false);
 
   // Sync state back to URL
   useEffect(() => {
@@ -1051,6 +1117,14 @@ export function ScrapeDataPage() {
         limit: pageSize,
         offset: (page - 1) * pageSize,
       }),
+  });
+
+  // Labeled count for the currently-selected category (one lightweight query).
+  const categoryLabeledQuery = useQuery({
+    queryKey: ["scraper", "images", "labeled-count", categoryFilter],
+    queryFn: () =>
+      getImages({ category_id: categoryFilter, has_ground_truth: true, limit: 1 }),
+    enabled: Boolean(categoryFilter),
   });
 
   // Mutations
@@ -1565,6 +1639,15 @@ export function ScrapeDataPage() {
             <Space size="small">
               <Button
                 size="small"
+                type="primary"
+                ghost
+                icon={<ThunderboltOutlined />}
+                onClick={() => setBulkLabelOpen(true)}
+              >
+                Auto-label (AI)
+              </Button>
+              <Button
+                size="small"
                 icon={<TagsOutlined />}
                 onClick={() => setBatchCategoryModalOpen(true)}
               >
@@ -1591,6 +1674,27 @@ export function ScrapeDataPage() {
           </div>
         )}
 
+        {/* Per-category labeling progress (frontend-derived) */}
+        {categoryFilter && (() => {
+          const catTotal =
+            categoriesQuery.data?.find((c) => c.id === categoryFilter)?.image_count ?? 0;
+          const labeled = categoryLabeledQuery.data?.total;
+          const unlabeled =
+            labeled == null ? undefined : Math.max(0, catTotal - labeled);
+          return (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span className="font-medium">This category:</span>
+              <Tag color="cyan">
+                Labeled: {labeled == null ? "…" : labeled.toLocaleString()}
+              </Tag>
+              <Tag color="orange">
+                Unlabeled: {unlabeled == null ? "…" : unlabeled.toLocaleString()}
+              </Tag>
+              <span className="text-slate-400">of {catTotal.toLocaleString()} total</span>
+            </div>
+          );
+        })()}
+
         {/* Content: Table or Gallery View */}
         {viewMode === "table" ? (
           <Card size="small" className="border-slate-200 shadow-xs">
@@ -1609,7 +1713,7 @@ export function ScrapeDataPage() {
                 pageSize,
                 total,
                 showSizeChanger: true,
-                pageSizeOptions: ["20", "50", "100"],
+                pageSizeOptions: ["24", "48", "96"],
                 showTotal: (t) => `Total ${t.toLocaleString()} images`,
                 onChange: (p, ps) => {
                   setPage(p);
@@ -1811,6 +1915,11 @@ export function ScrapeDataPage() {
           <GetValueModal
             key={getValueImage.id}
             image={getValueImage}
+            ocrType={
+              categoriesQuery.data?.find(
+                (c) => c.id === getValueImage.category_id,
+              )?.ocr_type
+            }
             onClose={() => setGetValueImage(null)}
             onSaved={(updated) => {
               queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
@@ -1818,6 +1927,19 @@ export function ScrapeDataPage() {
               if (selectedImage?.id === updated.id) {
                 setSelectedImage(updated);
               }
+            }}
+          />
+        )}
+
+        {/* Bulk Auto-label (Gemini AI) Modal */}
+        {bulkLabelOpen && (
+          <BulkLabelModal
+            images={images.filter((i) => selectedIds.includes(i.id))}
+            categories={categoriesQuery.data ?? []}
+            onClose={() => setBulkLabelOpen(false)}
+            onDone={() => {
+              queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+              queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
             }}
           />
         )}
@@ -2055,10 +2177,12 @@ export function ScraperCategoriesPage() {
 
 function GetValueModal({
   image,
+  ocrType,
   onClose,
   onSaved,
 }: {
   image: ScraperImage;
+  ocrType?: string;
   onClose: () => void;
   onSaved: (updated: ScraperImage) => void;
 }) {
@@ -2067,13 +2191,15 @@ function GetValueModal({
   const [imageLoading, setImageLoading] = useState(true);
   const [previewFailed, setPreviewFailed] = useState(false);
 
-  const [selectedPromptId, setSelectedPromptId] = useState<string>("odometer_reading");
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("gemini_api_key") || "");
+  const [apiKey, setApiKey] = useState<string>("");
   const [reviewedValue, setReviewedValue] = useState<string>(image.ground_truth || "");
   const [extractError, setExtractError] = useState<string | null>(null);
   const [usedModelTag, setUsedModelTag] = useState<string | null>(null);
+
+  const gtError = validateGroundTruth(reviewedValue, ocrType);
 
   const promptsQuery = useQuery({
     queryKey: ["scraper", "prompts"],
@@ -2085,13 +2211,26 @@ function GetValueModal({
     queryFn: getGeminiConfig,
   });
 
+  // Default prompt derived from the image's category (ocr_type), falling back to
+  // the first available prompt — instead of always defaulting to odometer.
+  const defaultPromptId = useMemo(() => {
+    const prompts = promptsQuery.data;
+    if (!prompts || prompts.length === 0) return "";
+    const preferredId = ocrType ? PROMPT_BY_OCR_TYPE[ocrType] : undefined;
+    return (
+      (preferredId && prompts.find((p) => p.id === preferredId)?.id) ||
+      prompts[0].id
+    );
+  }, [promptsQuery.data, ocrType]);
+  const effectivePromptId = selectedPromptId || defaultPromptId;
+
   const effectiveModel =
     selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
 
   const activePromptText =
     customPrompt !== null
       ? customPrompt
-      : (promptsQuery.data?.find((p) => p.id === selectedPromptId)?.prompt ??
+      : (promptsQuery.data?.find((p) => p.id === effectivePromptId)?.prompt ??
         (promptsQuery.data?.[0]?.prompt || ""));
 
   useEffect(() => {
@@ -2161,9 +2300,6 @@ function GetValueModal({
       return;
     }
     setExtractError(null);
-    if (apiKey) {
-      localStorage.setItem("gemini_api_key", apiKey.trim());
-    }
     extractMutation.mutate({
       prompt: activePromptText.trim(),
       apiKey: apiKey.trim() || undefined,
@@ -2174,6 +2310,10 @@ function GetValueModal({
   const handleSave = () => {
     if (!reviewedValue.trim()) {
       message.warning("Ground truth value cannot be empty");
+      return;
+    }
+    if (gtError) {
+      message.warning(gtError);
       return;
     }
     saveMutation.mutate(reviewedValue.trim());
@@ -2209,7 +2349,7 @@ function GetValueModal({
           <Space>
             <Button
               type="primary"
-              disabled={!reviewedValue.trim()}
+              disabled={!reviewedValue.trim() || Boolean(gtError)}
               loading={saveMutation.isPending}
               onClick={handleSave}
             >
@@ -2275,7 +2415,7 @@ function GetValueModal({
                 Select Prompt:
               </label>
               <Select
-                value={selectedPromptId}
+                value={effectivePromptId || undefined}
                 onChange={handlePromptSelect}
                 loading={promptsQuery.isLoading}
                 options={(promptsQuery.data ?? []).map((p) => ({
@@ -2313,13 +2453,19 @@ function GetValueModal({
           </div>
         </div>
 
-        {/* API Key setting */}
-        <div className="rounded border border-dashed p-2.5 text-xs space-y-1.5 bg-gray-50/50">
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-gray-700">Gemini API Key:</span>
-            {serverHasKey ? (
-              <Tag color="success">Server API Key Configured</Tag>
-            ) : (
+        {/* API Key setting — only shown when the server has no key configured.
+            The key is kept in component state only (never persisted to the browser). */}
+        {serverHasKey ? (
+          <div className="rounded border border-dashed p-2.5 text-xs bg-gray-50/50">
+            <Tag color="success">Server API Key Configured</Tag>
+            <span className="ml-1 text-gray-500">
+              Requests use the server-side Gemini key.
+            </span>
+          </div>
+        ) : (
+          <div className="rounded border border-dashed p-2.5 text-xs space-y-1.5 bg-gray-50/50">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-gray-700">Gemini API Key:</span>
               <Typography.Link
                 href="https://aistudio.google.com/app/apikey"
                 target="_blank"
@@ -2327,19 +2473,15 @@ function GetValueModal({
               >
                 Get free API Key (Google AI Studio)
               </Typography.Link>
-            )}
+            </div>
+            <Input.Password
+              size="small"
+              placeholder="Enter your Gemini API key (used for this session only)"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
           </div>
-          <Input.Password
-            size="small"
-            placeholder={
-              serverHasKey
-                ? "Optional override: enter custom Gemini API key"
-                : "Enter your Gemini API key (saved in browser)"
-            }
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-        </div>
+        )}
 
         {/* Action: Hit Gemini API Button */}
         <div className="flex items-center justify-between">
@@ -2388,13 +2530,339 @@ function GetValueModal({
             value={reviewedValue}
             onChange={(e) => setReviewedValue(e.target.value)}
             placeholder="Extracted value will appear here after hitting Gemini. You can review and edit before saving."
+            status={gtError ? "error" : undefined}
             style={{ fontSize: 14, fontWeight: 500 }}
           />
-          <Typography.Text type="secondary" className="block text-xs">
-            Review and adjust the extracted value above, then click &quot;Save Ground Truth&quot; to save it on the row.
-          </Typography.Text>
+          {gtError ? (
+            <Typography.Text type="danger" className="block text-xs">
+              {gtError}
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="secondary" className="block text-xs">
+              Review and adjust the extracted value above, then click &quot;Save Ground Truth&quot; to save it on the row.
+            </Typography.Text>
+          )}
         </div>
       </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Auto-label Modal (Gemini AI) — client-side orchestration of per-image
+// extract calls across a selection, with a review step before saving.
+// ---------------------------------------------------------------------------
+
+interface BulkRow {
+  image: ScraperImage;
+  ocrType?: string;
+  value: string;
+  accepted: boolean;
+  error?: string;
+}
+
+function BulkLabelModal({
+  images,
+  categories,
+  onClose,
+  onDone,
+}: {
+  images: ScraperImage[];
+  categories: ScraperCategory[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { message } = App.useApp();
+  const [phase, setPhase] = useState<"config" | "running" | "review">("config");
+  const [progress, setProgress] = useState(0);
+  const [rows, setRows] = useState<BulkRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [selectedPromptId, setSelectedPromptId] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+
+  const promptsQuery = useQuery({
+    queryKey: ["scraper", "prompts"],
+    queryFn: getGeminiPrompts,
+  });
+  const configQuery = useQuery({
+    queryKey: ["scraper", "gemini-config"],
+    queryFn: getGeminiConfig,
+  });
+
+  const ocrTypeOf = useCallback(
+    (img: ScraperImage) =>
+      img.category_id
+        ? categories.find((c) => c.id === img.category_id)?.ocr_type
+        : undefined,
+    [categories],
+  );
+
+  const dominantOcrType = images[0] ? ocrTypeOf(images[0]) : undefined;
+
+  // Default prompt derived from the selection's category (ocr_type), falling back
+  // to the first available prompt.
+  const defaultPromptId = useMemo(() => {
+    const prompts = promptsQuery.data;
+    if (!prompts || prompts.length === 0) return "";
+    const preferredId = dominantOcrType
+      ? PROMPT_BY_OCR_TYPE[dominantOcrType]
+      : undefined;
+    return (
+      (preferredId && prompts.find((p) => p.id === preferredId)?.id) ||
+      prompts[0].id
+    );
+  }, [promptsQuery.data, dominantOcrType]);
+  const effectivePromptId = selectedPromptId || defaultPromptId;
+
+  const serverHasKey = Boolean(configQuery.data?.has_api_key);
+  const effectiveModel =
+    selectedModel || configQuery.data?.default_model || "gemini-3.5-flash-lite";
+  const promptText =
+    promptsQuery.data?.find((p) => p.id === effectivePromptId)?.prompt ?? "";
+
+  const modelOptions =
+    configQuery.data?.available_models &&
+    configQuery.data.available_models.length > 0
+      ? configQuery.data.available_models.map((m) => ({
+          label: m.name,
+          value: m.id,
+        }))
+      : [
+          { label: "Gemini 3.5 Flash Lite", value: "gemini-3.5-flash-lite" },
+          { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
+        ];
+
+  const runExtraction = async () => {
+    if (!promptText.trim()) {
+      message.warning("Select a prompt first");
+      return;
+    }
+    setPhase("running");
+    setProgress(0);
+    const out: BulkRow[] = [];
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      const ot = ocrTypeOf(img);
+      try {
+        const res = await extractWithGemini(img.id, {
+          prompt: promptText.trim(),
+          api_key: apiKey.trim() || undefined,
+          model: effectiveModel,
+        });
+        const value = res.extracted_value ?? "";
+        const err = validateGroundTruth(value, ot) ?? undefined;
+        out.push({
+          image: img,
+          ocrType: ot,
+          value,
+          accepted: Boolean(value) && !err,
+          error: err,
+        });
+      } catch (e) {
+        out.push({
+          image: img,
+          ocrType: ot,
+          value: "",
+          accepted: false,
+          error: getApiErrorMessage(e),
+        });
+      }
+      setProgress(i + 1);
+    }
+    setRows(out);
+    setPhase("review");
+  };
+
+  const updateRow = (id: string, patch: Partial<BulkRow>) =>
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.image.id !== id) return r;
+        const next = { ...r, ...patch };
+        next.error = validateGroundTruth(next.value, next.ocrType) ?? undefined;
+        return next;
+      }),
+    );
+
+  const acceptedRows = rows.filter(
+    (r) => r.accepted && r.value.trim() && !r.error,
+  );
+
+  const saveAccepted = async () => {
+    if (acceptedRows.length === 0) {
+      message.warning("No accepted values to save");
+      return;
+    }
+    setSaving(true);
+    let saved = 0;
+    for (const r of acceptedRows) {
+      try {
+        await updateImageGroundTruth(r.image.id, r.value.trim());
+        saved += 1;
+      } catch {
+        /* keep going; failed rows stay unsaved */
+      }
+    }
+    setSaving(false);
+    message.success(
+      `Saved ground truth for ${saved} image${saved === 1 ? "" : "s"}`,
+    );
+    onDone();
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <ThunderboltOutlined className="text-amber-500" />
+          <span>
+            Auto-label {images.length} image{images.length === 1 ? "" : "s"}{" "}
+            (Gemini AI)
+          </span>
+        </div>
+      }
+      open
+      onCancel={onClose}
+      maskClosable={false}
+      width={760}
+      centered
+      footer={
+        phase === "review" ? (
+          <div className="flex items-center justify-between">
+            <Button onClick={onClose}>Close</Button>
+            <Button
+              type="primary"
+              loading={saving}
+              disabled={acceptedRows.length === 0}
+              onClick={() => void saveAccepted()}
+            >
+              Save {acceptedRows.length} accepted
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <Button onClick={onClose} disabled={phase === "running"}>
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              loading={phase === "running"}
+              onClick={() => void runExtraction()}
+            >
+              {phase === "running"
+                ? `Extracting ${progress}/${images.length}…`
+                : `Extract ${images.length}`}
+            </Button>
+          </div>
+        )
+      }
+    >
+      {phase !== "review" ? (
+        <div className="space-y-3 pt-2">
+          <Alert
+            type="info"
+            showIcon
+            message="Runs Gemini on each selected image one by one, then lets you review every value before anything is saved."
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Prompt
+              </label>
+              <Select
+                value={effectivePromptId || undefined}
+                onChange={setSelectedPromptId}
+                loading={promptsQuery.isLoading}
+                options={(promptsQuery.data ?? []).map((p) => ({
+                  label: p.name,
+                  value: p.id,
+                }))}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Model
+              </label>
+              <Select
+                value={effectiveModel}
+                onChange={setSelectedModel}
+                options={modelOptions}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+          {!serverHasKey && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Gemini API Key (used for this session only)
+              </label>
+              <Input.Password
+                size="small"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Gemini API key"
+              />
+            </div>
+          )}
+          {phase === "running" && (
+            <Progress
+              percent={Math.round(
+                (progress / Math.max(1, images.length)) * 100,
+              )}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Review each value. Only accepted rows are saved.</span>
+            <span>
+              {acceptedRows.length} accepted ·{" "}
+              {rows.length - acceptedRows.length} skipped
+            </span>
+          </div>
+          <div className="max-h-[52vh] space-y-2 overflow-auto pr-1">
+            {rows.map((r) => (
+              <div
+                key={r.image.id}
+                className="flex items-start gap-2 rounded-md border border-slate-200 p-2"
+              >
+                <Checkbox
+                  checked={r.accepted}
+                  onChange={(e) =>
+                    updateRow(r.image.id, { accepted: e.target.checked })
+                  }
+                  className="mt-1"
+                />
+                <ImageThumbnail
+                  imageId={r.image.id}
+                  altText={r.image.alt_text}
+                  className="h-12 w-12 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <Input
+                    size="small"
+                    value={r.value}
+                    status={r.error ? "error" : undefined}
+                    onChange={(e) =>
+                      updateRow(r.image.id, { value: e.target.value })
+                    }
+                    placeholder="No value extracted"
+                  />
+                  {r.error && (
+                    <div className="mt-0.5 text-[11px] text-red-500">
+                      {r.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
