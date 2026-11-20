@@ -15,6 +15,7 @@ import {
   Space,
   Table,
   Tag,
+  Typography,
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -33,7 +34,12 @@ import {
 } from "@/api/evaluation";
 import { SearchInput } from "@/components/common/SearchInput";
 import { OcrImageViewer } from "@/components/ocr/OcrImageViewer";
-import type { EvaluationResult } from "@/types/evaluation";
+import {
+  useCopyResultToDataset,
+  useMoveSampleToDatabankCategory,
+} from "@/features/evaluation/useEvaluationMutations";
+import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
+import type { EvaluationDataset, EvaluationResult } from "@/types/evaluation";
 import type { OcrBoundingBox } from "@/types/ocr";
 import { formatMs, formatPercent } from "@/utils/format";
 import {
@@ -55,6 +61,37 @@ const REVIEW_STATUSES = [
   { value: "bad_gt", label: "Bad GT" },
   { value: "skip", label: "Skip" },
 ];
+
+const DATABANK_CATEGORIES = [
+  { value: "general", label: "General" },
+  { value: "blurry", label: "Blurry" },
+  { value: "dead", label: "Dead" },
+  { value: "failed", label: "Failed" },
+];
+
+/**
+ * Datasets eligible as copy-to-dataset targets for a given result:
+ * - must accept samples (`accepts_samples !== false`)
+ * - must not be the source dataset (`id !== preview.dataset_id`)
+ * - must match the source dataset's `ocr_type` when the source is known
+ *   (if the source dataset isn't in the list, the ocr_type filter is skipped)
+ */
+export function eligibleCopyTargets(
+  datasets: EvaluationDataset[],
+  preview: Pick<EvaluationResult, "dataset_id"> | null,
+): EvaluationDataset[] {
+  if (!preview) return [];
+  const source = preview.dataset_id
+    ? datasets.find((d) => d.id === preview.dataset_id)
+    : undefined;
+  const sourceOcrType = source?.ocr_type;
+  return datasets.filter(
+    (d) =>
+      d.accepts_samples !== false &&
+      d.id !== preview.dataset_id &&
+      (sourceOcrType == null || d.ocr_type === sourceOcrType),
+  );
+}
 
 function toCsv(rows: EvaluationResult[]): string {
   const headers = [
@@ -156,6 +193,12 @@ export function EvaluationResultsDrawer({
   const [reviewForm] = Form.useForm();
   const [cropsDownloading, setCropsDownloading] = useState(false);
   const [trainingExporting, setTrainingExporting] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
+  const [copyTargetId, setCopyTargetId] = useState<string | undefined>();
+
+  const moveMutation = useMoveSampleToDatabankCategory();
+  const copyMutation = useCopyResultToDataset();
+  const datasetsQuery = useDatasetsQuery({}, open);
 
   const resultsQuery = useQuery({
     queryKey: ["evaluation", "results", evaluationId, "all"],
@@ -312,6 +355,62 @@ export function EvaluationResultsDrawer({
       });
     }
   }, [preview, reviewForm]);
+
+  const categoryOptions = useMemo(() => {
+    const custom = customCategory.trim();
+    const opts = [...DATABANK_CATEGORIES];
+    if (custom && !opts.some((o) => o.value === custom)) {
+      opts.push({ value: custom, label: custom });
+    }
+    return opts;
+  }, [customCategory]);
+
+  const copyTargets = useMemo(
+    () => eligibleCopyTargets(datasetsQuery.data?.datasets ?? [], preview),
+    [datasetsQuery.data, preview],
+  );
+
+  const categoryDisabled =
+    !preview?.dataset_id ||
+    !preview?.dataset_sample_id ||
+    preview.dataset_sample_id === "None";
+
+  const presetCategory =
+    preview && typeof preview.metadata?.databank_category === "string"
+      ? (preview.metadata.databank_category as string)
+      : undefined;
+
+  const handleMoveCategory = async (category: string) => {
+    if (!preview?.dataset_id || !preview?.dataset_sample_id) return;
+    try {
+      await moveMutation.mutateAsync({
+        datasetId: preview.dataset_id,
+        sampleId: preview.dataset_sample_id,
+        category,
+      });
+      message.success(`Moved to ${category || "general"}`);
+    } catch (e) {
+      message.error(getApiErrorMessage(e));
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!evaluationId || !preview || !copyTargetId) return;
+    const target = copyTargets.find((d) => d.id === copyTargetId);
+    try {
+      const result = await copyMutation.mutateAsync({
+        evaluationId,
+        resultId: preview.id,
+        targetDatasetId: copyTargetId,
+      });
+      message.success(
+        `Copied to ${target?.name ?? result.target_dataset_id}`,
+      );
+      setCopyTargetId(undefined);
+    } catch (e) {
+      message.error(getApiErrorMessage(e));
+    }
+  };
 
   const columns: ColumnsType<EvaluationResult> = [
     {
@@ -804,6 +903,68 @@ export function EvaluationResultsDrawer({
                 <div className="text-xs text-slate-500">Predicted</div>
                 <div className="font-mono font-medium">
                   {preview.predicted_normalized ?? "—"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Reassign image
+                </div>
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">
+                      Databank category
+                    </div>
+                    <Space.Compact className="w-full">
+                      <Select
+                        className="w-full"
+                        placeholder="Databank category"
+                        disabled={categoryDisabled}
+                        loading={moveMutation.isPending}
+                        options={categoryOptions}
+                        value={presetCategory}
+                        onChange={(cat) => void handleMoveCategory(cat)}
+                      />
+                      <Input
+                        placeholder="Custom"
+                        className="w-28"
+                        disabled={categoryDisabled}
+                        value={customCategory}
+                        onChange={(e) => setCustomCategory(e.target.value)}
+                        allowClear
+                      />
+                    </Space.Compact>
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">
+                      Copy to dataset
+                    </div>
+                    {copyTargets.length === 0 ? (
+                      <Typography.Text type="secondary" className="text-xs">
+                        No mutable dataset of this type — create one first.
+                      </Typography.Text>
+                    ) : (
+                      <Space.Compact className="w-full">
+                        <Select
+                          className="w-full"
+                          data-testid="copy-target-select"
+                          placeholder="Select dataset"
+                          value={copyTargetId}
+                          onChange={(v) => setCopyTargetId(v)}
+                          options={copyTargets.map((d) => ({
+                            value: d.id,
+                            label: `${d.name}@${d.version}`,
+                          }))}
+                        />
+                        <Button
+                          loading={copyMutation.isPending}
+                          disabled={!copyTargetId}
+                          onClick={() => void handleCopy()}
+                        >
+                          Copy
+                        </Button>
+                      </Space.Compact>
+                    )}
+                  </div>
                 </div>
               </div>
               <Form form={reviewForm} layout="vertical" className="pt-2">
