@@ -578,6 +578,41 @@ export const handlers = [
     },
   ),
 
+  http.post(
+    "*/v1/evaluation/datasets/:datasetId/samples/:sampleId/move",
+    async ({ request, params }) => {
+      const body = (await request.json()) as { target_dataset_id: string; category?: string };
+      return HttpResponse.json({
+        moved: true,
+        sample_id: String(params.sampleId),
+        source_dataset_id: String(params.datasetId),
+        target_dataset_id: body.target_dataset_id,
+        target_dataset_name: "target-dataset",
+        category: body.category || "General",
+        filename: "sample.png",
+      });
+    },
+  ),
+
+  http.post(
+    "*/v1/evaluation/datasets/:datasetId/batch-move",
+    async ({ request, params }) => {
+      const body = (await request.json()) as {
+        sample_ids: string[];
+        target_dataset_id: string;
+        category?: string;
+      };
+      return HttpResponse.json({
+        moved: true,
+        moved_count: body.sample_ids.length,
+        source_dataset_id: String(params.datasetId),
+        target_dataset_id: body.target_dataset_id,
+        target_dataset_name: "target-dataset",
+        category: body.category || "General",
+      });
+    },
+  ),
+
   http.get("*/v1/evaluation/datasets/:datasetId/samples/:sampleId/image", () => {
     return new HttpResponse(new Blob(["mock-image-data"], { type: "image/png" }), {
       headers: { "Content-Type": "image/png" },

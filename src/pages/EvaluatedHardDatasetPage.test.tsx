@@ -149,4 +149,90 @@ describe("EvaluatedHardDatasetPage (Evaluation Review)", () => {
     ) as HTMLInputElement;
     expect(gtInput.value).toBe("887512");
   });
+
+  it("renders Move button in the table and allows moving an image to another dataset directly", async () => {
+    renderWithProviders(<EvaluatedHardDatasetPage />, {
+      route: "/evaluation/hard-cases",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("1-887512.png")).toBeInTheDocument();
+    });
+
+    // Check Move buttons in table actions
+    const moveButtons = screen.getAllByRole("button", { name: /move/i });
+    expect(moveButtons.length).toBeGreaterThan(0);
+
+    // Click Move on the first row
+    fireEvent.click(moveButtons[0]);
+
+    // Move modal opens
+    await waitFor(() => {
+      expect(
+        screen.getByText("Move Image to Another Dataset"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/This will permanently remove/i),
+      ).toBeInTheDocument();
+    });
+
+    // Check destination dataset selector exists
+    expect(
+      screen.getByText("Choose destination dataset..."),
+    ).toBeInTheDocument();
+  });
+
+  it("supports row selection checkboxes, select-all, and batch move to another dataset", async () => {
+    renderWithProviders(<EvaluatedHardDatasetPage />, {
+      route: "/evaluation/hard-cases",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("1-887512.png")).toBeInTheDocument();
+      expect(screen.getByText("2-123456.png")).toBeInTheDocument();
+    });
+
+    // Check pagination pageSize changer exists
+    const pageSelect = document.querySelector(".ant-pagination-options-size-changer");
+    expect(pageSelect).toBeInTheDocument();
+
+    // Check row checkboxes exist
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes.length).toBeGreaterThan(1); // 1 header checkbox + row checkboxes
+
+    // Click select all checkbox (the first one)
+    fireEvent.click(checkboxes[0]);
+
+    // Batch selection action bar appears
+    await waitFor(() => {
+      expect(screen.getByText(/2 images selected/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /move 2 to dataset/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Click "Move 2 to Dataset"
+    const batchMoveBtn = screen.getByRole("button", {
+      name: /move 2 to dataset/i,
+    });
+    fireEvent.click(batchMoveBtn);
+
+    // Batch Move Modal opens
+    await waitFor(() => {
+      expect(
+        screen.getByText("Batch Move Images to Another Dataset"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/This will permanently remove/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/2 selected image\(s\)/i),
+      ).toBeInTheDocument();
+    });
+
+    // Destination dataset selector exists
+    expect(
+      screen.getByText("Choose destination dataset..."),
+    ).toBeInTheDocument();
+  });
 });

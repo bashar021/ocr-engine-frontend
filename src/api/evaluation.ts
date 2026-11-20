@@ -90,6 +90,51 @@ export async function moveSampleToDatabankCategory(
   return data;
 }
 
+export async function moveDatasetSample(
+  datasetId: string,
+  sampleId: string,
+  payload: {
+    target_dataset_id: string;
+    category?: string;
+  },
+): Promise<{
+  moved: boolean;
+  sample_id: string;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  target_dataset_name: string;
+  category?: string;
+  filename: string;
+}> {
+  const { data } = await apiClient.post(
+    `/v1/evaluation/datasets/${datasetId}/samples/${sampleId}/move`,
+    payload,
+  );
+  return data;
+}
+
+export async function batchMoveDatasetSamples(
+  datasetId: string,
+  payload: {
+    sample_ids: string[];
+    target_dataset_id: string;
+    category?: string;
+  },
+): Promise<{
+  moved: boolean;
+  moved_count: number;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  target_dataset_name: string;
+  category?: string;
+}> {
+  const { data } = await apiClient.post(
+    `/v1/evaluation/datasets/${datasetId}/batch-move`,
+    payload,
+  );
+  return data;
+}
+
 export async function getDatasetSample(
   datasetId: string,
   sampleId: string,

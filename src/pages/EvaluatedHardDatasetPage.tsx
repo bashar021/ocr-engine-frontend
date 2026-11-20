@@ -3,6 +3,7 @@ import {
   Button,
   Input,
   Modal,
+  Popconfirm,
   Select,
   Spin,
   Table,
@@ -10,6 +11,7 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { DefaultOptionType } from "antd/es/select";
 import {
   AlertOutlined,
   CheckCircleOutlined,
@@ -17,6 +19,7 @@ import {
   ClearOutlined,
   EditOutlined,
   SettingOutlined,
+  SwapOutlined,
   ThunderboltOutlined,
   UndoOutlined,
 } from "@ant-design/icons";
@@ -24,11 +27,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
+import { listDatabankDatasets } from "@/api/databank";
 import {
+  batchMoveDatasetSamples,
   extractEvaluationSampleWithGemini,
   fetchEvaluationResultImageObjectUrl,
   fetchSampleImageObjectUrl,
+  listDatasets,
   listEvaluationHardFailures,
+  moveDatasetSample,
   reviewEvaluationResult,
   updateDatasetSample,
 } from "@/api/evaluation";
@@ -42,7 +49,7 @@ import {
 import { useDatasetsQuery } from "@/features/evaluation/useDatasetsQuery";
 import { useEvaluationsQuery } from "@/features/evaluation/useEvaluationsQuery";
 import { useTaskContext } from "@/features/tasks/TaskContext";
-import type { EvaluationResult } from "@/types/evaluation";
+import type { EvaluationDataset, EvaluationResult } from "@/types/evaluation";
 import { formatPercent } from "@/utils/format";
 import {
   FAILURE_TYPE_DESCRIPTIONS,
@@ -64,6 +71,93 @@ where box_2d is [ymin, xmin, ymax, xmax] in normalized coordinates from 0 to 100
 If any point fails from the 3, or if the digits/odometer are unreadable, return {"ground_truth": null, "box_2d": null}.`;
 
 const FAILURE_TYPES = [...HARD_FAILURE_TYPES, "UNKNOWN"];
+
+export interface DestinationDataset {
+  id: string;
+  name: string;
+  version?: string;
+  category: string;
+  sourceType: "evaluation" | "databank";
+  sampleCount?: number;
+}
+
+export function getDestinationDatasetCategory(d: {
+  name: string;
+  metadata?: Record<string, unknown> | null;
+  category?: string;
+}): string {
+  if (d.category && typeof d.category === "string" && d.category.trim()) {
+    return d.category.trim();
+  }
+  const meta = (d.metadata || {}) as Record<string, unknown>;
+  if (meta.category && typeof meta.category === "string" && meta.category.trim()) {
+    return meta.category.trim();
+  }
+  const name = (d.name || "").toLowerCase();
+  if (name.includes("failed")) return "Failed";
+  if (name.includes("blurry")) return "Blurry";
+  if (name.includes("dead")) return "Dead";
+  if (name.includes("benchmark")) return "Benchmark";
+  if (name.includes("hardcase") || name.includes("hard-case")) return "Hard Cases";
+  if (name.includes("reviewed")) return "Reviewed";
+  if (name.includes("healthy")) return "Healthy";
+  if (name.includes("stressed")) return "Stressed";
+  if (name.includes("unseen")) return "Unseen";
+  if (name.includes("raw")) return "Raw";
+  return "General";
+}
+
+export function getDatasetCategory(dataset: EvaluationDataset): string {
+  const meta = (dataset.metadata || {}) as Record<string, unknown>;
+  if (meta.category && typeof meta.category === "string" && meta.category.trim()) {
+    return meta.category.trim();
+  }
+  if (meta.databank_category && typeof meta.databank_category === "string" && meta.databank_category.trim()) {
+    return meta.databank_category.trim();
+  }
+  const name = (dataset.name || "").toLowerCase();
+  if (name.includes("failed")) return "Failed";
+  if (name.includes("blurry")) return "Blurry";
+  if (name.includes("dead")) return "Dead";
+  if (name.includes("benchmark")) return "Benchmark";
+  if (name.includes("hardcase") || name.includes("hard-case")) return "Hard Cases";
+  if (name.includes("reviewed")) return "Reviewed";
+  if (name.includes("healthy")) return "Healthy";
+  if (name.includes("stressed")) return "Stressed";
+  if (name.includes("unseen")) return "Unseen";
+  if (meta.origin === "databank_label_dataset" || meta.purpose === "databank_label_mirror") {
+    return "Label Dataset";
+  }
+  if (dataset.scope === "training" || meta.purpose === "training_hard_cases") {
+    return "Training";
+  }
+  return "General";
+}
+
+export function getCategoryTagColor(category: string): string {
+  const c = category.toLowerCase();
+  if (c.includes("fail")) return "red";
+  if (c.includes("blur")) return "orange";
+  if (c.includes("dead")) return "volcano";
+  if (c.includes("hard")) return "purple";
+  if (c.includes("review")) return "blue";
+  if (c.includes("bench")) return "cyan";
+  if (c.includes("label")) return "green";
+  if (c.includes("train")) return "geekblue";
+  return "default";
+}
+
+export const COMMON_CATEGORIES = [
+  { value: "failed", label: "Failed" },
+  { value: "detection_failure", label: "Detection Failure" },
+  { value: "recognition_failure", label: "Recognition Failure" },
+  { value: "blurry", label: "Blurry" },
+  { value: "dead", label: "Dead" },
+  { value: "reviewed", label: "Reviewed" },
+  { value: "benchmark", label: "Benchmark" },
+  { value: "label_dataset", label: "Label Dataset" },
+  { value: "general", label: "General" },
+];
 
 function FailureMetricsStrip({
   counts,
@@ -113,15 +207,19 @@ function SampleReviewModal({
   result,
   datasetId,
   modelRef,
+  allDatasets = [],
   onClose,
   onSaved,
+  onMoved,
 }: {
   open: boolean;
   result: EvaluationResult | null;
   datasetId?: string;
   modelRef?: string;
+  allDatasets?: (EvaluationDataset | DestinationDataset)[];
   onClose: () => void;
   onSaved: (sampleId: string, newGt: string, newBbox?: DrawnBox | null) => void;
+  onMoved?: (sampleId: string, targetDatasetName: string) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,6 +229,11 @@ function SampleReviewModal({
   const [currentBbox, setCurrentBbox] = useState<DrawnBox | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  // Move to Another Dataset state
+  const [targetMoveDatasetId, setTargetMoveDatasetId] = useState<string | undefined>();
+  const [targetMoveCategory, setTargetMoveCategory] = useState<string>("");
+  const [moving, setMoving] = useState(false);
 
   // Gemini AI state
   const [selectedPromptId, setSelectedPromptId] = useState<string>("odometer_reading");
@@ -382,6 +485,94 @@ function SampleReviewModal({
 
   const predicted = result?.predicted_normalized || result?.predicted_value || "";
   const isMatch = editedGt.trim() && predicted && editedGt.trim() === predicted.trim();
+
+  const currentDatasetId = result?.dataset_id || datasetId;
+
+  const targetDatasetOptions: DefaultOptionType[] = useMemo(() => {
+    const evalItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType !== "databank");
+    const databankItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType === "databank");
+
+    const groups: DefaultOptionType[] = [];
+
+    if (databankItems.length > 0) {
+      groups.push({
+        label: `Databank Datasets (${databankItems.length})`,
+        options: databankItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Databank] ${d.name} (${cat})`,
+            filterText: `${d.name} databank ${cat}`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    if (evalItems.length > 0) {
+      groups.push({
+        label: `Evaluation & Category Datasets (${evalItems.length})`,
+        options: evalItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Evaluation] ${d.name} v${d.version || "1.0.0"} (${cat})`,
+            filterText: `${d.name} ${d.version || ""} ${cat} evaluation`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    return groups;
+  }, [allDatasets]);
+
+  const selectedTargetDataset = useMemo(() => {
+    return allDatasets.find((d) => d.id === targetMoveDatasetId);
+  }, [allDatasets, targetMoveDatasetId]);
+
+  const handleSelectTargetDataset = (dsId: string) => {
+    setTargetMoveDatasetId(dsId);
+    const found = allDatasets.find((d) => d.id === dsId);
+    if (found) {
+      const cat = (found as DestinationDataset).category || getDatasetCategory(found as any);
+      setTargetMoveCategory(cat ? cat.toLowerCase() : "general");
+    }
+  };
+
+  const handleMoveSample = async () => {
+    if (!result) return;
+    const targetSampleId = result.dataset_sample_id;
+    if (!currentDatasetId || !targetSampleId) {
+      message.error("Cannot locate sample ID to move.");
+      return;
+    }
+    if (!targetMoveDatasetId) {
+      message.warning("Please choose a destination dataset.");
+      return;
+    }
+    if (targetMoveDatasetId === currentDatasetId) {
+      message.warning("Destination dataset must be different from current dataset.");
+      return;
+    }
+
+    setMoving(true);
+    try {
+      const res = await moveDatasetSample(currentDatasetId, targetSampleId, {
+        target_dataset_id: targetMoveDatasetId,
+        category: targetMoveCategory.trim() || undefined,
+      });
+      message.success(
+        `Successfully moved "${result.filename ?? "image"}" to "${res.target_dataset_name}" permanently!`,
+      );
+      if (onMoved) {
+        onMoved(targetSampleId, res.target_dataset_name);
+      }
+      onClose();
+    } catch (err) {
+      message.error(getApiErrorMessage(err) || "Failed to move image to dataset.");
+    } finally {
+      setMoving(false);
+    }
+  };
 
   return (
     <Modal
@@ -749,7 +940,511 @@ function SampleReviewModal({
                 </div>
               </div>
             ))}
+
+          {/* Move to Another Dataset Card */}
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 shadow-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <SwapOutlined className="text-indigo-600 text-sm" />
+                <div className="text-xs font-semibold uppercase tracking-wider text-indigo-950">
+                  Move Image to Another Dataset
+                </div>
+              </div>
+              <Tag color="purple" className="mr-0 text-[10px]">
+                Permanent Move
+              </Tag>
+            </div>
+
+            <div className="text-[11px] text-slate-500">
+              Permanently move this image to another dataset (e.g. for retraining detection or separating hard cases). The image will not be copied.
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <label className="mb-0.5 block font-medium text-slate-600 text-[11px]">
+                  Target Dataset:
+                </label>
+                <Select
+                  size="middle"
+                  className="w-full text-xs"
+                  showSearch
+                  placeholder="Select destination dataset..."
+                  value={targetMoveDatasetId}
+                  onChange={handleSelectTargetDataset}
+                  options={targetDatasetOptions}
+                  filterOption={(input, option) =>
+                    Boolean(
+                      (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                        ((option as any)?.filterText as string)?.includes(input.toLowerCase()),
+                    )
+                  }
+                />
+              </div>
+
+              {targetMoveDatasetId && (
+                <div>
+                  <label className="mb-0.5 block font-medium text-slate-600 text-[11px]">
+                    Category for Target Dataset:
+                  </label>
+                  <Select
+                    size="middle"
+                    className="w-full font-mono text-xs"
+                    value={targetMoveCategory}
+                    onChange={setTargetMoveCategory}
+                    placeholder="Select or enter category..."
+                    options={COMMON_CATEGORIES}
+                  />
+                </div>
+              )}
+
+              <Popconfirm
+                title="Permanently move image?"
+                description={
+                  <div className="max-w-[280px] text-xs">
+                    This will permanently remove <strong>{result?.filename}</strong> from the current dataset and move it to <strong>{selectedTargetDataset?.name}</strong>. The image will not be copied.
+                  </div>
+                }
+                okText="Yes, Move Image"
+                cancelText="Cancel"
+                okButtonProps={{ danger: true, loading: moving }}
+                disabled={!targetMoveDatasetId || moving}
+                onConfirm={handleMoveSample}
+              >
+                <Button
+                  type="primary"
+                  block
+                  danger
+                  disabled={!targetMoveDatasetId}
+                  loading={moving}
+                  icon={<SwapOutlined />}
+                  className="text-xs font-semibold"
+                >
+                  {moving ? "Moving image..." : "Move Image to Selected Dataset"}
+                </Button>
+              </Popconfirm>
+            </div>
+          </div>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function MoveSampleModal({
+  open,
+  result,
+  datasetId,
+  allDatasets = [],
+  onClose,
+  onMoved,
+}: {
+  open: boolean;
+  result: EvaluationResult | null;
+  datasetId?: string;
+  allDatasets?: (EvaluationDataset | DestinationDataset)[];
+  onClose: () => void;
+  onMoved: (sampleId: string, targetDatasetName: string) => void;
+}) {
+  const [targetDatasetId, setTargetDatasetId] = useState<string | undefined>();
+  const [category, setCategory] = useState<string>("");
+  const [moving, setMoving] = useState(false);
+
+  const currentDatasetId = result?.dataset_id || datasetId;
+
+  const datasetOptions: DefaultOptionType[] = useMemo(() => {
+    const evalItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType !== "databank");
+    const databankItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType === "databank");
+
+    const groups: DefaultOptionType[] = [];
+
+    if (databankItems.length > 0) {
+      groups.push({
+        label: `Databank Datasets (${databankItems.length})`,
+        options: databankItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Databank] ${d.name} (${cat})`,
+            filterText: `${d.name} databank ${cat}`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    if (evalItems.length > 0) {
+      groups.push({
+        label: `Evaluation & Category Datasets (${evalItems.length})`,
+        options: evalItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Evaluation] ${d.name} v${d.version || "1.0.0"} (${cat})`,
+            filterText: `${d.name} ${d.version || ""} ${cat} evaluation`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    return groups.length > 0
+      ? groups
+      : allDatasets.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `${d.name} (${cat})`,
+            filterText: `${d.name} ${cat}`.toLowerCase(),
+          };
+        });
+  }, [allDatasets]);
+
+  const selectedTarget = useMemo(() => {
+    return allDatasets.find((d) => d.id === targetDatasetId);
+  }, [allDatasets, targetDatasetId]);
+
+  useEffect(() => {
+    if (!open) {
+      setTargetDatasetId(undefined);
+      setCategory("");
+      setMoving(false);
+    }
+  }, [open]);
+
+  const handleSelectDataset = (id: string) => {
+    setTargetDatasetId(id);
+    const found = allDatasets.find((d) => d.id === id);
+    if (found) {
+      const cat = (found as DestinationDataset).category || getDatasetCategory(found as any);
+      setCategory(cat ? cat.toLowerCase() : "general");
+    }
+  };
+
+  const handleMove = async () => {
+    if (!result) return;
+    const sampleId = result.dataset_sample_id;
+    if (!currentDatasetId || !sampleId) {
+      message.error("Cannot locate sample ID to move.");
+      return;
+    }
+    if (!targetDatasetId) {
+      message.warning("Please choose a destination dataset.");
+      return;
+    }
+
+    setMoving(true);
+    try {
+      const res = await moveDatasetSample(currentDatasetId, sampleId, {
+        target_dataset_id: targetDatasetId,
+        category: category.trim() || undefined,
+      });
+      message.success(
+        `Permanently moved "${result.filename ?? "image"}" to "${res.target_dataset_name}"!`,
+      );
+      onMoved(sampleId, res.target_dataset_name);
+      onClose();
+    } catch (err) {
+      message.error(getApiErrorMessage(err) || "Failed to move image to dataset.");
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <SwapOutlined className="text-indigo-600" />
+          <span className="font-semibold text-slate-800">
+            Move Image to Another Dataset
+          </span>
+        </div>
+      }
+      open={open}
+      onCancel={onClose}
+      footer={[
+        <Button key="cancel" onClick={onClose} disabled={moving}>
+          Cancel
+        </Button>,
+        <Button
+          key="submit"
+          type="primary"
+          danger
+          loading={moving}
+          disabled={!targetDatasetId}
+          icon={<SwapOutlined />}
+          onClick={handleMove}
+        >
+          {moving ? "Moving..." : "Permanently Move"}
+        </Button>,
+      ]}
+      destroyOnHidden
+    >
+      <div className="space-y-4 pt-2">
+        <Alert
+          type="info"
+          showIcon
+          message="Permanent Move"
+          description={
+            <span>
+              This will permanently remove <strong>{result?.filename}</strong> from the source dataset and move its file and record to <strong>{selectedTarget ? `${selectedTarget.name} v${selectedTarget.version}` : "the target dataset"}</strong>. It will not be duplicated.
+            </span>
+          }
+        />
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-1">
+          <div>
+            <span className="font-medium text-slate-500">Image:</span>{" "}
+            <span className="font-mono font-semibold text-slate-800">{result?.filename}</span>
+          </div>
+          <div>
+            <span className="font-medium text-slate-500">Ground Truth:</span>{" "}
+            <span className="font-mono font-semibold text-slate-800">
+              {result?.ground_truth_normalized || result?.ground_truth || "(none)"}
+            </span>
+          </div>
+          <div>
+            <span className="font-medium text-slate-500">Predicted:</span>{" "}
+            <span className="font-mono font-semibold text-rose-600">
+              {result?.predicted_normalized || result?.predicted_value || "(none)"}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block font-medium text-slate-700 text-xs">
+            Destination Dataset:
+          </label>
+          <Select
+            className="w-full"
+            showSearch
+            placeholder="Choose destination dataset..."
+            value={targetDatasetId}
+            onChange={handleSelectDataset}
+            options={datasetOptions}
+            filterOption={(input, option) =>
+              Boolean(
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  ((option as any)?.filterText as string)?.includes(input.toLowerCase()),
+              )
+            }
+          />
+        </div>
+
+        {targetDatasetId && (
+          <div>
+            <label className="mb-1 block font-medium text-slate-700 text-xs">
+              Category in Destination Dataset:
+            </label>
+            <Select
+              className="w-full font-mono text-xs"
+              value={category}
+              onChange={setCategory}
+              placeholder="Select category..."
+              options={COMMON_CATEGORIES}
+            />
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function BatchMoveModal({
+  open,
+  datasetId,
+  selectedSampleIds,
+  selectedCount,
+  allDatasets = [],
+  onClose,
+  onMoved,
+}: {
+  open: boolean;
+  datasetId?: string;
+  selectedSampleIds: string[];
+  selectedCount: number;
+  allDatasets?: (EvaluationDataset | DestinationDataset)[];
+  onClose: () => void;
+  onMoved: (movedCount: number, targetDatasetName: string) => void;
+}) {
+  const [targetDatasetId, setTargetDatasetId] = useState<string | undefined>();
+  const [category, setCategory] = useState<string>("");
+  const [moving, setMoving] = useState(false);
+
+  const datasetOptions: DefaultOptionType[] = useMemo(() => {
+    const evalItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType !== "databank");
+    const databankItems = allDatasets.filter((d) => (d as DestinationDataset).sourceType === "databank");
+
+    const groups: DefaultOptionType[] = [];
+
+    if (databankItems.length > 0) {
+      groups.push({
+        label: `Databank Datasets (${databankItems.length})`,
+        options: databankItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Databank] ${d.name} (${cat})`,
+            filterText: `${d.name} databank ${cat}`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    if (evalItems.length > 0) {
+      groups.push({
+        label: `Evaluation & Category Datasets (${evalItems.length})`,
+        options: evalItems.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `[Evaluation] ${d.name} v${d.version || "1.0.0"} (${cat})`,
+            filterText: `${d.name} ${d.version || ""} ${cat} evaluation`.toLowerCase(),
+          };
+        }),
+      });
+    }
+
+    return groups.length > 0
+      ? groups
+      : allDatasets.map((d) => {
+          const cat = (d as DestinationDataset).category || getDatasetCategory(d as any);
+          return {
+            value: d.id,
+            label: `${d.name} (${cat})`,
+            filterText: `${d.name} ${cat}`.toLowerCase(),
+          };
+        });
+  }, [allDatasets]);
+
+  const selectedTarget = useMemo(() => {
+    return allDatasets.find((d) => d.id === targetDatasetId);
+  }, [allDatasets, targetDatasetId]);
+
+  useEffect(() => {
+    if (!open) {
+      setTargetDatasetId(undefined);
+      setCategory("");
+      setMoving(false);
+    }
+  }, [open]);
+
+  const handleSelectDataset = (id: string) => {
+    setTargetDatasetId(id);
+    const found = allDatasets.find((d) => d.id === id);
+    if (found) {
+      const cat = (found as DestinationDataset).category || getDatasetCategory(found as any);
+      setCategory(cat ? cat.toLowerCase() : "general");
+    }
+  };
+
+  const handleMove = async () => {
+    if (!datasetId) {
+      message.error("Source dataset ID is missing.");
+      return;
+    }
+    if (selectedSampleIds.length === 0) {
+      message.warning("No valid sample IDs selected to move.");
+      return;
+    }
+    if (!targetDatasetId) {
+      message.warning("Please choose a destination dataset.");
+      return;
+    }
+
+    setMoving(true);
+    try {
+      const res = await batchMoveDatasetSamples(datasetId, {
+        sample_ids: selectedSampleIds,
+        target_dataset_id: targetDatasetId,
+        category: category.trim() || undefined,
+      });
+      message.success(
+        `Permanently moved ${res.moved_count} image(s) to "${res.target_dataset_name}"!`,
+      );
+      onMoved(res.moved_count, res.target_dataset_name);
+      onClose();
+    } catch (err) {
+      message.error(getApiErrorMessage(err) || "Failed to batch move images to dataset.");
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <SwapOutlined className="text-indigo-600" />
+          <span className="font-semibold text-slate-800">
+            Batch Move Images to Another Dataset
+          </span>
+        </div>
+      }
+      open={open}
+      onCancel={onClose}
+      footer={[
+        <Button key="cancel" onClick={onClose} disabled={moving}>
+          Cancel
+        </Button>,
+        <Button
+          key="submit"
+          type="primary"
+          danger
+          loading={moving}
+          disabled={!targetDatasetId || selectedSampleIds.length === 0}
+          icon={<SwapOutlined />}
+          onClick={handleMove}
+        >
+          {moving ? "Moving..." : `Permanently Move ${selectedCount} Images`}
+        </Button>,
+      ]}
+      destroyOnHidden
+    >
+      <div className="space-y-4 pt-2">
+        <Alert
+          type="info"
+          showIcon
+          message="Permanent Batch Move"
+          description={
+            <span>
+              This will permanently remove <strong>{selectedCount} selected image(s)</strong> from the current dataset and move their files and database records to <strong>{selectedTarget ? `${selectedTarget.name}${selectedTarget.version ? ` v${selectedTarget.version}` : ""}` : "the target dataset"}</strong>. They will not be duplicated.
+            </span>
+          }
+        />
+
+        <div>
+          <label className="mb-1 block font-medium text-slate-700 text-xs">
+            Destination Dataset:
+          </label>
+          <Select
+            className="w-full"
+            showSearch
+            placeholder="Choose destination dataset..."
+            value={targetDatasetId}
+            onChange={handleSelectDataset}
+            options={datasetOptions}
+            filterOption={(input, option) =>
+              Boolean(
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  ((option as any)?.filterText as string)?.includes(input.toLowerCase()),
+              )
+            }
+          />
+        </div>
+
+        {targetDatasetId && (
+          <div>
+            <label className="mb-1 block font-medium text-slate-700 text-xs">
+              Category in Destination Dataset:
+            </label>
+            <Select
+              className="w-full font-mono text-xs"
+              value={category}
+              onChange={setCategory}
+              placeholder="Select category..."
+              options={COMMON_CATEGORIES}
+            />
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -772,7 +1467,12 @@ export function EvaluatedHardDatasetPage() {
 
   // Review modal state
   const [preview, setPreview] = useState<EvaluationResult | null>(null);
+  const [rowToMove, setRowToMove] = useState<EvaluationResult | null>(null);
   const [defaultsApplied, setDefaultsApplied] = useState(false);
+
+  // Batch selection and move state
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false);
 
   // Datasets query — exclude category slices and request ready evaluation datasets
   const datasetsQuery = useDatasetsQuery({
@@ -782,6 +1482,56 @@ export function EvaluatedHardDatasetPage() {
     exclude_categories: true,
     limit: 200,
   });
+
+  // Query ALL Evaluation datasets without any category or scope filter
+  const allEvalDatasetsQuery = useQuery({
+    queryKey: ["evaluation", "datasets", "all-destinations", activeTaskKey],
+    queryFn: () => listDatasets({ limit: 500 }),
+  });
+
+  // Query ALL Databank datasets (label, raw, failed, blurry, dead, etc.)
+  const allDatabankDatasetsQuery = useQuery({
+    queryKey: ["databank", "datasets", "all-destinations", activeTaskKey],
+    queryFn: () => listDatabankDatasets(undefined, { limit: 500 }),
+  });
+
+  // Combine every single dataset in the system so nothing is filtered out
+  const allDestinationDatasets = useMemo<DestinationDataset[]>(() => {
+    const list: DestinationDataset[] = [];
+    const seen = new Set<string>();
+
+    const evalList = allEvalDatasetsQuery.data?.datasets ?? [];
+    for (const d of evalList) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        list.push({
+          id: d.id,
+          name: d.name,
+          version: d.version,
+          category: getDatasetCategory(d),
+          sourceType: "evaluation",
+          sampleCount: d.sample_count,
+        });
+      }
+    }
+
+    const databankList = allDatabankDatasetsQuery.data?.datasets ?? [];
+    for (const d of databankList) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        list.push({
+          id: d.id,
+          name: d.name,
+          version: d.version || "1.0.0",
+          category: getDestinationDatasetCategory({ name: d.name, metadata: d.metadata }),
+          sourceType: "databank",
+          sampleCount: d.sample_count,
+        });
+      }
+    }
+
+    return list;
+  }, [allEvalDatasetsQuery.data?.datasets, allDatabankDatasetsQuery.data?.datasets]);
 
   // Completed evaluations query for the selected dataset
   const evalsQuery = useEvaluationsQuery(
@@ -922,6 +1672,58 @@ export function EvaluatedHardDatasetPage() {
     });
   };
 
+  const selectedResults = useMemo(() => {
+    if (selectedRowKeys.length === 0) return [];
+    const keySet = new Set(selectedRowKeys);
+    return (failuresQuery.data?.results ?? []).filter((r) => keySet.has(r.id));
+  }, [failuresQuery.data?.results, selectedRowKeys]);
+
+  const selectedSampleIds = useMemo(() => {
+    return selectedResults
+      .map((r) => r.dataset_sample_id)
+      .filter((id): id is string => Boolean(id));
+  }, [selectedResults]);
+
+  const handleBatchMoved = (
+    _movedCount: number,
+    _targetDatasetName: string,
+  ) => {
+    setSelectedRowKeys([]);
+    void queryClient.invalidateQueries({
+      queryKey: ["evaluation", "hard-failures"],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["evaluation", "datasets"],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["databank", "datasets"],
+    });
+    setBatchMoveOpen(false);
+  };
+
+  const handleSampleMoved = (
+    movedSampleId: string,
+    _targetDatasetName: string,
+  ) => {
+    setSelectedRowKeys((prev) => {
+      const row = failuresQuery.data?.results.find(
+        (r) => r.dataset_sample_id === movedSampleId,
+      );
+      return row ? prev.filter((k) => k !== row.id) : prev;
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["evaluation", "hard-failures"],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["evaluation", "datasets"],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["databank", "datasets"],
+    });
+    setPreview(null);
+    setRowToMove(null);
+  };
+
   const columns: ColumnsType<EvaluationResult> = [
     {
       title: "Failure type",
@@ -1003,17 +1805,26 @@ export function EvaluatedHardDatasetPage() {
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 110,
+      width: 170,
       render: (_, row) => (
-        <Button
-          size="small"
-          type="primary"
-          ghost
-          icon={<EditOutlined />}
-          onClick={() => setPreview(row)}
-        >
-          Review
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            icon={<EditOutlined />}
+            onClick={() => setPreview(row)}
+          >
+            Review
+          </Button>
+          <Button
+            size="small"
+            icon={<SwapOutlined />}
+            onClick={() => setRowToMove(row)}
+          >
+            Move
+          </Button>
+        </div>
       ),
     },
   ];
@@ -1045,6 +1856,7 @@ export function EvaluatedHardDatasetPage() {
               setDatasetId(v);
               setModelRef(undefined);
               setEvaluationId(undefined);
+              setSelectedRowKeys([]);
               setPage(1);
             }}
           />
@@ -1063,6 +1875,7 @@ export function EvaluatedHardDatasetPage() {
               setModelRef(v);
               const match = modelVersionOptions.find((o) => o.value === v);
               setEvaluationId(match?.evalId);
+              setSelectedRowKeys([]);
               setPage(1);
             }}
           />
@@ -1079,6 +1892,7 @@ export function EvaluatedHardDatasetPage() {
             value={failureType}
             onChange={(v) => {
               setFailureType(v);
+              setSelectedRowKeys([]);
               setPage(1);
             }}
           />
@@ -1091,6 +1905,7 @@ export function EvaluatedHardDatasetPage() {
               value={search}
               onChange={(v) => {
                 setSearch(v);
+                setSelectedRowKeys([]);
                 setPage(1);
               }}
             />
@@ -1103,6 +1918,7 @@ export function EvaluatedHardDatasetPage() {
               onClick={() => {
                 setFailureType(undefined);
                 setSearch("");
+                setSelectedRowKeys([]);
                 setPage(1);
               }}
               size="middle"
@@ -1120,6 +1936,7 @@ export function EvaluatedHardDatasetPage() {
             selectedType={failureType}
             onSelectType={(type) => {
               setFailureType(type);
+              setSelectedRowKeys([]);
               setPage(1);
             }}
           />
@@ -1134,10 +1951,52 @@ export function EvaluatedHardDatasetPage() {
           />
         ) : null}
 
+        {/* Batch Selection Action Bar */}
+        {selectedRowKeys.length > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-xs shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircleOutlined className="text-indigo-600 text-sm" />
+              <span className="font-semibold text-slate-800">
+                {selectedRowKeys.length} {selectedRowKeys.length === 1 ? "image" : "images"} selected
+              </span>
+              {selectedSampleIds.length < selectedRowKeys.length && (
+                <span className="text-[11px] text-amber-700 font-medium">
+                  ({selectedRowKeys.length - selectedSampleIds.length} lack sample ID)
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={() => setSelectedRowKeys([])}
+              >
+                Clear selection
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                danger
+                icon={<SwapOutlined />}
+                disabled={selectedSampleIds.length === 0}
+                onClick={() => setBatchMoveOpen(true)}
+              >
+                Move {selectedRowKeys.length} to Dataset
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Evaluation Results / Failures Table */}
         <div className="min-h-0 flex-1 overflow-auto">
           <Table
             rowKey="id"
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (newSelectedRowKeys) => {
+                setSelectedRowKeys(newSelectedRowKeys);
+              },
+            }}
             size="middle"
             className="rounded-lg border border-slate-200 bg-white shadow-xs"
             columns={columns}
@@ -1149,7 +2008,7 @@ export function EvaluatedHardDatasetPage() {
               pageSize,
               total: failuresQuery.data?.total ?? 0,
               showSizeChanger: true,
-              pageSizeOptions: ["10", "20", "50", "100"],
+              pageSizeOptions: ["10", "20", "50", "100", "500", "1000"],
               onChange: (p, s) => {
                 setPage(p);
                 setPageSize(s);
@@ -1165,8 +2024,31 @@ export function EvaluatedHardDatasetPage() {
         result={preview}
         datasetId={datasetId}
         modelRef={modelRef}
+        allDatasets={allDestinationDatasets}
         onClose={() => setPreview(null)}
         onSaved={handleSavedGt}
+        onMoved={handleSampleMoved}
+      />
+
+      {/* Direct Move Modal from Table */}
+      <MoveSampleModal
+        open={Boolean(rowToMove)}
+        result={rowToMove}
+        datasetId={datasetId}
+        allDatasets={allDestinationDatasets}
+        onClose={() => setRowToMove(null)}
+        onMoved={handleSampleMoved}
+      />
+
+      {/* Batch Move Modal */}
+      <BatchMoveModal
+        open={batchMoveOpen}
+        datasetId={datasetId}
+        selectedSampleIds={selectedSampleIds}
+        selectedCount={selectedRowKeys.length}
+        allDatasets={allDestinationDatasets}
+        onClose={() => setBatchMoveOpen(false)}
+        onMoved={handleBatchMoved}
       />
     </div>
   );
