@@ -103,6 +103,44 @@ const SUGGESTED_KEYWORDS = [
   "car mileage meter digits",
 ];
 
+const DEFAULT_SOURCES = ["bing", "wikimedia", "openverse"];
+const SOURCE_OPTIONS = [
+  { value: "bing", label: "Bing" },
+  { value: "wikimedia", label: "Wikimedia Commons" },
+  { value: "openverse", label: "Openverse" },
+  { value: "flickr", label: "Flickr (needs API key)" },
+  { value: "duckduckgo", label: "DuckDuckGo (unofficial)" },
+];
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  SOURCE_OPTIONS.map((o) => [o.value, o.label.replace(/ \(.*\)$/, "")]),
+);
+
+function ProviderTag({ provider }: { provider?: string | null }) {
+  if (!provider) return null;
+  return (
+    <Tag color="purple" className="m-0 text-[11px]">
+      {SOURCE_LABELS[provider] ?? provider}
+    </Tag>
+  );
+}
+
+function LicenseText({
+  license,
+  licenseUrl,
+}: {
+  license?: string | null;
+  licenseUrl?: string | null;
+}) {
+  if (!license) return null;
+  return licenseUrl ? (
+    <a href={licenseUrl} target="_blank" rel="noreferrer" className="text-xs">
+      {license}
+    </a>
+  ) : (
+    <span className="text-xs text-slate-600">{license}</span>
+  );
+}
+
 const PRESET_IMAGE_COUNTS = [50, 100, 250, 500, 1000, 5000];
 
 // Max labeled images gathered for the "Send labeled → databank" shortcut in one
@@ -217,6 +255,8 @@ export function SpyderPage() {
   const [maxPages, setMaxPages] = useState<number>(10);
   const [depth, setDepth] = useState<number>(2);
   const [categoryId, setCategoryId] = useState<string | undefined>();
+  const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES);
+  const [maxPerSource, setMaxPerSource] = useState<number | undefined>(undefined);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Add-category modal
@@ -253,6 +293,8 @@ export function SpyderPage() {
       );
       setUrl("");
       setKeywords("");
+      setSources(DEFAULT_SOURCES);
+      setMaxPerSource(undefined);
       queryClient.invalidateQueries({ queryKey: ["scraper", "sessions"] });
       queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
       message.success("Autonomous Spyder harvester session started");
@@ -305,8 +347,57 @@ export function SpyderPage() {
       max_pages: trimmedUrl ? maxPages : undefined,
       depth: trimmedUrl ? depth : undefined,
       category_id: categoryId,
+      // Nothing selected = let the server use its defaults.
+      sources: sources.length ? sources : undefined,
+      max_per_source: maxPerSource,
     });
-  }, [url, keywords, maxImages, maxPages, depth, categoryId, scrapeMutation, message]);
+  }, [
+    url,
+    keywords,
+    maxImages,
+    maxPages,
+    depth,
+    categoryId,
+    sources,
+    maxPerSource,
+    scrapeMutation,
+    message,
+  ]);
+
+  // Re-run a stopped/failed session with the same keywords/category/sources.
+  // The server resumes autonomous runs from stored cursors.
+  const handleRunAgain = useCallback(
+    (record: ScraperSession) => {
+      const cfg = record.config as {
+        keywords?: unknown;
+        sources?: unknown;
+        max_per_source?: unknown;
+      };
+      const kw =
+        typeof cfg.keywords === "string" && cfg.keywords.trim()
+          ? cfg.keywords.trim()
+          : record.seed_url?.startsWith("auto:")
+            ? record.seed_url.replace(/^auto:/, "")
+            : undefined;
+      if (!kw) {
+        message.warning("This session has no stored keywords to run again");
+        return;
+      }
+      const prevSources = Array.isArray(cfg.sources)
+        ? (cfg.sources as unknown[]).filter(
+            (x): x is string => typeof x === "string",
+          )
+        : [];
+      scrapeMutation.mutate({
+        keywords: kw,
+        category_id: record.category_id ?? undefined,
+        sources: prevSources.length ? prevSources : undefined,
+        max_per_source:
+          typeof cfg.max_per_source === "number" ? cfg.max_per_source : undefined,
+      });
+    },
+    [scrapeMutation, message],
+  );
 
   const sessions = sessionsQuery.data?.sessions ?? [];
   const activeCount = sessions.filter(
@@ -361,7 +452,7 @@ export function SpyderPage() {
             </Tooltip>
           );
         }
-        return (
+        const statusTag = (
           <Tag color={STATUS_COLORS[status]}>
             {status === "running" ? (
               <Space size={4}>
@@ -372,6 +463,11 @@ export function SpyderPage() {
               status
             )}
           </Tag>
+        );
+        return status === "failed" && record.error ? (
+          <Tooltip title={record.error}>{statusTag}</Tooltip>
+        ) : (
+          statusTag
         );
       },
     },
@@ -427,7 +523,7 @@ export function SpyderPage() {
     {
       title: "Actions",
       key: "actions",
-      width: 130,
+      width: 220,
       render: (_: unknown, record: ScraperSession) => (
         <Space size="small">
           <Button
@@ -444,6 +540,21 @@ export function SpyderPage() {
             >
               <Button type="text" size="small" danger icon={<StopOutlined />}>
                 Stop
+              </Button>
+            </Popconfirm>
+          )}
+          {(record.status === "stopped" || record.status === "failed") && (
+            <Popconfirm
+              title="Run again with the same settings?"
+              description="Continues where the previous run left off."
+              onConfirm={() => handleRunAgain(record)}
+            >
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={scrapeMutation.isPending}
+              >
+                Run again
               </Button>
             </Popconfirm>
           )}
@@ -807,6 +918,49 @@ export function SpyderPage() {
               </div>
             </div>
 
+            <div>
+              <label
+                id="spyder-sources-label"
+                className="mb-1 block text-sm font-semibold text-slate-700"
+              >
+                Sources
+              </label>
+              <Checkbox.Group
+                aria-labelledby="spyder-sources-label"
+                value={sources}
+                onChange={(v) => setSources(v as string[])}
+                className="flex flex-col gap-1"
+              >
+                {SOURCE_OPTIONS.map((o) => (
+                  <Checkbox key={o.value} value={o.value}>
+                    {o.label}
+                  </Checkbox>
+                ))}
+              </Checkbox.Group>
+              <div className="mt-2 flex items-center gap-2">
+                <label
+                  htmlFor="spyder-max-per-source"
+                  className="text-xs font-medium text-slate-600"
+                >
+                  Max per source
+                </label>
+                <InputNumber
+                  id="spyder-max-per-source"
+                  min={1}
+                  size="small"
+                  value={maxPerSource}
+                  onChange={(v) => setMaxPerSource(v ?? undefined)}
+                  placeholder="No cap"
+                  style={{ width: 110 }}
+                />
+              </div>
+              <div className="mt-1.5 text-xs text-slate-500">
+                None selected = Bing + Wikimedia + Openverse. Flickr needs an API
+                key on the server; DuckDuckGo is an unofficial, best-effort
+                endpoint.
+              </div>
+            </div>
+
             {/* Advanced parameters section */}
             <div className="border-t border-slate-200 pt-3">
               <div className="flex items-center justify-between">
@@ -1034,6 +1188,8 @@ export function ScrapeDataPage() {
   const [resFilter, setResFilter] = useState<"all" | "high" | "medium" | "small">(
     (searchParams.get("res") as "all" | "high" | "medium" | "small") || "all",
   );
+  const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined);
+  const [licensedOnly, setLicensedOnly] = useState(false);
   const [sortBy, setSortBy] = useState<string>(
     searchParams.get("sort") || "created_at_desc",
   );
@@ -1113,6 +1269,8 @@ export function ScrapeDataPage() {
       sessionFilter,
       gtFilter,
       resFilter,
+      providerFilter,
+      licensedOnly,
       sortBy,
       debouncedSearch,
       page,
@@ -1125,6 +1283,8 @@ export function ScrapeDataPage() {
         search: debouncedSearch || undefined,
         has_ground_truth:
           gtFilter === "with_gt" ? true : gtFilter === "without_gt" ? false : undefined,
+        provider: providerFilter,
+        has_license: licensedOnly ? true : undefined,
         ...resolutionParams,
         sort_by: sortBy,
         limit: pageSize,
@@ -1316,6 +1476,8 @@ export function ScrapeDataPage() {
     setSessionFilter(undefined);
     setGtFilter("all");
     setResFilter("all");
+    setProviderFilter(undefined);
+    setLicensedOnly(false);
     setSortBy("created_at_desc");
     setSearchInput("");
     setPage(1);
@@ -1326,6 +1488,8 @@ export function ScrapeDataPage() {
       sessionFilter ||
       gtFilter !== "all" ||
       resFilter !== "all" ||
+      Boolean(providerFilter) ||
+      licensedOnly ||
       sortBy !== "created_at_desc" ||
       searchInput,
   );
@@ -1434,6 +1598,22 @@ export function ScrapeDataPage() {
           Get Value
         </Button>
       ),
+    },
+    {
+      title: "Source / License",
+      key: "provenance",
+      width: 170,
+      render: (_: unknown, record: ScraperImage) =>
+        record.provider || record.license ? (
+          <div className="space-y-1">
+            <ProviderTag provider={record.provider} />
+            <div>
+              <LicenseText license={record.license} licenseUrl={record.license_url} />
+            </div>
+          </div>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     {
       title: "Dimensions",
@@ -1716,6 +1896,43 @@ export function ScrapeDataPage() {
                   style={{ width: "100%" }}
                   size="middle"
                 />
+              </div>
+
+              {/* Provider + license filters */}
+              <div>
+                <label
+                  htmlFor="provider-filter"
+                  className="mb-1 block text-xs font-medium text-slate-500"
+                >
+                  Source
+                </label>
+                <Select
+                  id="provider-filter"
+                  value={providerFilter ?? "all"}
+                  onChange={(v) => {
+                    setProviderFilter(v === "all" ? undefined : v);
+                    setPage(1);
+                  }}
+                  options={[
+                    { label: "All Sources", value: "all" },
+                    ...SOURCE_OPTIONS.map((o) => ({
+                      label: SOURCE_LABELS[o.value],
+                      value: o.value,
+                    })),
+                  ]}
+                  style={{ width: "100%" }}
+                  size="middle"
+                />
+                <Checkbox
+                  className="mt-1.5 text-xs"
+                  checked={licensedOnly}
+                  onChange={(e) => {
+                    setLicensedOnly(e.target.checked);
+                    setPage(1);
+                  }}
+                >
+                  Licensed only
+                </Checkbox>
               </div>
 
               {/* 5. Sort By */}
@@ -2046,6 +2263,13 @@ export function ScrapeDataPage() {
                             </Tag>
                           )}
                         </div>
+
+                        {(img.provider || img.license) && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <ProviderTag provider={img.provider} />
+                            <LicenseText license={img.license} licenseUrl={img.license_url} />
+                          </div>
+                        )}
 
                         <Typography.Text
                           ellipsis={{ tooltip: img.alt_text || img.source_url }}
@@ -3284,6 +3508,13 @@ function ImagePreviewModal({
               {image.source_url}
             </Typography.Link>
           </div>
+          {(image.provider || image.license) && (
+            <div className="flex items-center gap-2">
+              <span className="w-24 font-medium text-gray-500">Source:</span>
+              <ProviderTag provider={image.provider} />
+              <LicenseText license={image.license} licenseUrl={image.license_url} />
+            </div>
+          )}
           {image.page_url && (
             <div className="flex items-start gap-2">
               <span className="w-24 font-medium text-gray-500">Page URL:</span>

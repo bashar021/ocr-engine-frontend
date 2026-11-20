@@ -14,6 +14,8 @@ export interface ScraperSessionConfig {
   max_pages?: number;
   depth?: number;
   category_id?: string;
+  sources?: string[];
+  max_per_source?: number;
 }
 
 export type ScraperSessionStatus =
@@ -60,6 +62,9 @@ export interface ScraperImage {
   page_url: string;
   ground_truth?: string | null;
   gt_bbox?: ScraperBBox | null;
+  provider?: string | null;
+  license?: string | null;
+  license_url?: string | null;
   created_at: string;
 }
 

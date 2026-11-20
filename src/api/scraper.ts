@@ -87,6 +87,8 @@ export async function getImages(params?: {
   session_id?: string;
   search?: string;
   has_ground_truth?: boolean;
+  provider?: string;
+  has_license?: boolean;
   min_width?: number;
   max_width?: number;
   min_height?: number;
