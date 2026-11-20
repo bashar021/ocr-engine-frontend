@@ -19,6 +19,8 @@ import {
   TableOutlined,
   TagOutlined,
   UploadOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
@@ -100,6 +102,13 @@ const ENHANCE_PRESETS: { key: ImageEnhancePreset; label: string }[] = [
   { key: "contrast_stretch", label: "Contrast stretch" },
   { key: "denoise", label: "Denoise" },
 ];
+
+// Zoom bounds mirror the clamp inside OcrImageViewer (0.5x – 4x).
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+const clampZoom = (z: number) =>
+  Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
 
 function categoryTagColor(category: string): string {
   const norm = (category || "").trim().toLowerCase();
@@ -844,6 +853,11 @@ export function LabelDataPage() {
       setReviewSample(currentList[currentIndex - 1]);
     }
   };
+
+  // Zoom controls for the review-modal image viewer
+  const handleZoomIn = () => setImgZoom((z) => clampZoom(z + ZOOM_STEP));
+  const handleZoomOut = () => setImgZoom((z) => clampZoom(z - ZOOM_STEP));
+  const handleZoomReset = () => setImgZoom(DEFAULT_ENHANCE.zoom);
 
   // Table Columns
   const sampleColumns: ColumnsType<DatabankSample> = [
@@ -2047,6 +2061,41 @@ export function LabelDataPage() {
                       />
                     ) : (
                       <Spin />
+                    )}
+
+                    {/* Floating zoom controls */}
+                    {previewUrl && (
+                      <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-slate-900/70 px-1.5 py-1 backdrop-blur-sm">
+                        <Tooltip title="Zoom out">
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<ZoomOutOutlined />}
+                            disabled={imgZoom <= ZOOM_MIN}
+                            onClick={handleZoomOut}
+                            className="text-white hover:!text-blue-300"
+                          />
+                        </Tooltip>
+                        <Tooltip title="Reset zoom">
+                          <button
+                            type="button"
+                            onClick={handleZoomReset}
+                            className="min-w-[44px] cursor-pointer select-none rounded px-1 text-center text-xs font-medium text-white tabular-nums hover:text-blue-300"
+                          >
+                            {Math.round(imgZoom * 100)}%
+                          </button>
+                        </Tooltip>
+                        <Tooltip title="Zoom in">
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<ZoomInOutlined />}
+                            disabled={imgZoom >= ZOOM_MAX}
+                            onClick={handleZoomIn}
+                            className="text-white hover:!text-blue-300"
+                          />
+                        </Tooltip>
+                      </div>
                     )}
                   </div>
 
