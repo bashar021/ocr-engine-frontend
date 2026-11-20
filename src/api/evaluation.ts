@@ -543,3 +543,20 @@ export async function extractEvaluationSampleWithGemini(
   return data;
 }
 
+
+export async function copyResultToDataset(
+  evaluationId: string,
+  resultId: string,
+  targetDatasetId: string,
+): Promise<{
+  target_dataset_id: string;
+  sample_id: string;
+  filename: string;
+  sample_count: number;
+}> {
+  const { data } = await apiClient.post(
+    `/v1/evaluations/${evaluationId}/results/${resultId}/copy-to-dataset`,
+    { target_dataset_id: targetDatasetId },
+  );
+  return data;
+}

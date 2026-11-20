@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   archiveDataset,
   cancelEvaluation,
+  copyResultToDataset,
   createDataset,
   deleteAllEvaluations,
   deleteEvaluation,
@@ -169,6 +170,26 @@ export function useSetDatasetEvaluationEligibility() {
       datasetId: string;
       eligible: boolean;
     }) => setDatasetEvaluationEligibility(datasetId, eligible),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["evaluation", "datasets"],
+      });
+    },
+  });
+}
+
+export function useCopyResultToDataset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      evaluationId,
+      resultId,
+      targetDatasetId,
+    }: {
+      evaluationId: string;
+      resultId: string;
+      targetDatasetId: string;
+    }) => copyResultToDataset(evaluationId, resultId, targetDatasetId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["evaluation", "datasets"],

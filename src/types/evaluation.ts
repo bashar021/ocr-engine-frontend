@@ -29,6 +29,8 @@ export interface EvaluationDataset {
   scope?: string | null;
   /** false for curated/merged until explicitly allowed */
   evaluation_eligible?: boolean;
+  /** true when samples can be added to this dataset (copy-to-dataset target) */
+  accepts_samples?: boolean;
   /** Parent datasets when this row is a merge */
   merged_from?: Array<{
     id: string;
