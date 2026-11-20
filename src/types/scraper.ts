@@ -14,6 +14,8 @@ export interface ScraperSessionConfig {
   max_pages?: number;
   depth?: number;
   category_id?: string;
+  sources?: string[];
+  max_per_source?: number;
 }
 
 export type ScraperSessionStatus =
@@ -37,6 +39,13 @@ export interface ScraperSession {
   completed_at: string | null;
 }
 
+export interface ScraperBBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 export interface ScraperImage {
   id: string;
   session_id: string;
@@ -52,7 +61,39 @@ export interface ScraperImage {
   height: number;
   page_url: string;
   ground_truth?: string | null;
+  gt_bbox?: ScraperBBox | null;
+  provider?: string | null;
+  license?: string | null;
+  license_url?: string | null;
   created_at: string;
+}
+
+export interface PromoteToDatabankResult {
+  dataset_id: string;
+  promoted: number;
+  skipped: { id: string; reason: string }[];
+  sample_ids: string[];
+}
+
+export type ScraperLabelJobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped";
+
+export interface ScraperLabelJob {
+  id: string;
+  category_id: string | null;
+  session_id: string | null;
+  status: ScraperLabelJobStatus;
+  total: number;
+  processed: number;
+  saved: number;
+  failed: number;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface GeminiPrompt {

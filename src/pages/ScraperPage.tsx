@@ -46,7 +46,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -63,9 +63,14 @@ import {
   getGeminiPrompts,
   getImageBlob,
   getImages,
+  getLabelJob,
   getSessions,
   getStats,
+  listLabelJobs,
+  promoteToDatabank,
+  startLabelJob,
   startScrape,
+  stopLabelJob,
   stopSession,
   updateCategory,
   updateImageCategory,
@@ -75,6 +80,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { useDebounce } from "@/hooks/useDebounce";
 import { formatBytes } from "@/utils/format";
 import type {
+  ScraperBBox,
   ScraperCategory,
   ScraperImage,
   ScraperSession,
@@ -97,7 +103,49 @@ const SUGGESTED_KEYWORDS = [
   "car mileage meter digits",
 ];
 
+const DEFAULT_SOURCES = ["bing", "wikimedia", "openverse"];
+const SOURCE_OPTIONS = [
+  { value: "bing", label: "Bing" },
+  { value: "wikimedia", label: "Wikimedia Commons" },
+  { value: "openverse", label: "Openverse" },
+  { value: "flickr", label: "Flickr (needs API key)" },
+  { value: "duckduckgo", label: "DuckDuckGo (unofficial)" },
+];
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  SOURCE_OPTIONS.map((o) => [o.value, o.label.replace(/ \(.*\)$/, "")]),
+);
+
+function ProviderTag({ provider }: { provider?: string | null }) {
+  if (!provider) return null;
+  return (
+    <Tag color="purple" className="m-0 text-[11px]">
+      {SOURCE_LABELS[provider] ?? provider}
+    </Tag>
+  );
+}
+
+function LicenseText({
+  license,
+  licenseUrl,
+}: {
+  license?: string | null;
+  licenseUrl?: string | null;
+}) {
+  if (!license) return null;
+  return licenseUrl ? (
+    <a href={licenseUrl} target="_blank" rel="noreferrer" className="text-xs">
+      {license}
+    </a>
+  ) : (
+    <span className="text-xs text-slate-600">{license}</span>
+  );
+}
+
 const PRESET_IMAGE_COUNTS = [50, 100, 250, 500, 1000, 5000];
+
+// Max labeled images gathered for the "Send labeled → databank" shortcut in one
+// click (promote takes explicit ids, so we cap the id-gathering query).
+const PROMOTE_CATEGORY_CAP = 500;
 
 // Preferred Gemini prompt id per category ocr_type (falls back to the first
 // available prompt when there's no match).
@@ -207,6 +255,8 @@ export function SpyderPage() {
   const [maxPages, setMaxPages] = useState<number>(10);
   const [depth, setDepth] = useState<number>(2);
   const [categoryId, setCategoryId] = useState<string | undefined>();
+  const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES);
+  const [maxPerSource, setMaxPerSource] = useState<number | undefined>(undefined);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Add-category modal
@@ -243,6 +293,8 @@ export function SpyderPage() {
       );
       setUrl("");
       setKeywords("");
+      setSources(DEFAULT_SOURCES);
+      setMaxPerSource(undefined);
       queryClient.invalidateQueries({ queryKey: ["scraper", "sessions"] });
       queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
       message.success("Autonomous Spyder harvester session started");
@@ -295,8 +347,57 @@ export function SpyderPage() {
       max_pages: trimmedUrl ? maxPages : undefined,
       depth: trimmedUrl ? depth : undefined,
       category_id: categoryId,
+      // Nothing selected = let the server use its defaults.
+      sources: sources.length ? sources : undefined,
+      max_per_source: maxPerSource,
     });
-  }, [url, keywords, maxImages, maxPages, depth, categoryId, scrapeMutation, message]);
+  }, [
+    url,
+    keywords,
+    maxImages,
+    maxPages,
+    depth,
+    categoryId,
+    sources,
+    maxPerSource,
+    scrapeMutation,
+    message,
+  ]);
+
+  // Re-run a stopped/failed session with the same keywords/category/sources.
+  // The server resumes autonomous runs from stored cursors.
+  const handleRunAgain = useCallback(
+    (record: ScraperSession) => {
+      const cfg = record.config as {
+        keywords?: unknown;
+        sources?: unknown;
+        max_per_source?: unknown;
+      };
+      const kw =
+        typeof cfg.keywords === "string" && cfg.keywords.trim()
+          ? cfg.keywords.trim()
+          : record.seed_url?.startsWith("auto:")
+            ? record.seed_url.replace(/^auto:/, "")
+            : undefined;
+      if (!kw) {
+        message.warning("This session has no stored keywords to run again");
+        return;
+      }
+      const prevSources = Array.isArray(cfg.sources)
+        ? (cfg.sources as unknown[]).filter(
+            (x): x is string => typeof x === "string",
+          )
+        : [];
+      scrapeMutation.mutate({
+        keywords: kw,
+        category_id: record.category_id ?? undefined,
+        sources: prevSources.length ? prevSources : undefined,
+        max_per_source:
+          typeof cfg.max_per_source === "number" ? cfg.max_per_source : undefined,
+      });
+    },
+    [scrapeMutation, message],
+  );
 
   const sessions = sessionsQuery.data?.sessions ?? [];
   const activeCount = sessions.filter(
@@ -351,7 +452,7 @@ export function SpyderPage() {
             </Tooltip>
           );
         }
-        return (
+        const statusTag = (
           <Tag color={STATUS_COLORS[status]}>
             {status === "running" ? (
               <Space size={4}>
@@ -362,6 +463,11 @@ export function SpyderPage() {
               status
             )}
           </Tag>
+        );
+        return status === "failed" && record.error ? (
+          <Tooltip title={record.error}>{statusTag}</Tooltip>
+        ) : (
+          statusTag
         );
       },
     },
@@ -417,7 +523,7 @@ export function SpyderPage() {
     {
       title: "Actions",
       key: "actions",
-      width: 130,
+      width: 220,
       render: (_: unknown, record: ScraperSession) => (
         <Space size="small">
           <Button
@@ -434,6 +540,21 @@ export function SpyderPage() {
             >
               <Button type="text" size="small" danger icon={<StopOutlined />}>
                 Stop
+              </Button>
+            </Popconfirm>
+          )}
+          {(record.status === "stopped" || record.status === "failed") && (
+            <Popconfirm
+              title="Run again with the same settings?"
+              description="Continues where the previous run left off."
+              onConfirm={() => handleRunAgain(record)}
+            >
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={scrapeMutation.isPending}
+              >
+                Run again
               </Button>
             </Popconfirm>
           )}
@@ -797,6 +918,49 @@ export function SpyderPage() {
               </div>
             </div>
 
+            <div>
+              <label
+                id="spyder-sources-label"
+                className="mb-1 block text-sm font-semibold text-slate-700"
+              >
+                Sources
+              </label>
+              <Checkbox.Group
+                aria-labelledby="spyder-sources-label"
+                value={sources}
+                onChange={(v) => setSources(v as string[])}
+                className="flex flex-col gap-1"
+              >
+                {SOURCE_OPTIONS.map((o) => (
+                  <Checkbox key={o.value} value={o.value}>
+                    {o.label}
+                  </Checkbox>
+                ))}
+              </Checkbox.Group>
+              <div className="mt-2 flex items-center gap-2">
+                <label
+                  htmlFor="spyder-max-per-source"
+                  className="text-xs font-medium text-slate-600"
+                >
+                  Max per source
+                </label>
+                <InputNumber
+                  id="spyder-max-per-source"
+                  min={1}
+                  size="small"
+                  value={maxPerSource}
+                  onChange={(v) => setMaxPerSource(v ?? undefined)}
+                  placeholder="No cap"
+                  style={{ width: 110 }}
+                />
+              </div>
+              <div className="mt-1.5 text-xs text-slate-500">
+                None selected = Bing + Wikimedia + Openverse. Flickr needs an API
+                key on the server; DuckDuckGo is an unofficial, best-effort
+                endpoint.
+              </div>
+            </div>
+
             {/* Advanced parameters section */}
             <div className="border-t border-slate-200 pt-3">
               <div className="flex items-center justify-between">
@@ -1024,6 +1188,8 @@ export function ScrapeDataPage() {
   const [resFilter, setResFilter] = useState<"all" | "high" | "medium" | "small">(
     (searchParams.get("res") as "all" | "high" | "medium" | "small") || "all",
   );
+  const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined);
+  const [licensedOnly, setLicensedOnly] = useState(false);
   const [sortBy, setSortBy] = useState<string>(
     searchParams.get("sort") || "created_at_desc",
   );
@@ -1038,6 +1204,9 @@ export function ScrapeDataPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchCategoryModalOpen, setBatchCategoryModalOpen] = useState(false);
   const [batchTargetCategory, setBatchTargetCategory] = useState<string | undefined>();
+
+  // Backend bulk-label job tracking (T7) — id of the job currently being polled.
+  const [labelJobId, setLabelJobId] = useState<string | null>(null);
 
   // Modals state
   const [selectedImage, setSelectedImage] = useState<ScraperImage | null>(null);
@@ -1100,6 +1269,8 @@ export function ScrapeDataPage() {
       sessionFilter,
       gtFilter,
       resFilter,
+      providerFilter,
+      licensedOnly,
       sortBy,
       debouncedSearch,
       page,
@@ -1112,6 +1283,8 @@ export function ScrapeDataPage() {
         search: debouncedSearch || undefined,
         has_ground_truth:
           gtFilter === "with_gt" ? true : gtFilter === "without_gt" ? false : undefined,
+        provider: providerFilter,
+        has_license: licensedOnly ? true : undefined,
         ...resolutionParams,
         sort_by: sortBy,
         limit: pageSize,
@@ -1173,6 +1346,117 @@ export function ScrapeDataPage() {
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
 
+  // T5 — promote selected images into the databank.
+  const promoteMutation = useMutation({
+    mutationFn: (imageIds: string[]) => promoteToDatabank(imageIds),
+    onSuccess: (res) => {
+      const skippedNote =
+        res.skipped.length > 0
+          ? ` · skipped ${res.skipped.length} (${res.skipped[0]?.reason ?? "see details"})`
+          : "";
+      message.success(`Promoted ${res.promoted}${skippedNote}`);
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+      queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // T8 — promote every labeled image in the active category. Promote takes ids,
+  // so we gather the labeled ids from a has_ground_truth query, capped for safety.
+  const promoteCategoryMutation = useMutation({
+    mutationFn: async (categoryId: string) => {
+      const { images: labeledImages, total: labeledTotal } = await getImages({
+        category_id: categoryId,
+        has_ground_truth: true,
+        limit: PROMOTE_CATEGORY_CAP,
+      });
+      const ids = labeledImages.map((i) => i.id);
+      const result = await promoteToDatabank(ids);
+      return { result, labeledTotal, capped: labeledTotal > ids.length };
+    },
+    onSuccess: ({ result, capped }) => {
+      const skippedNote =
+        result.skipped.length > 0 ? ` · skipped ${result.skipped.length}` : "";
+      const capNote = capped
+        ? ` (first ${PROMOTE_CATEGORY_CAP} labeled images)`
+        : "";
+      message.success(`Promoted ${result.promoted}${skippedNote}${capNote}`);
+      queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+      queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // T7 — start a backend bulk-label job for the whole active category.
+  const startLabelJobMutation = useMutation({
+    mutationFn: (categoryId: string) => startLabelJob({ category_id: categoryId }),
+    onSuccess: (job) => {
+      setLabelJobId(job.id);
+      message.success("Auto-label job started");
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // Poll the active job; refetchInterval returns a number while pending/running
+  // and false once terminal (same pattern the sessions query uses).
+  const labelJobQuery = useQuery({
+    queryKey: ["scraper", "label-jobs", labelJobId],
+    queryFn: () => getLabelJob(labelJobId as string),
+    enabled: Boolean(labelJobId),
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === "pending" || s === "running" ? 2000 : false;
+    },
+  });
+  const labelJob = labelJobQuery.data ?? null;
+  const labelJobActive =
+    labelJob?.status === "pending" || labelJob?.status === "running";
+
+  const stopLabelJobMutation = useMutation({
+    mutationFn: (id: string) => stopLabelJob(id),
+    onSuccess: () => void labelJobQuery.refetch(),
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // Reconnect to a still-running job for this category when the page (re)mounts.
+  useQuery({
+    queryKey: ["scraper", "label-jobs", "active", categoryFilter],
+    queryFn: async () => {
+      const jobs = await listLabelJobs({ category_id: categoryFilter, limit: 5 });
+      const active = jobs.find(
+        (j) => j.status === "pending" || j.status === "running",
+      );
+      if (active) setLabelJobId(active.id);
+      return jobs;
+    },
+    enabled: Boolean(categoryFilter) && !labelJobId,
+  });
+
+  // Fire completion side-effects exactly once per job (ref guard keeps this out
+  // of render and avoids a set-state-in-effect lint warning).
+  const notifiedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!labelJob) return;
+    const terminal =
+      labelJob.status === "completed" ||
+      labelJob.status === "failed" ||
+      labelJob.status === "stopped";
+    if (!terminal || notifiedJobRef.current === labelJob.id) return;
+    notifiedJobRef.current = labelJob.id;
+    if (labelJob.status === "completed") {
+      message.success(
+        `Auto-label done — saved ${labelJob.saved}, failed ${labelJob.failed}`,
+      );
+    } else if (labelJob.status === "failed") {
+      message.error(labelJob.error || "Auto-label job failed");
+    } else {
+      message.info("Auto-label job stopped");
+    }
+    queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+    queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+  }, [labelJob, message, queryClient]);
+
   const handleCategoryChange = (id: string, newCatId: string | null) => {
     updateCatMutation.mutate({ id, catId: newCatId });
     setSelectedImage((prev) =>
@@ -1192,6 +1476,8 @@ export function ScrapeDataPage() {
     setSessionFilter(undefined);
     setGtFilter("all");
     setResFilter("all");
+    setProviderFilter(undefined);
+    setLicensedOnly(false);
     setSortBy("created_at_desc");
     setSearchInput("");
     setPage(1);
@@ -1202,6 +1488,8 @@ export function ScrapeDataPage() {
       sessionFilter ||
       gtFilter !== "all" ||
       resFilter !== "all" ||
+      Boolean(providerFilter) ||
+      licensedOnly ||
       sortBy !== "created_at_desc" ||
       searchInput,
   );
@@ -1276,11 +1564,18 @@ export function ScrapeDataPage() {
       dataIndex: "ground_truth",
       key: "ground_truth",
       width: 170,
-      render: (text: string | null | undefined) =>
+      render: (text: string | null | undefined, record: ScraperImage) =>
         text ? (
-          <Tag color="cyan" className="font-mono text-xs px-2 py-0.5">
-            {text}
-          </Tag>
+          <Space size={4} wrap>
+            <Tag color="cyan" className="font-mono text-xs px-2 py-0.5">
+              {text}
+            </Tag>
+            {record.gt_bbox && (
+              <Tag color="green" className="text-xs">
+                bbox ✓
+              </Tag>
+            )}
+          </Space>
         ) : (
           <Tag color="orange" className="text-xs">
             Needs GT
@@ -1303,6 +1598,22 @@ export function ScrapeDataPage() {
           Get Value
         </Button>
       ),
+    },
+    {
+      title: "Source / License",
+      key: "provenance",
+      width: 170,
+      render: (_: unknown, record: ScraperImage) =>
+        record.provider || record.license ? (
+          <div className="space-y-1">
+            <ProviderTag provider={record.provider} />
+            <div>
+              <LicenseText license={record.license} licenseUrl={record.license_url} />
+            </div>
+          </div>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     {
       title: "Dimensions",
@@ -1587,6 +1898,43 @@ export function ScrapeDataPage() {
                 />
               </div>
 
+              {/* Provider + license filters */}
+              <div>
+                <label
+                  htmlFor="provider-filter"
+                  className="mb-1 block text-xs font-medium text-slate-500"
+                >
+                  Source
+                </label>
+                <Select
+                  id="provider-filter"
+                  value={providerFilter ?? "all"}
+                  onChange={(v) => {
+                    setProviderFilter(v === "all" ? undefined : v);
+                    setPage(1);
+                  }}
+                  options={[
+                    { label: "All Sources", value: "all" },
+                    ...SOURCE_OPTIONS.map((o) => ({
+                      label: SOURCE_LABELS[o.value],
+                      value: o.value,
+                    })),
+                  ]}
+                  style={{ width: "100%" }}
+                  size="middle"
+                />
+                <Checkbox
+                  className="mt-1.5 text-xs"
+                  checked={licensedOnly}
+                  onChange={(e) => {
+                    setLicensedOnly(e.target.checked);
+                    setPage(1);
+                  }}
+                >
+                  Licensed only
+                </Checkbox>
+              </div>
+
               {/* 5. Sort By */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -1637,6 +1985,20 @@ export function ScrapeDataPage() {
               </span>
             </Space>
             <Space size="small">
+              <Popconfirm
+                title={`Send ${selectedIds.length} image${selectedIds.length !== 1 ? "s" : ""} to the databank?`}
+                description="Labeled images are promoted into the reviewed databank dataset."
+                onConfirm={() => promoteMutation.mutate(selectedIds)}
+              >
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<DatabaseOutlined />}
+                  loading={promoteMutation.isPending}
+                >
+                  Send to databank
+                </Button>
+              </Popconfirm>
               <Button
                 size="small"
                 type="primary"
@@ -1674,24 +2036,124 @@ export function ScrapeDataPage() {
           </div>
         )}
 
-        {/* Per-category labeling progress (frontend-derived) */}
+        {/* Dataset-readiness card for the active category (T8) with the backend
+            bulk-label job controls (T7). */}
         {categoryFilter && (() => {
           const catTotal =
             categoriesQuery.data?.find((c) => c.id === categoryFilter)?.image_count ?? 0;
           const labeled = categoryLabeledQuery.data?.total;
           const unlabeled =
             labeled == null ? undefined : Math.max(0, catTotal - labeled);
+          const pct =
+            labeled == null || catTotal === 0
+              ? 0
+              : Math.round((labeled / catTotal) * 100);
           return (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-              <span className="font-medium">This category:</span>
-              <Tag color="cyan">
-                Labeled: {labeled == null ? "…" : labeled.toLocaleString()}
-              </Tag>
-              <Tag color="orange">
-                Unlabeled: {unlabeled == null ? "…" : unlabeled.toLocaleString()}
-              </Tag>
-              <span className="text-slate-400">of {catTotal.toLocaleString()} total</span>
-            </div>
+            <Card size="small" className="border-slate-200 shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <Statistic
+                    title={<span className="text-xs text-slate-500">Labeled</span>}
+                    value={labeled == null ? "—" : labeled}
+                    valueStyle={{ fontSize: "1.1rem", fontWeight: 700, color: "#0891b2" }}
+                  />
+                  <Statistic
+                    title={<span className="text-xs text-slate-500">Unlabeled</span>}
+                    value={unlabeled == null ? "—" : unlabeled}
+                    valueStyle={{ fontSize: "1.1rem", fontWeight: 700, color: "#d97706" }}
+                  />
+                  <div className="min-w-[160px]">
+                    <div className="mb-1 text-xs text-slate-500">
+                      % labeled · {catTotal.toLocaleString()} total
+                    </div>
+                    <Progress percent={pct} size="small" status="active" />
+                  </div>
+                </div>
+                <Space size="small" wrap>
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    icon={<ThunderboltOutlined />}
+                    loading={startLabelJobMutation.isPending}
+                    disabled={labelJobActive}
+                    onClick={() => startLabelJobMutation.mutate(categoryFilter)}
+                  >
+                    Auto-label all unlabeled (AI)
+                  </Button>
+                  <Popconfirm
+                    title="Send all labeled images in this category to the databank?"
+                    description={`Promotes up to ${PROMOTE_CATEGORY_CAP} labeled images into the reviewed databank dataset.`}
+                    onConfirm={() => promoteCategoryMutation.mutate(categoryFilter)}
+                  >
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<DatabaseOutlined />}
+                      loading={promoteCategoryMutation.isPending}
+                      disabled={!labeled}
+                    >
+                      Send labeled → databank
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              </div>
+
+              {/* Live progress of the backend bulk-label job (T7). */}
+              {labelJob && (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className="font-medium">Auto-label job:</span>
+                      <Tag
+                        color={
+                          labelJob.status === "completed"
+                            ? "success"
+                            : labelJob.status === "failed"
+                              ? "error"
+                              : labelJob.status === "stopped"
+                                ? "warning"
+                                : "processing"
+                        }
+                      >
+                        {labelJob.status}
+                      </Tag>
+                      <span>
+                        {labelJob.processed}/{labelJob.total} processed · saved{" "}
+                        {labelJob.saved} · failed {labelJob.failed}
+                      </span>
+                    </div>
+                    {labelJobActive && (
+                      <Button
+                        size="small"
+                        danger
+                        icon={<StopOutlined />}
+                        loading={stopLabelJobMutation.isPending}
+                        onClick={() => stopLabelJobMutation.mutate(labelJob.id)}
+                      >
+                        Stop
+                      </Button>
+                    )}
+                  </div>
+                  <Progress
+                    className="mt-1"
+                    percent={
+                      labelJob.total > 0
+                        ? Math.round((labelJob.processed / labelJob.total) * 100)
+                        : 0
+                    }
+                    size="small"
+                    status={
+                      labelJob.status === "failed"
+                        ? "exception"
+                        : labelJobActive
+                          ? "active"
+                          : "normal"
+                    }
+                  />
+                </div>
+              )}
+            </Card>
           );
         })()}
 
@@ -1785,15 +2247,29 @@ export function ScrapeDataPage() {
                             {img.category_name || "Uncategorized"}
                           </Tag>
                           {img.ground_truth ? (
-                            <Tag color="cyan" className="m-0 font-mono text-[11px] font-medium">
-                              {img.ground_truth}
-                            </Tag>
+                            <Space size={2}>
+                              <Tag color="cyan" className="m-0 font-mono text-[11px] font-medium">
+                                {img.ground_truth}
+                              </Tag>
+                              {img.gt_bbox && (
+                                <Tag color="green" className="m-0 text-[10px]">
+                                  bbox ✓
+                                </Tag>
+                              )}
+                            </Space>
                           ) : (
                             <Tag color="orange" className="m-0 text-[10px]">
                               Needs GT
                             </Tag>
                           )}
                         </div>
+
+                        {(img.provider || img.license) && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <ProviderTag provider={img.provider} />
+                            <LicenseText license={img.license} licenseUrl={img.license_url} />
+                          </div>
+                        )}
 
                         <Typography.Text
                           ellipsis={{ tooltip: img.alt_text || img.source_url }}
@@ -2196,6 +2672,7 @@ function GetValueModal({
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string>("");
   const [reviewedValue, setReviewedValue] = useState<string>(image.ground_truth || "");
+  const [bbox, setBbox] = useState<ScraperBBox | null>(image.gt_bbox ?? null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [usedModelTag, setUsedModelTag] = useState<string | null>(null);
 
@@ -2270,6 +2747,7 @@ function GetValueModal({
       setUsedModelTag(data.model);
       message.success("Extracted response from Gemini! Review below before saving.");
       setReviewedValue(data.extracted_value);
+      setBbox(data.bbox ?? null);
     },
     onError: (err) => {
       const errMsg = getApiErrorMessage(err);
@@ -2279,7 +2757,7 @@ function GetValueModal({
   });
 
   const saveMutation = useMutation({
-    mutationFn: (gt: string) => updateImageGroundTruth(image.id, gt),
+    mutationFn: (gt: string) => updateImageGroundTruth(image.id, gt, bbox),
     onSuccess: (updated) => {
       message.success("Ground truth saved to image row!");
       onSaved(updated);
@@ -2366,11 +2844,26 @@ function GetValueModal({
             {imageLoading ? (
               <Spin size="small" />
             ) : previewUrl ? (
-              <img
-                src={previewUrl}
-                alt={image.alt_text ?? "Image to extract"}
-                className="h-full w-full object-contain"
-              />
+              <div className="relative inline-block">
+                <img
+                  src={previewUrl}
+                  alt={image.alt_text ?? "Image to extract"}
+                  className="max-h-32 max-w-[176px] object-contain"
+                />
+                {/* bbox overlay — coords are pixels relative to the natural image
+                    size, mapped to percentages of the tightly-wrapped preview. */}
+                {bbox && image.width > 0 && image.height > 0 && (
+                  <div
+                    className="pointer-events-none absolute border-2 border-emerald-400 bg-emerald-400/10"
+                    style={{
+                      left: `${(bbox.x1 / image.width) * 100}%`,
+                      top: `${(bbox.y1 / image.height) * 100}%`,
+                      width: `${((bbox.x2 - bbox.x1) / image.width) * 100}%`,
+                      height: `${((bbox.y2 - bbox.y1) / image.height) * 100}%`,
+                    }}
+                  />
+                )}
+              </div>
             ) : previewFailed ? (
               <Typography.Text type="secondary" className="text-xs">
                 Image preview unavailable
@@ -2520,6 +3013,7 @@ function GetValueModal({
               {usedModelTag && (
                 <Tag color="geekblue">Model: {usedModelTag}</Tag>
               )}
+              {bbox && <Tag color="green">bbox ✓</Tag>}
               {reviewedValue && (
                 <Tag color="purple">Ready to Save</Tag>
               )}
@@ -2557,6 +3051,7 @@ interface BulkRow {
   image: ScraperImage;
   ocrType?: string;
   value: string;
+  bbox?: ScraperBBox | null;
   accepted: boolean;
   error?: string;
 }
@@ -2656,6 +3151,7 @@ function BulkLabelModal({
           image: img,
           ocrType: ot,
           value,
+          bbox: res.bbox ?? null,
           accepted: Boolean(value) && !err,
           error: err,
         });
@@ -2697,7 +3193,7 @@ function BulkLabelModal({
     let saved = 0;
     for (const r of acceptedRows) {
       try {
-        await updateImageGroundTruth(r.image.id, r.value.trim());
+        await updateImageGroundTruth(r.image.id, r.value.trim(), r.bbox);
         saved += 1;
       } catch {
         /* keep going; failed rows stay unsaved */
@@ -2852,10 +3348,16 @@ function BulkLabelModal({
                     }
                     placeholder="No value extracted"
                   />
-                  {r.error && (
+                  {r.error ? (
                     <div className="mt-0.5 text-[11px] text-red-500">
                       {r.error}
                     </div>
+                  ) : (
+                    r.bbox && (
+                      <Tag color="green" className="mt-1 text-[10px]">
+                        bbox ✓
+                      </Tag>
+                    )
                   )}
                 </div>
               </div>
@@ -3006,6 +3508,13 @@ function ImagePreviewModal({
               {image.source_url}
             </Typography.Link>
           </div>
+          {(image.provider || image.license) && (
+            <div className="flex items-center gap-2">
+              <span className="w-24 font-medium text-gray-500">Source:</span>
+              <ProviderTag provider={image.provider} />
+              <LicenseText license={image.license} licenseUrl={image.license_url} />
+            </div>
+          )}
           {image.page_url && (
             <div className="flex items-start gap-2">
               <span className="w-24 font-medium text-gray-500">Page URL:</span>

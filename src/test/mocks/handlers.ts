@@ -1193,6 +1193,123 @@ export const handlers = [
     });
   }),
 
+  http.put("*/v1/scraper/images/:id/ground-truth", async ({ request, params }) => {
+    const body = (await request.json()) as {
+      ground_truth: string | null;
+      bbox?: { x1: number; y1: number; x2: number; y2: number } | null;
+    };
+    return HttpResponse.json({
+      id: String(params.id),
+      session_id: "sess-1",
+      category_id: "cat-1",
+      category_name: "Odometers",
+      source_url: "https://example.com/x.jpg",
+      file_path: "/data/x.jpg",
+      content_hash: "hash",
+      alt_text: null,
+      context: null,
+      file_size_bytes: 1000,
+      width: 100,
+      height: 80,
+      page_url: "https://example.com",
+      ground_truth: body.ground_truth,
+      gt_bbox: body.bbox ?? null,
+      created_at: "2026-01-05T10:00:00+00:00",
+    });
+  }),
+
+  http.post("*/v1/scraper/promote-to-databank", async ({ request }) => {
+    const body = (await request.json()) as {
+      image_ids: string[];
+      ocr_type?: string;
+      dataset_id?: string;
+    };
+    const ids = body.image_ids ?? [];
+    return HttpResponse.json({
+      dataset_id: body.dataset_id ?? "cat-dataset-1",
+      promoted: ids.length,
+      skipped: [],
+      sample_ids: ids.map((id) => `sample-${id}`),
+    });
+  }),
+
+  http.post("*/v1/scraper/label-jobs", async ({ request }) => {
+    const body = (await request.json()) as { category_id?: string };
+    return HttpResponse.json({
+      job: {
+        id: "label-job-1",
+        category_id: body.category_id ?? null,
+        session_id: null,
+        status: "pending",
+        total: 10,
+        processed: 0,
+        saved: 0,
+        failed: 0,
+        error: null,
+        created_at: "2026-01-06T10:00:00+00:00",
+        completed_at: null,
+      },
+    });
+  }),
+
+  http.get("*/v1/scraper/label-jobs/:id", ({ params }) => {
+    return HttpResponse.json({
+      job: {
+        id: String(params.id),
+        category_id: "cat-1",
+        session_id: null,
+        status: "running",
+        total: 10,
+        processed: 4,
+        saved: 3,
+        failed: 1,
+        error: null,
+        created_at: "2026-01-06T10:00:00+00:00",
+        completed_at: null,
+      },
+    });
+  }),
+
+  http.post("*/v1/scraper/label-jobs/:id/stop", ({ params }) => {
+    return HttpResponse.json({
+      job: {
+        id: String(params.id),
+        category_id: "cat-1",
+        session_id: null,
+        status: "stopped",
+        total: 10,
+        processed: 4,
+        saved: 3,
+        failed: 1,
+        error: null,
+        created_at: "2026-01-06T10:00:00+00:00",
+        completed_at: "2026-01-06T10:05:00+00:00",
+      },
+    });
+  }),
+
+  http.get("*/v1/scraper/label-jobs", ({ request }) => {
+    const url = new URL(request.url);
+    const categoryId = url.searchParams.get("category_id");
+    return HttpResponse.json({
+      jobs: [
+        {
+          id: "label-job-1",
+          category_id: categoryId ?? "cat-1",
+          session_id: null,
+          status: "completed",
+          total: 10,
+          processed: 10,
+          saved: 9,
+          failed: 1,
+          error: null,
+          created_at: "2026-01-06T10:00:00+00:00",
+          completed_at: "2026-01-06T10:10:00+00:00",
+        },
+      ],
+    });
+  }),
+
   http.get("*/v1/models/recognition-configs", () => {
     return HttpResponse.json({
       configs: [

@@ -2,8 +2,11 @@ import { apiClient } from "@/api/client";
 import type {
   GeminiConfig,
   GeminiPrompt,
+  PromoteToDatabankResult,
+  ScraperBBox,
   ScraperCategory,
   ScraperImage,
+  ScraperLabelJob,
   ScraperSession,
   ScraperSessionConfig,
   ScraperStats,
@@ -84,6 +87,8 @@ export async function getImages(params?: {
   session_id?: string;
   search?: string;
   has_ground_truth?: boolean;
+  provider?: string;
+  has_license?: boolean;
   min_width?: number;
   max_width?: number;
   min_height?: number;
@@ -158,12 +163,64 @@ export async function getStats(): Promise<ScraperStats> {
 export async function updateImageGroundTruth(
   id: string,
   groundTruth: string | null,
+  bbox?: ScraperBBox | null,
 ): Promise<ScraperImage> {
   const { data } = await apiClient.put<ScraperImage>(
     `/v1/scraper/images/${id}/ground-truth`,
-    { ground_truth: groundTruth },
+    { ground_truth: groundTruth, bbox: bbox ?? null },
   );
   return data;
+}
+
+export async function promoteToDatabank(
+  imageIds: string[],
+  opts?: { ocr_type?: string; dataset_id?: string },
+): Promise<PromoteToDatabankResult> {
+  const { data } = await apiClient.post<PromoteToDatabankResult>(
+    "/v1/scraper/promote-to-databank",
+    { image_ids: imageIds, ocr_type: opts?.ocr_type, dataset_id: opts?.dataset_id },
+  );
+  return data;
+}
+
+export async function startLabelJob(body: {
+  category_id?: string;
+  session_id?: string;
+  prompt?: string;
+  model?: string;
+  api_key?: string;
+  limit?: number;
+}): Promise<ScraperLabelJob> {
+  const { data } = await apiClient.post<{ job: ScraperLabelJob }>(
+    "/v1/scraper/label-jobs",
+    body,
+  );
+  return data.job;
+}
+
+export async function getLabelJob(id: string): Promise<ScraperLabelJob> {
+  const { data } = await apiClient.get<{ job: ScraperLabelJob }>(
+    `/v1/scraper/label-jobs/${id}`,
+  );
+  return data.job;
+}
+
+export async function stopLabelJob(id: string): Promise<ScraperLabelJob> {
+  const { data } = await apiClient.post<{ job: ScraperLabelJob }>(
+    `/v1/scraper/label-jobs/${id}/stop`,
+  );
+  return data.job;
+}
+
+export async function listLabelJobs(params?: {
+  category_id?: string;
+  limit?: number;
+}): Promise<ScraperLabelJob[]> {
+  const { data } = await apiClient.get<{ jobs: ScraperLabelJob[] }>(
+    "/v1/scraper/label-jobs",
+    { params },
+  );
+  return data.jobs;
 }
 
 export async function getGeminiPrompts(): Promise<GeminiPrompt[]> {
@@ -183,11 +240,17 @@ export async function getGeminiConfig(): Promise<GeminiConfig> {
 export async function extractWithGemini(
   id: string,
   params: { prompt: string; api_key?: string; model?: string },
-): Promise<{ extracted_value: string; model: string; prompt: string }> {
+): Promise<{
+  extracted_value: string;
+  model: string;
+  prompt: string;
+  bbox?: ScraperBBox | null;
+}> {
   const { data } = await apiClient.post<{
     extracted_value: string;
     model: string;
     prompt: string;
+    bbox?: ScraperBBox | null;
   }>(`/v1/scraper/images/${id}/extract-gemini`, params);
   return data;
 }
