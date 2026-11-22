@@ -2416,6 +2416,7 @@ export function ScrapeDataPage() {
             onDone={() => {
               queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
               queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+              queryClient.invalidateQueries({ queryKey: ["scraper", "categories"] });
             }}
           />
         )}
@@ -3075,6 +3076,17 @@ function BulkLabelModal({
   const [apiKey, setApiKey] = useState("");
   const [selectedPromptId, setSelectedPromptId] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
+  const [moveFailedToCategory, setMoveFailedToCategory] = useState(true);
+
+  const failedCategory = useMemo(
+    () =>
+      categories.find((c) =>
+        ["failed-in-labeling", "failed_in_labeling", "failed in labeling"].includes(
+          c.name.trim().toLowerCase(),
+        ),
+      ),
+    [categories],
+  );
 
   const promptsQuery = useQuery({
     queryKey: ["scraper", "prompts"],
@@ -3183,10 +3195,15 @@ function BulkLabelModal({
   const acceptedRows = rows.filter(
     (r) => r.accepted && r.value.trim() && !r.error,
   );
+  const failedRows = rows.filter(
+    (r) => !r.accepted || !r.value.trim() || Boolean(r.error),
+  );
 
   const saveAccepted = async () => {
-    if (acceptedRows.length === 0) {
-      message.warning("No accepted values to save");
+    const shouldMoveFailed =
+      moveFailedToCategory && failedCategory && failedRows.length > 0;
+    if (acceptedRows.length === 0 && !shouldMoveFailed) {
+      message.warning("No accepted values to save or failed images to move");
       return;
     }
     setSaving(true);
@@ -3199,10 +3216,33 @@ function BulkLabelModal({
         /* keep going; failed rows stay unsaved */
       }
     }
+
+    let movedCount = 0;
+    if (shouldMoveFailed) {
+      try {
+        const failedIds = failedRows.map((r) => r.image.id);
+        const res = await batchUpdateImageCategory(failedIds, failedCategory.id);
+        movedCount = res.updated_count ?? failedIds.length;
+      } catch (e) {
+        message.error(`Failed to move failed images: ${getApiErrorMessage(e)}`);
+      }
+    }
     setSaving(false);
-    message.success(
-      `Saved ground truth for ${saved} image${saved === 1 ? "" : "s"}`,
-    );
+
+    const parts: string[] = [];
+    if (saved > 0) {
+      parts.push(`Saved ground truth for ${saved} image${saved === 1 ? "" : "s"}`);
+    }
+    if (movedCount > 0) {
+      parts.push(
+        `moved ${movedCount} failed image${
+          movedCount === 1 ? "" : "s"
+        } to "${failedCategory?.name}"`,
+      );
+    }
+    if (parts.length > 0) {
+      message.success(parts.join("; "));
+    }
     onDone();
     onClose();
   };
@@ -3230,10 +3270,19 @@ function BulkLabelModal({
             <Button
               type="primary"
               loading={saving}
-              disabled={acceptedRows.length === 0}
+              disabled={
+                acceptedRows.length === 0 &&
+                !(moveFailedToCategory && failedCategory && failedRows.length > 0)
+              }
               onClick={() => void saveAccepted()}
             >
-              Save {acceptedRows.length} accepted
+              {acceptedRows.length > 0
+                ? `Save ${acceptedRows.length} accepted${
+                    moveFailedToCategory && failedCategory && failedRows.length > 0
+                      ? ` & move ${failedRows.length} failed`
+                      : ""
+                  }`
+                : `Move ${failedRows.length} failed to '${failedCategory?.name}'`}
             </Button>
           </div>
         ) : (
@@ -3316,10 +3365,37 @@ function BulkLabelModal({
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>Review each value. Only accepted rows are saved.</span>
             <span>
-              {acceptedRows.length} accepted ·{" "}
-              {rows.length - acceptedRows.length} skipped
+              <span className="font-medium text-emerald-600">
+                {acceptedRows.length} accepted
+              </span>{" "}
+              ·{" "}
+              <span className="font-medium text-amber-600">
+                {failedRows.length} failed/skipped
+              </span>
             </span>
           </div>
+
+          {failedCategory && failedRows.length > 0 && (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <div className="flex items-center gap-1.5">
+                <ExclamationCircleOutlined className="text-amber-600" />
+                <span>
+                  <strong>{failedRows.length}</strong> image
+                  {failedRows.length === 1 ? "" : "s"} failed or not accepted
+                </span>
+              </div>
+              <Checkbox
+                checked={moveFailedToCategory}
+                onChange={(e) => setMoveFailedToCategory(e.target.checked)}
+              >
+                <span className="text-xs">
+                  Move failed images to category{" "}
+                  <strong>&quot;{failedCategory.name}&quot;</strong>
+                </span>
+              </Checkbox>
+            </div>
+          )}
+
           <div className="max-h-[52vh] space-y-2 overflow-auto pr-1">
             {rows.map((r) => (
               <div
@@ -3352,6 +3428,10 @@ function BulkLabelModal({
                     <div className="mt-0.5 text-[11px] text-red-500">
                       {r.error}
                     </div>
+                  ) : !r.value ? (
+                    <div className="mt-0.5 text-[11px] text-amber-600 italic">
+                      No value extracted by AI
+                    </div>
                   ) : (
                     r.bbox && (
                       <Tag color="green" className="mt-1 text-[10px]">
@@ -3359,6 +3439,13 @@ function BulkLabelModal({
                       </Tag>
                     )
                   )}
+                  {moveFailedToCategory &&
+                    failedCategory &&
+                    (!r.accepted || !r.value.trim() || r.error) && (
+                      <Tag color="orange" className="mt-1 text-[10px]">
+                        → will move to {failedCategory.name}
+                      </Tag>
+                    )}
                 </div>
               </div>
             ))}
