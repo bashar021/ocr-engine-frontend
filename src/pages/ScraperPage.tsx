@@ -103,13 +103,13 @@ const SUGGESTED_KEYWORDS = [
   "car mileage meter digits",
 ];
 
-const DEFAULT_SOURCES = ["bing", "wikimedia", "openverse"];
+const DEFAULT_SOURCES = ["duckduckgo", "bing", "wikimedia", "openverse"];
 const SOURCE_OPTIONS = [
-  { value: "bing", label: "Bing" },
+  { value: "duckduckgo", label: "DuckDuckGo (Fast & High-res)" },
+  { value: "bing", label: "Bing Images" },
   { value: "wikimedia", label: "Wikimedia Commons" },
   { value: "openverse", label: "Openverse" },
   { value: "flickr", label: "Flickr (needs API key)" },
-  { value: "duckduckgo", label: "DuckDuckGo (unofficial)" },
 ];
 const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
   SOURCE_OPTIONS.map((o) => [o.value, o.label.replace(/ \(.*\)$/, "")]),
