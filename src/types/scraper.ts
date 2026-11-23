@@ -96,6 +96,41 @@ export interface ScraperLabelJob {
   completed_at: string | null;
 }
 
+export type ScraperFilterJobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped";
+
+export interface ScraperFilterJob {
+  id: string;
+  category_id: string | null;
+  garbage_category_id: string | null;
+  valid_category_id: string | null;
+  prompt: string;
+  model: string;
+  status: ScraperFilterJobStatus;
+  total: number;
+  processed: number;
+  valid_count: number;
+  garbage_count: number;
+  failed_count: number;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ScraperFilterPrompt {
+  id: string;
+  name: string;
+  prompt: string;
+  description?: string | null;
+  is_default?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface GeminiPrompt {
   id: string;
   name: string;

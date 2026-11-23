@@ -5,6 +5,8 @@ import type {
   PromoteToDatabankResult,
   ScraperBBox,
   ScraperCategory,
+  ScraperFilterJob,
+  ScraperFilterPrompt,
   ScraperImage,
   ScraperLabelJob,
   ScraperSession,
@@ -253,4 +255,87 @@ export async function extractWithGemini(
     bbox?: ScraperBBox | null;
   }>(`/v1/scraper/images/${id}/extract-gemini`, params);
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Qwen2.5-VL 7B Garbage Filter Jobs & Reusable Prompts
+// ---------------------------------------------------------------------------
+
+export async function startFilterJob(body: {
+  category_id?: string;
+  garbage_category_id?: string;
+  valid_category_id?: string;
+  image_ids?: string[];
+  prompt?: string;
+  model?: string;
+  unlabeled_only?: boolean;
+  limit?: number;
+}): Promise<ScraperFilterJob> {
+  const { data } = await apiClient.post<{ job: ScraperFilterJob }>(
+    "/v1/scraper/filter-jobs",
+    body,
+  );
+  return data.job;
+}
+
+export async function getFilterJob(id: string): Promise<ScraperFilterJob> {
+  const { data } = await apiClient.get<{ job: ScraperFilterJob }>(
+    `/v1/scraper/filter-jobs/${id}`,
+  );
+  return data.job;
+}
+
+export async function stopFilterJob(id: string): Promise<ScraperFilterJob> {
+  const { data } = await apiClient.post<{ job: ScraperFilterJob }>(
+    `/v1/scraper/filter-jobs/${id}/stop`,
+  );
+  return data.job;
+}
+
+export async function listFilterJobs(params?: {
+  category_id?: string;
+  limit?: number;
+}): Promise<ScraperFilterJob[]> {
+  const { data } = await apiClient.get<{ jobs: ScraperFilterJob[] }>(
+    "/v1/scraper/filter-jobs",
+    { params },
+  );
+  return data.jobs;
+}
+
+export async function getFilterPrompts(): Promise<ScraperFilterPrompt[]> {
+  const { data } = await apiClient.get<{ prompts: ScraperFilterPrompt[] }>(
+    "/v1/scraper/filter-prompts",
+  );
+  return data.prompts;
+}
+
+export async function createFilterPrompt(body: {
+  name: string;
+  prompt: string;
+  description?: string;
+}): Promise<ScraperFilterPrompt> {
+  const { data } = await apiClient.post<{ prompt: ScraperFilterPrompt }>(
+    "/v1/scraper/filter-prompts",
+    body,
+  );
+  return data.prompt;
+}
+
+export async function updateFilterPrompt(
+  id: string,
+  body: { name?: string; prompt?: string; description?: string },
+): Promise<ScraperFilterPrompt> {
+  const { data } = await apiClient.put<{ prompt: ScraperFilterPrompt }>(
+    `/v1/scraper/filter-prompts/${id}`,
+    body,
+  );
+  return data.prompt;
+}
+
+export async function deleteFilterPrompt(id: string): Promise<boolean> {
+  const { data } = await apiClient.delete<{ deleted: boolean }>(
+    `/v1/scraper/filter-prompts/${id}`,
+  );
+  return data.deleted;
 }

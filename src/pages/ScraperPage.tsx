@@ -55,10 +55,14 @@ import {
   batchDeleteImages,
   batchUpdateImageCategory,
   createCategory,
+  createFilterPrompt,
   deleteCategory,
+  deleteFilterPrompt,
   deleteImage,
   extractWithGemini,
   getCategories,
+  getFilterJob,
+  getFilterPrompts,
   getGeminiConfig,
   getGeminiPrompts,
   getImageBlob,
@@ -66,16 +70,21 @@ import {
   getLabelJob,
   getSessions,
   getStats,
+  listFilterJobs,
   listLabelJobs,
   promoteToDatabank,
+  startFilterJob,
   startLabelJob,
   startScrape,
+  stopFilterJob,
   stopLabelJob,
   stopSession,
   updateCategory,
+  updateFilterPrompt,
   updateImageCategory,
   updateImageGroundTruth,
 } from "@/api/scraper";
+import { listDatabankDatasets } from "@/api/databank";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useDebounce } from "@/hooks/useDebounce";
 import { formatBytes } from "@/utils/format";
@@ -252,7 +261,7 @@ export function SpyderPage() {
   const [url, setUrl] = useState("");
   const [keywords, setKeywords] = useState("");
   const [maxImages, setMaxImages] = useState<number>(100);
-  const [maxPages, setMaxPages] = useState<number>(10);
+  const [maxPages, setMaxPages] = useState<number>(0);
   const [depth, setDepth] = useState<number>(2);
   const [categoryId, setCategoryId] = useState<string | undefined>();
   const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES);
@@ -344,7 +353,7 @@ export function SpyderPage() {
       seed_url: trimmedUrl || undefined,
       keywords: trimmedKeywords || undefined,
       max_images: maxImages,
-      max_pages: trimmedUrl ? maxPages : undefined,
+      max_pages: trimmedUrl && maxPages > 0 ? maxPages : undefined,
       depth: trimmedUrl ? depth : undefined,
       category_id: categoryId,
       // Nothing selected = let the server use its defaults.
@@ -1004,13 +1013,14 @@ export function SpyderPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600">
-                        Max Pages to Visit
+                        Max Pages to Visit (0 = Unlimited)
                       </label>
                       <InputNumber
-                        min={1}
-                        max={5000}
+                        min={0}
+                        max={50000}
                         value={maxPages}
-                        onChange={(v) => setMaxPages(v ?? 10)}
+                        onChange={(v) => setMaxPages(v ?? 0)}
+                        placeholder="Unlimited"
                         size="small"
                         style={{ width: "100%" }}
                       />
@@ -1208,6 +1218,24 @@ export function ScrapeDataPage() {
   // Backend bulk-label job tracking (T7) — id of the job currently being polled.
   const [labelJobId, setLabelJobId] = useState<string | null>(null);
 
+  // Databank promotion modal state (dynamic selection with databank type in label)
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false);
+  const [promoteScope, setPromoteScope] = useState<"selected" | "category">("selected");
+  const [selectedTargetDatabankId, setSelectedTargetDatabankId] = useState<string | undefined>();
+
+  // Qwen2.5-VL Garbage Filter tracking & reusable prompts state
+  const [filterJobId, setFilterJobId] = useState<string | null>(null);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [filterScope, setFilterScope] = useState<"unlabeled" | "all" | "selected">("unlabeled");
+  const [filterGarbageCategory, setFilterGarbageCategory] = useState<string | undefined>();
+  const [filterValidCategory, setFilterValidCategory] = useState<string | undefined>();
+  const [filterModel, setFilterModel] = useState<string>("qwen2.5vl:7b");
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("builtin-odometer-meter");
+  const [customPromptText, setCustomPromptText] = useState<string>("");
+  const [savePromptModalOpen, setSavePromptModalOpen] = useState(false);
+  const [newPromptName, setNewPromptName] = useState("");
+  const [newPromptDesc, setNewPromptDesc] = useState("");
+
   // Modals state
   const [selectedImage, setSelectedImage] = useState<ScraperImage | null>(null);
   const [getValueImage, setGetValueImage] = useState<ScraperImage | null>(null);
@@ -1346,9 +1374,45 @@ export function ScrapeDataPage() {
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
 
+  // Databank datasets query for dynamic destination selection
+  const databankDatasetsQuery = useQuery({
+    queryKey: ["databank", "datasets", "all"],
+    queryFn: () => listDatabankDatasets(undefined, { limit: 100 }),
+  });
+  const databankDatasets = databankDatasetsQuery.data?.datasets ?? [];
+
+  const databankOptions = useMemo(() => {
+    return databankDatasets.map((d) => {
+      const isRaw = d.dataset_type === "raw" || d.name.toLowerCase().includes("raw");
+      const bankType = isRaw ? "Raw Data Bank" : "Labeled Data Bank";
+      const ocrType = d.ocr_type || "odometer";
+      return {
+        label: `${d.name} · [${bankType}] (${ocrType}) · ${d.sample_count ?? 0} samples`,
+        value: d.id,
+        bankType,
+        isRaw,
+        ocrType,
+        sampleCount: d.sample_count ?? 0,
+        name: d.name,
+      };
+    });
+  }, [databankDatasets]);
+
+  // Auto-select matching databank when opening or when datasets load
+  useEffect(() => {
+    if (!selectedTargetDatabankId && databankDatasets.length > 0) {
+      const activeCat = categoriesQuery.data?.find((c) => c.id === categoryFilter);
+      const match = databankDatasets.find(
+        (d) => activeCat?.ocr_type && d.ocr_type === activeCat.ocr_type,
+      );
+      setSelectedTargetDatabankId(match ? match.id : databankDatasets[0].id);
+    }
+  }, [selectedTargetDatabankId, databankDatasets, categoryFilter, categoriesQuery.data]);
+
   // T5 — promote selected images into the databank.
   const promoteMutation = useMutation({
-    mutationFn: (imageIds: string[]) => promoteToDatabank(imageIds),
+    mutationFn: ({ imageIds, datasetId }: { imageIds: string[]; datasetId?: string }) =>
+      promoteToDatabank(imageIds, { dataset_id: datasetId }),
     onSuccess: (res) => {
       const skippedNote =
         res.skipped.length > 0
@@ -1356,23 +1420,24 @@ export function ScrapeDataPage() {
           : "";
       message.success(`Promoted ${res.promoted}${skippedNote}`);
       setSelectedIds([]);
+      setPromoteModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
       queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+      queryClient.invalidateQueries({ queryKey: ["databank", "datasets"] });
     },
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
 
-  // T8 — promote every labeled image in the active category. Promote takes ids,
-  // so we gather the labeled ids from a has_ground_truth query, capped for safety.
+  // T8 — promote every labeled image in the active category.
   const promoteCategoryMutation = useMutation({
-    mutationFn: async (categoryId: string) => {
+    mutationFn: async ({ categoryId, datasetId }: { categoryId: string; datasetId?: string }) => {
       const { images: labeledImages, total: labeledTotal } = await getImages({
         category_id: categoryId,
         has_ground_truth: true,
         limit: PROMOTE_CATEGORY_CAP,
       });
       const ids = labeledImages.map((i) => i.id);
-      const result = await promoteToDatabank(ids);
+      const result = await promoteToDatabank(ids, { dataset_id: datasetId });
       return { result, labeledTotal, capped: labeledTotal > ids.length };
     },
     onSuccess: ({ result, capped }) => {
@@ -1382,8 +1447,10 @@ export function ScrapeDataPage() {
         ? ` (first ${PROMOTE_CATEGORY_CAP} labeled images)`
         : "";
       message.success(`Promoted ${result.promoted}${skippedNote}${capNote}`);
+      setPromoteModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
       queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+      queryClient.invalidateQueries({ queryKey: ["databank", "datasets"] });
     },
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
@@ -1456,6 +1523,133 @@ export function ScrapeDataPage() {
     queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
     queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
   }, [labelJob, message, queryClient]);
+
+  // Qwen2.5-VL Filter prompts query
+  const filterPromptsQuery = useQuery({
+    queryKey: ["scraper", "filter-prompts"],
+    queryFn: getFilterPrompts,
+  });
+  const filterPrompts = filterPromptsQuery.data ?? [];
+
+  // When selected prompt changes or prompts load, update customPromptText if empty or matching
+  useEffect(() => {
+    if (!filterPrompts.length) return;
+    const found = filterPrompts.find((p) => p.id === selectedPromptId);
+    if (found && !customPromptText) {
+      setCustomPromptText(found.prompt);
+    }
+  }, [filterPrompts, selectedPromptId, customPromptText]);
+
+  // Start filter job mutation
+  const startFilterJobMutation = useMutation({
+    mutationFn: (params: {
+      category_id?: string;
+      garbage_category_id?: string;
+      valid_category_id?: string;
+      image_ids?: string[];
+      prompt: string;
+      model: string;
+      unlabeled_only: boolean;
+    }) => startFilterJob(params),
+    onSuccess: (job) => {
+      setFilterJobId(job.id);
+      setFilterModalOpen(false);
+      message.success("AI Garbage Filter job started with Qwen2.5-VL");
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // Filter job query polling
+  const filterJobQuery = useQuery({
+    queryKey: ["scraper", "filter-jobs", filterJobId],
+    queryFn: () => getFilterJob(filterJobId as string),
+    enabled: Boolean(filterJobId),
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === "pending" || s === "running" ? 2000 : false;
+    },
+  });
+  const filterJob = filterJobQuery.data ?? null;
+  const filterJobActive = filterJob?.status === "pending" || filterJob?.status === "running";
+
+  const stopFilterJobMutation = useMutation({
+    mutationFn: (id: string) => stopFilterJob(id),
+    onSuccess: () => void filterJobQuery.refetch(),
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  // Reconnect to still-running filter job for this category
+  useQuery({
+    queryKey: ["scraper", "filter-jobs", "active", categoryFilter],
+    queryFn: async () => {
+      const jobs = await listFilterJobs({ category_id: categoryFilter, limit: 5 });
+      const active = jobs.find(
+        (j) => j.status === "pending" || j.status === "running",
+      );
+      if (active) setFilterJobId(active.id);
+      return jobs;
+    },
+    enabled: Boolean(categoryFilter) && !filterJobId,
+  });
+
+  // Completion notification for filter job
+  const notifiedFilterJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!filterJob) return;
+    const terminal =
+      filterJob.status === "completed" ||
+      filterJob.status === "failed" ||
+      filterJob.status === "stopped";
+    if (!terminal || notifiedFilterJobRef.current === filterJob.id) return;
+    notifiedFilterJobRef.current = filterJob.id;
+    if (filterJob.status === "completed") {
+      message.success(
+        `Filter complete — Valid: ${filterJob.valid_count}, Moved to Garbage: ${filterJob.garbage_count}, Errors: ${filterJob.failed_count}`,
+      );
+    } else if (filterJob.status === "failed") {
+      message.error(filterJob.error || "Filter job failed");
+    } else {
+      message.info("Filter job stopped");
+    }
+    queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
+    queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
+    queryClient.invalidateQueries({ queryKey: ["scraper", "categories"] });
+  }, [filterJob, message, queryClient]);
+
+  // Prompt mutations
+  const createPromptMutation = useMutation({
+    mutationFn: (data: { name: string; prompt: string; description?: string }) =>
+      createFilterPrompt(data),
+    onSuccess: (newPrompt) => {
+      message.success(`Saved prompt: ${newPrompt.name}`);
+      queryClient.invalidateQueries({ queryKey: ["scraper", "filter-prompts"] });
+      setSelectedPromptId(newPrompt.id);
+      setSavePromptModalOpen(false);
+      setNewPromptName("");
+      setNewPromptDesc("");
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  const updatePromptMutation = useMutation({
+    mutationFn: (data: { id: string; name?: string; prompt: string; description?: string }) =>
+      updateFilterPrompt(data.id, data),
+    onSuccess: () => {
+      message.success("Prompt updated");
+      queryClient.invalidateQueries({ queryKey: ["scraper", "filter-prompts"] });
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
+
+  const deletePromptMutation = useMutation({
+    mutationFn: (id: string) => deleteFilterPrompt(id),
+    onSuccess: () => {
+      message.success("Prompt deleted");
+      queryClient.invalidateQueries({ queryKey: ["scraper", "filter-prompts"] });
+      setSelectedPromptId("builtin-odometer-meter");
+    },
+    onError: (err) => message.error(getApiErrorMessage(err)),
+  });
 
   const handleCategoryChange = (id: string, newCatId: string | null) => {
     updateCatMutation.mutate({ id, catId: newCatId });
@@ -1985,20 +2179,28 @@ export function ScrapeDataPage() {
               </span>
             </Space>
             <Space size="small">
-              <Popconfirm
-                title={`Send ${selectedIds.length} image${selectedIds.length !== 1 ? "s" : ""} to the databank?`}
-                description="Labeled images are promoted into the reviewed databank dataset."
-                onConfirm={() => promoteMutation.mutate(selectedIds)}
+              <Button
+                size="small"
+                type="primary"
+                icon={<DatabaseOutlined />}
+                onClick={() => {
+                  setPromoteScope("selected");
+                  setPromoteModalOpen(true);
+                }}
               >
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<DatabaseOutlined />}
-                  loading={promoteMutation.isPending}
-                >
-                  Send to databank
-                </Button>
-              </Popconfirm>
+                Send to databank
+              </Button>
+              <Button
+                size="small"
+                icon={<FilterOutlined />}
+                disabled={filterJobActive}
+                onClick={() => {
+                  setFilterScope("selected");
+                  setFilterModalOpen(true);
+                }}
+              >
+                Filter Garbage ({selectedIds.length})
+              </Button>
               <Button
                 size="small"
                 type="primary"
@@ -2072,6 +2274,17 @@ export function ScrapeDataPage() {
                 <Space size="small" wrap>
                   <Button
                     size="small"
+                    icon={<FilterOutlined />}
+                    disabled={filterJobActive}
+                    onClick={() => {
+                      setFilterScope("unlabeled");
+                      setFilterModalOpen(true);
+                    }}
+                  >
+                    Filter Garbage (Qwen2.5-VL)
+                  </Button>
+                  <Button
+                    size="small"
                     type="primary"
                     ghost
                     icon={<ThunderboltOutlined />}
@@ -2081,21 +2294,18 @@ export function ScrapeDataPage() {
                   >
                     Auto-label all unlabeled (AI)
                   </Button>
-                  <Popconfirm
-                    title="Send all labeled images in this category to the databank?"
-                    description={`Promotes up to ${PROMOTE_CATEGORY_CAP} labeled images into the reviewed databank dataset.`}
-                    onConfirm={() => promoteCategoryMutation.mutate(categoryFilter)}
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<DatabaseOutlined />}
+                    disabled={!labeled}
+                    onClick={() => {
+                      setPromoteScope("category");
+                      setPromoteModalOpen(true);
+                    }}
                   >
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<DatabaseOutlined />}
-                      loading={promoteCategoryMutation.isPending}
-                      disabled={!labeled}
-                    >
-                      Send labeled → databank
-                    </Button>
-                  </Popconfirm>
+                    Send labeled → databank
+                  </Button>
                 </Space>
               </div>
 
@@ -2147,6 +2357,69 @@ export function ScrapeDataPage() {
                       labelJob.status === "failed"
                         ? "exception"
                         : labelJobActive
+                          ? "active"
+                          : "normal"
+                    }
+                  />
+                </div>
+              )}
+
+              {/* Live progress of the Qwen2.5-VL Garbage Filter job */}
+              {filterJob && (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className="font-medium text-purple-700">Qwen2.5-VL Garbage Filter:</span>
+                      <Tag
+                        color={
+                          filterJob.status === "completed"
+                            ? "success"
+                            : filterJob.status === "failed"
+                              ? "error"
+                              : filterJob.status === "stopped"
+                                ? "warning"
+                                : "processing"
+                        }
+                      >
+                        {filterJob.status}
+                      </Tag>
+                      <span>
+                        {filterJob.processed}/{filterJob.total} processed · valid{" "}
+                        <span className="font-semibold text-emerald-600">{filterJob.valid_count}</span> · moved to garbage{" "}
+                        <span className="font-semibold text-rose-600">{filterJob.garbage_count}</span>
+                        {filterJob.failed_count > 0 && (
+                          <span className="text-amber-600"> · errors {filterJob.failed_count}</span>
+                        )}
+                      </span>
+                    </div>
+                    {filterJobActive && (
+                      <Button
+                        size="small"
+                        danger
+                        icon={<StopOutlined />}
+                        loading={stopFilterJobMutation.isPending}
+                        onClick={() => stopFilterJobMutation.mutate(filterJob.id)}
+                      >
+                        Stop
+                      </Button>
+                    )}
+                  </div>
+                  <Progress
+                    className="mt-1"
+                    percent={
+                      filterJob.total > 0
+                        ? Math.round((filterJob.processed / filterJob.total) * 100)
+                        : 0
+                    }
+                    size="small"
+                    strokeColor={{
+                      "0%": "#10b981",
+                      "100%": "#8b5cf6",
+                    }}
+                    status={
+                      filterJob.status === "failed"
+                        ? "exception"
+                        : filterJobActive
                           ? "active"
                           : "normal"
                     }
@@ -2420,6 +2693,338 @@ export function ScrapeDataPage() {
             }}
           />
         )}
+
+        {/* Send to Databank Modal with Dynamic Dataset Selection & Type */}
+        <Modal
+          title={
+            <div className="flex items-center gap-2 text-slate-800">
+              <DatabaseOutlined className="text-cyan-600" />
+              <span>Send to Databank Dataset</span>
+            </div>
+          }
+          open={promoteModalOpen}
+          onCancel={() => setPromoteModalOpen(false)}
+          onOk={() => {
+            if (promoteScope === "selected") {
+              promoteMutation.mutate({
+                imageIds: selectedIds,
+                datasetId: selectedTargetDatabankId,
+              });
+            } else if (categoryFilter) {
+              promoteCategoryMutation.mutate({
+                categoryId: categoryFilter,
+                datasetId: selectedTargetDatabankId,
+              });
+            }
+          }}
+          confirmLoading={
+            promoteMutation.isPending || promoteCategoryMutation.isPending
+          }
+          okText="Send to Databank"
+        >
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-slate-600">
+              {promoteScope === "selected" ? (
+                <>
+                  Promoting <b>{selectedIds.length}</b> selected image
+                  {selectedIds.length !== 1 ? "s" : ""} to a databank dataset.
+                </>
+              ) : (
+                <>
+                  Promoting all labeled images in the active category (up to{" "}
+                  {PROMOTE_CATEGORY_CAP}) to a databank dataset.
+                </>
+              )}
+            </p>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                Choose Destination Databank
+              </label>
+              <Select
+                placeholder="Select an available databank"
+                value={selectedTargetDatabankId}
+                onChange={setSelectedTargetDatabankId}
+                options={databankOptions}
+                optionRender={(option) => (
+                  <div className="flex items-center justify-between py-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-800">
+                        {option.data.name}
+                      </span>
+                      <Tag
+                        color={option.data.isRaw ? "orange" : "green"}
+                        className="m-0 font-medium text-xs"
+                      >
+                        {option.data.bankType}
+                      </Tag>
+                      <Tag color="cyan" className="m-0 text-xs">
+                        {option.data.ocrType}
+                      </Tag>
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      {option.data.sampleCount ?? 0} samples
+                    </span>
+                  </div>
+                )}
+                style={{ width: "100%" }}
+                loading={databankDatasetsQuery.isLoading}
+              />
+              <span className="mt-1 block text-[11px] text-slate-500">
+                All available databanks are listed showing whether they are Raw Data Banks or Labeled Data Banks.
+              </span>
+            </div>
+
+            <Alert
+              type="info"
+              showIcon
+              message="Promotion Requirements"
+              description="Only scraped images with valid ground truth labels are added as reviewed samples into the chosen databank dataset. Unlabeled images will be skipped automatically."
+            />
+          </div>
+        </Modal>
+
+        {/* AI Garbage Filter Modal (Qwen2.5-VL 7B) */}
+        <Modal
+          title={
+            <div className="flex items-center gap-2 text-slate-800">
+              <FilterOutlined className="text-purple-600" />
+              <span>AI Garbage Data Filter (Ollama Qwen2.5-VL 7B)</span>
+            </div>
+          }
+          open={filterModalOpen}
+          width={680}
+          onCancel={() => setFilterModalOpen(false)}
+          footer={[
+            <Button key="cancel" onClick={() => setFilterModalOpen(false)}>
+              Cancel
+            </Button>,
+            <Button
+              key="start"
+              type="primary"
+              loading={startFilterJobMutation.isPending}
+              onClick={() => {
+                if (!customPromptText.trim()) {
+                  message.warning("Please provide or select a prompt.");
+                  return;
+                }
+                startFilterJobMutation.mutate({
+                  category_id: filterScope !== "selected" ? categoryFilter : undefined,
+                  garbage_category_id: filterGarbageCategory,
+                  valid_category_id: filterValidCategory,
+                  image_ids: filterScope === "selected" ? selectedIds : undefined,
+                  prompt: customPromptText.trim(),
+                  model: filterModel.trim() || "qwen2.5vl:7b",
+                  unlabeled_only: filterScope === "unlabeled",
+                });
+              }}
+            >
+              Start Filtering
+            </Button>,
+          ]}
+        >
+          <div className="space-y-4 pt-2">
+            <Alert
+              type="info"
+              showIcon
+              message="Pre-labeling Garbage Data Cleaner"
+              description="Qwen2.5-VL 7B inspects each image to filter out irrelevant or garbage images before you label them. Any image classified as garbage will be moved directly into the chosen garbage category."
+            />
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                1. Filter Scope
+              </label>
+              <Segmented
+                value={filterScope}
+                onChange={(val) => setFilterScope(val as "unlabeled" | "all" | "selected")}
+                options={[
+                  { label: "Unlabeled Only", value: "unlabeled" },
+                  { label: "All in Category", value: "all" },
+                  ...(selectedIds.length > 0
+                    ? [{ label: `Selected Images (${selectedIds.length})`, value: "selected" }]
+                    : []),
+                ]}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  2. Garbage Category
+                </label>
+                <Select
+                  placeholder="Auto (creates 'garbage' category)"
+                  allowClear
+                  value={filterGarbageCategory}
+                  onChange={setFilterGarbageCategory}
+                  options={(categoriesQuery.data ?? []).map((c) => ({
+                    label: c.name,
+                    value: c.id,
+                  }))}
+                  style={{ width: "100%" }}
+                />
+                <span className="text-[11px] text-slate-400">
+                  Garbage & failed images move here.
+                </span>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  3. OK Images Category
+                </label>
+                <Select
+                  placeholder="Keep in current category"
+                  allowClear
+                  value={filterValidCategory}
+                  onChange={setFilterValidCategory}
+                  options={(categoriesQuery.data ?? []).map((c) => ({
+                    label: c.name,
+                    value: c.id,
+                  }))}
+                  style={{ width: "100%" }}
+                />
+                <span className="text-[11px] text-slate-400">
+                  Optional destination for OK images.
+                </span>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  4. Ollama Vision Model
+                </label>
+                <Input
+                  value={filterModel}
+                  onChange={(e) => setFilterModel(e.target.value)}
+                  placeholder="qwen2.5vl:7b"
+                />
+                <span className="text-[11px] text-slate-400">
+                  Default: qwen2.5vl:7b (Ollama)
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700">
+                  5. Select or Reuse Saved Prompts
+                </label>
+                <Space size="small">
+                  <Button
+                    size="small"
+                    type="link"
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                      setNewPromptName("");
+                      setNewPromptDesc("");
+                      setSavePromptModalOpen(true);
+                    }}
+                  >
+                    Save As New Prompt
+                  </Button>
+                  {(() => {
+                    const activeP = filterPrompts.find((p) => p.id === selectedPromptId);
+                    if (!activeP || activeP.is_default) return null;
+                    return (
+                      <>
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() => {
+                            updatePromptMutation.mutate({
+                              id: activeP.id,
+                              prompt: customPromptText,
+                            });
+                          }}
+                        >
+                          Update
+                        </Button>
+                        <Popconfirm
+                          title="Delete this saved prompt?"
+                          onConfirm={() => deletePromptMutation.mutate(activeP.id)}
+                        >
+                          <Button size="small" type="link" danger>
+                            Delete
+                          </Button>
+                        </Popconfirm>
+                      </>
+                    );
+                  })()}
+                </Space>
+              </div>
+
+              <Select
+                value={selectedPromptId}
+                onChange={(id) => {
+                  setSelectedPromptId(id);
+                  const p = filterPrompts.find((x) => x.id === id);
+                  if (p) setCustomPromptText(p.prompt);
+                }}
+                options={filterPrompts.map((p) => ({
+                  label: `${p.name}${p.is_default ? " (Built-in)" : " (Custom Saved)"}`,
+                  value: p.id,
+                }))}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                Custom Prompt Text
+              </label>
+              <Input.TextArea
+                rows={6}
+                value={customPromptText}
+                onChange={(e) => setCustomPromptText(e.target.value)}
+                placeholder="Enter prompt instructions for Qwen2.5-VL..."
+                className="font-mono text-xs"
+              />
+              <span className="text-[11px] text-slate-400">
+                The model should be instructed to reply with <b>DECISION: VALID</b> or <b>GARBAGE</b> and a short reason.
+              </span>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Save Custom Prompt Modal */}
+        <Modal
+          title="Save Reusable Filter Prompt"
+          open={savePromptModalOpen}
+          onCancel={() => setSavePromptModalOpen(false)}
+          onOk={() => {
+            if (!newPromptName.trim()) {
+              message.warning("Please enter a name for the prompt.");
+              return;
+            }
+            createPromptMutation.mutate({
+              name: newPromptName.trim(),
+              prompt: customPromptText.trim(),
+              description: newPromptDesc.trim() || undefined,
+            });
+          }}
+          confirmLoading={createPromptMutation.isPending}
+        >
+          <div className="space-y-3 pt-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Prompt Name
+              </label>
+              <Input
+                placeholder="e.g. My Dashboard Speedometer Filter"
+                value={newPromptName}
+                onChange={(e) => setNewPromptName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Description (optional)
+              </label>
+              <Input
+                placeholder="e.g. For filtering commercial truck meters"
+                value={newPromptDesc}
+                onChange={(e) => setNewPromptDesc(e.target.value)}
+              />
+            </div>
+          </div>
+        </Modal>
       </div>
     </div>
   );
