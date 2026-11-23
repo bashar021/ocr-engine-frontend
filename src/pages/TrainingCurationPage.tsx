@@ -42,17 +42,35 @@ import {
 } from "@/components/training/BboxAnnotator";
 import type { EvaluationResult, EvaluationRun } from "@/types/evaluation";
 
-const DEFAULT_ODOMETER_PROMPT = `1 - Does this image relate to a car dashboard?
-2 - Does this image relate to an odometer?
-3 - Is this image natural?
-If all 3 points are true, read the odometer digits from this image and detect the 2D boundary / bounding box of the odometer digits or display area.
+const DEFAULT_ODOMETER_PROMPT = `1. Does this image relate to a car dashboard?
+2. Does this image relate to an odometer?
+3. Is this image natural (a real-world photograph, not an artificially generated or edited image)?
+
+If all 3 conditions are true, perform the following:
+
+- Read the numeric odometer value displayed in the image.
+- Detect the **tightest possible 2D bounding box around ONLY the visible odometer digits/value**.
+- The bounding box must tightly enclose all digits representing the odometer reading.
+- Do NOT include the complete display area, screen boundaries, display frame, dashboard panel, surrounding labels, icons, or other elements.
+- Exclude units, symbols, and unrelated text unless they are visually part of the numeric odometer reading.
+- Keep the bounding box as close to the outer edges of the first and last digits as possible, with minimal padding.
+- If the odometer value contains multiple digits, include all digits in a single bounding box.
+
 Return JSON ONLY in this format:
+
 {
   "ground_truth": "<numeric digits>",
   "box_2d": [ymin, xmin, ymax, xmax]
 }
-where box_2d is [ymin, xmin, ymax, xmax] in normalized coordinates from 0 to 1000.
-If any point fails from the 3, or if the digits/odometer are unreadable, return {"ground_truth": null, "box_2d": null}.`;
+
+Where:
+- \`ground_truth\`: The numeric odometer reading exactly as displayed, without spaces or separators.
+- \`box_2d\`: Bounding box coordinates around ONLY the odometer digits, in [ymin, xmin, ymax, xmax] order.
+- Coordinates must be normalized to a range of 0–1000 relative to the original image dimensions.
+
+If any of the 3 conditions fail, or the odometer digits are missing, unclear, partially unreadable, or impossible to localize accurately, return:
+
+{"ground_truth": null, "box_2d": null}`;
 
 function boxPayload(box: DrawnBox | null): Record<string, number> | null {
   if (!box) return null;
