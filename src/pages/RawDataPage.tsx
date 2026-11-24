@@ -16,12 +16,16 @@ import {
   PlusOutlined,
   ReloadOutlined,
   RightOutlined,
+  SaveOutlined,
   SearchOutlined,
   SyncOutlined,
   TableOutlined,
   TagsOutlined,
   ThunderboltOutlined,
+  UndoOutlined,
   UploadOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
@@ -30,6 +34,7 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Empty,
   Form,
   Input,
@@ -2626,11 +2631,18 @@ function RawSampleReviewModal({
   const { message } = App.useApp();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [zoom, setZoom] = useState<number>(1);
+  const [isAutoZoomed, setIsAutoZoomed] = useState<boolean>(false);
+  const [targetAction, setTargetAction] = useState<string | null>(null);
 
   const [gtInput, setGtInput] = useState(
     sample.final_gt || sample.ground_truth_normalized || "",
   );
-  const [targetCategory, setTargetCategory] = useState<string>("general");
+
+  const activeBox = useMemo(
+    () => toViewerBox(sample.display_bbox || sample.corrected_bbox || sample.upload_bbox || sample.bbox),
+    [sample],
+  );
 
   useEffect(() => {
     let active = true;
@@ -2639,7 +2651,36 @@ function RawSampleReviewModal({
     setLoading(true);
     setPreviewUrl(null);
     setGtInput(sample.final_gt || sample.ground_truth_normalized || "");
-    setTargetCategory(sample.category || "general");
+    setTargetAction(null);
+
+    // Calculate default zoom: zoom into the bounding box if it's too small relative to the frame
+    if (activeBox) {
+      const refW = sample.width && sample.width > 0 ? sample.width : 1000;
+      const refH = sample.height && sample.height > 0 ? sample.height : 1000;
+      const bw = Math.abs(activeBox.x2 - activeBox.x1);
+      const bh = Math.abs(activeBox.y2 - activeBox.y1);
+      if (bw > 0 && bh > 0) {
+        const ratioW = bw / refW;
+        const ratioH = bh / refH;
+        const maxDimRatio = Math.max(ratioW, ratioH);
+
+        // If bounding box occupies less than 35% of the frame dimension, auto-zoom
+        if (maxDimRatio < 0.35) {
+          const autoZ = Math.min(3.5, Math.max(1.5, Math.round((0.55 / maxDimRatio) * 10) / 10));
+          setZoom(autoZ);
+          setIsAutoZoomed(true);
+        } else {
+          setZoom(1);
+          setIsAutoZoomed(false);
+        }
+      } else {
+        setZoom(1);
+        setIsAutoZoomed(false);
+      }
+    } else {
+      setZoom(1);
+      setIsAutoZoomed(false);
+    }
 
     void fetchDatabankSampleImageUrl(datasetId, sample.id)
       .then((url) => {
@@ -2657,26 +2698,38 @@ function RawSampleReviewModal({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, sample.id, sample]);
+  }, [datasetId, sample.id, sample, activeBox]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ gt, moveCat }: { gt: string; moveCat?: string }) => {
       await reviewDatabankSample(datasetId, sample.id, {
         corrected_gt: gt.trim() || undefined,
       });
-      if (moveCat) {
+      if (moveCat !== undefined) {
         const catValue = moveCat === "general" ? "" : moveCat;
         await setDatabankSampleCategory(datasetId, sample.id, catValue);
       }
     },
     onSuccess: () => {
-      message.success("Sample updated and reviewed");
+      message.success("Sample updated & moved to next image");
+      setTargetAction(null);
       onSaved();
     },
-    onError: (err) => message.error(getApiErrorMessage(err)),
+    onError: (err) => {
+      setTargetAction(null);
+      message.error(getApiErrorMessage(err));
+    },
   });
 
-  const activeBox = toViewerBox(sample.display_bbox || sample.corrected_bbox || sample.upload_bbox || sample.bbox);
+  const handleSaveAction = (catAction: "ready" | "failed" | "keep" | string) => {
+    setTargetAction(catAction);
+    const targetCat = catAction === "keep" ? undefined : catAction;
+    saveMutation.mutate({ gt: gtInput, moveCat: targetCat });
+  };
+
+  const otherCategories = availableCategories.filter(
+    (c) => c.value !== "raw" && c.value !== "ready" && c.value !== "failed",
+  );
 
   return (
     <Modal
@@ -2716,7 +2769,7 @@ function RawSampleReviewModal({
       }
       open
       onCancel={onClose}
-      width={780}
+      width={1060}
       centered
       footer={
         <div className="flex items-center justify-between">
@@ -2737,100 +2790,236 @@ function RawSampleReviewModal({
               Next
             </Button>
           </Space>
-          <Space>
-            <Button
-              type="primary"
-              ghost
-              icon={<ThunderboltOutlined />}
-              onClick={onOpenGetValue}
-            >
-              Get Value (Gemini AI)
-            </Button>
-            <Button
-              type="primary"
-              loading={saveMutation.isPending}
-              onClick={() =>
-                saveMutation.mutate({ gt: gtInput, moveCat: targetCategory })
-              }
-            >
-              Save & Next
-            </Button>
-          </Space>
+          <div className="text-xs text-slate-500">
+            Use direct buttons on the right to save & advance to next image
+          </div>
         </div>
       }
     >
-      <div className="space-y-4 pt-2">
-        {/* Image Preview with Bounding Box Overlay */}
-        <div className="flex h-72 w-full items-center justify-center overflow-hidden rounded-lg border bg-slate-900/5 p-2">
-          {loading ? (
-            <Spin tip="Loading image..." />
-          ) : previewUrl ? (
-            <OcrImageViewer
-              className="h-full w-full"
-              src={previewUrl}
-              imageWidth={sample.width}
-              imageHeight={sample.height}
-              selected={activeBox}
-              zoom={1}
-            />
-          ) : (
-            <PictureOutlined className="text-4xl text-slate-400" />
-          )}
-        </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 pt-2">
+        {/* Left Section: Image Preview with Zoom In / Zoom Out Controls */}
+        <div className="lg:col-span-7 flex flex-col">
+          <div className="relative flex h-[510px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 p-2">
+            {/* Floating Zoom Controls Bar */}
+            <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-md backdrop-blur-xs">
+              <Tooltip title="Zoom Out (-)">
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ZoomOutOutlined />}
+                  disabled={zoom <= 0.5}
+                  onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
+                />
+              </Tooltip>
+              <span className="w-12 text-center text-xs font-mono font-semibold text-slate-700">
+                {Math.round(zoom * 100)}%
+              </span>
+              <Tooltip title="Zoom In (+)">
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ZoomInOutlined />}
+                  disabled={zoom >= 4.0}
+                  onClick={() => setZoom((z) => Math.min(4.0, Math.round((z + 0.25) * 100) / 100))}
+                />
+              </Tooltip>
+              <Divider type="vertical" className="my-0 h-4" />
+              <Tooltip title="Reset Zoom to 1x">
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<UndoOutlined />}
+                  onClick={() => {
+                    setZoom(1);
+                    setIsAutoZoomed(false);
+                  }}
+                >
+                  1x
+                </Button>
+              </Tooltip>
+              {isAutoZoomed && (
+                <Tag color="cyan" className="ml-1 text-[10px] leading-tight">
+                  Auto-Zoomed
+                </Tag>
+              )}
+            </div>
 
-        {/* Metadata & GT Editor */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-          <div>
-            <Typography.Text type="secondary" className="block">
-              Filename:
-            </Typography.Text>
-            <Typography.Text strong>{sample.filename}</Typography.Text>
-          </div>
-          <div>
-            <Typography.Text type="secondary" className="block">
-              OCR Prediction:
-            </Typography.Text>
-            <Typography.Text strong className="font-mono text-sm text-blue-600">
-              {sample.upload_predicted || "None"}
-            </Typography.Text>
-          </div>
-          <div>
-            <Typography.Text type="secondary" className="block">
-              Bounding Box:
-            </Typography.Text>
-            {activeBox ? (
-              <Tag color="blue" className="font-mono text-xs">
-                [{Math.round(activeBox.x1)}, {Math.round(activeBox.y1)}, {Math.round(activeBox.x2)}, {Math.round(activeBox.y2)}]
-              </Tag>
+            {loading ? (
+              <Spin tip="Loading image..." />
+            ) : previewUrl ? (
+              <OcrImageViewer
+                className="h-full w-full"
+                src={previewUrl}
+                imageWidth={sample.width}
+                imageHeight={sample.height}
+                selected={activeBox}
+                zoom={zoom}
+                autoCenterSelected={true}
+              />
             ) : (
-              <span className="text-slate-400 italic">None</span>
+              <PictureOutlined className="text-5xl text-slate-400" />
             )}
           </div>
+          <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-500">
+            <span>Dimensions: {sample.width ?? "—"} × {sample.height ?? "—"}</span>
+            <span>Green rectangle highlights detected odometer boundary</span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">
-              Ground Truth Value:
-            </label>
-            <Input
-              value={gtInput}
-              onChange={(e) => setGtInput(e.target.value)}
-              placeholder="e.g. 124500"
-              style={{ fontSize: 14, fontWeight: 600 }}
-            />
+        {/* Right Section: Details, Ground Truth, and Direction Action Buttons */}
+        <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
+          <div className="space-y-4">
+            {/* Metadata Card */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <Typography.Text type="secondary">Category:</Typography.Text>
+                <div>
+                  {sample.category === "ready" ? (
+                    <Tag color="green" className="font-semibold">Ready</Tag>
+                  ) : sample.category === "failed" ? (
+                    <Tag color="volcano" className="font-semibold">Failed</Tag>
+                  ) : sample.category === "raw" || !sample.category ? (
+                    <Tag color="cyan">Raw (Pending)</Tag>
+                  ) : (
+                    <Tag color="default" className="capitalize">{sample.category}</Tag>
+                  )}
+                  <Tag color={sample.review_status === "reviewed" ? "green" : "warning"}>
+                    {sample.review_status === "reviewed" ? "Reviewed" : "Unreviewed"}
+                  </Tag>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                <Typography.Text type="secondary">Filename:</Typography.Text>
+                <Typography.Text strong className="font-mono text-slate-800 max-w-[200px] truncate" title={sample.filename}>
+                  {sample.filename}
+                </Typography.Text>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                <Typography.Text type="secondary">OCR Prediction:</Typography.Text>
+                {sample.upload_predicted ? (
+                  <span className="font-mono text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {sample.upload_predicted}
+                  </span>
+                ) : (
+                  <span className="text-slate-400 italic">None</span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                <Typography.Text type="secondary">Bounding Box:</Typography.Text>
+                {activeBox ? (
+                  <Tag color="blue" className="font-mono text-xs">
+                    [{Math.round(activeBox.x1)}, {Math.round(activeBox.y1)}, {Math.round(activeBox.x2)}, {Math.round(activeBox.y2)}]
+                  </Tag>
+                ) : (
+                  <span className="text-slate-400 italic">None detected</span>
+                )}
+              </div>
+            </div>
+
+            {/* Ground Truth Input */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-800">
+                  Ground Truth Value:
+                </label>
+                {sample.upload_predicted && sample.upload_predicted !== gtInput && (
+                  <Button
+                    type="link"
+                    size="small"
+                    className="p-0 text-xs text-blue-600 h-auto"
+                    onClick={() => setGtInput(sample.upload_predicted || "")}
+                  >
+                    Copy from OCR
+                  </Button>
+                )}
+              </div>
+              <Input
+                value={gtInput}
+                onChange={(e) => setGtInput(e.target.value)}
+                placeholder="Enter numeric reading (e.g. 124500)"
+                size="large"
+                className="font-mono font-bold text-base tracking-wider"
+                allowClear
+              />
+              <div className="mt-1 text-[11px] text-slate-400">
+                Corrected numeric digits only.
+              </div>
+            </div>
+
+            {/* Gemini AI Extraction Button */}
+            <Button
+              type="dashed"
+              icon={<ThunderboltOutlined className="text-amber-500" />}
+              onClick={onOpenGetValue}
+              block
+              className="font-medium text-slate-700"
+            >
+              Get Value & BBox (Gemini AI)
+            </Button>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">
-              Transfer to Category:
-            </label>
-            <Select
-              value={targetCategory}
-              onChange={setTargetCategory}
-              options={availableCategories}
-              style={{ width: "100%" }}
-            />
+          {/* Direction / Action Buttons to Move + Save */}
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Save & Move Sample:
+            </div>
+
+            {/* 1. Primary: Save & Move to Ready */}
+            <Button
+              type="primary"
+              loading={saveMutation.isPending && targetAction === "ready"}
+              onClick={() => handleSaveAction("ready")}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold h-11 w-full flex items-center justify-center gap-2 text-sm shadow-sm"
+              icon={<CheckCircleOutlined />}
+            >
+              Save & Move to Ready
+            </Button>
+
+            {/* 2. Danger: Move to Failed */}
+            <Button
+              danger
+              loading={saveMutation.isPending && targetAction === "failed"}
+              onClick={() => handleSaveAction("failed")}
+              className="h-10 w-full font-medium flex items-center justify-center gap-2"
+              icon={<CloseCircleOutlined />}
+            >
+              Move to Failed
+            </Button>
+
+            {/* 3. Keep in current / raw */}
+            <Button
+              loading={saveMutation.isPending && targetAction === "keep"}
+              onClick={() => handleSaveAction("keep")}
+              className="h-9 w-full font-medium flex items-center justify-center gap-2 text-xs text-slate-600"
+              icon={<SaveOutlined />}
+            >
+              Save Ground Truth Only (Keep Current)
+            </Button>
+
+            {/* 4. Other custom categories (if any) */}
+            {otherCategories.length > 0 && (
+              <div className="pt-1.5">
+                <div className="text-[11px] font-medium text-slate-400 mb-1">
+                  Or transfer to other category:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {otherCategories.map((c) => (
+                    <Button
+                      key={c.value}
+                      size="small"
+                      onClick={() => handleSaveAction(c.value)}
+                      loading={saveMutation.isPending && targetAction === c.value}
+                      className="text-xs capitalize"
+                    >
+                      {c.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

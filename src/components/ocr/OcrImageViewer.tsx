@@ -100,6 +100,7 @@ interface OcrImageViewerProps {
   grayscale?: boolean;
   saturate?: number;
   blur?: number;
+  autoCenterSelected?: boolean;
 }
 
 export function OcrImageViewer({
@@ -117,6 +118,7 @@ export function OcrImageViewer({
   grayscale = false,
   saturate = 1,
   blur = 0,
+  autoCenterSelected = false,
 }: OcrImageViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -178,6 +180,13 @@ export function OcrImageViewer({
       }
       if (selected) {
         drawBox(selected, "rgba(16, 185, 129, 1)", 3);
+        if (autoCenterSelected && canvas.parentElement) {
+          const parent = canvas.parentElement;
+          const boxCenterX = ((selected.x1 + selected.x2) / 2) * sx;
+          const boxCenterY = ((selected.y1 + selected.y2) / 2) * sy;
+          parent.scrollLeft = Math.max(0, boxCenterX - parent.clientWidth / 2);
+          parent.scrollTop = Math.max(0, boxCenterY - parent.clientHeight / 2);
+        }
       }
     };
     img.src = src;
@@ -195,6 +204,7 @@ export function OcrImageViewer({
     grayscale,
     saturate,
     blur,
+    autoCenterSelected,
   ]);
 
   return (
