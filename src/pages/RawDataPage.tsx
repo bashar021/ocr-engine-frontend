@@ -11,9 +11,11 @@ import {
   EyeOutlined,
   FilterOutlined,
   InboxOutlined,
+  LeftOutlined,
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
+  RightOutlined,
   SearchOutlined,
   SyncOutlined,
   TableOutlined,
@@ -318,9 +320,10 @@ export function RawDataPage() {
   const availableCategories = useMemo(() => {
     return [
       { value: "raw", label: "Raw (Pending)" },
+      { value: "ready", label: "Ready" },
       { value: "failed", label: "Failed" },
       ...customCategories
-        .filter((c) => c !== "raw" && c !== "failed")
+        .filter((c) => c !== "raw" && c !== "ready" && c !== "failed")
         .map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) })),
     ];
   }, [customCategories]);
@@ -340,13 +343,18 @@ export function RawDataPage() {
         count: catCounts["raw"]?.total ?? dataset?.raw_pending_count ?? 0,
       },
       {
+        key: "ready",
+        label: "Ready",
+        count: catCounts["ready"]?.total ?? 0,
+      },
+      {
         key: "failed",
         label: "Failed",
         count: catCounts["failed"]?.total ?? 0,
       },
     ];
     for (const c of customCategories) {
-      if (c !== "raw" && c !== "failed") {
+      if (c !== "raw" && c !== "ready" && c !== "failed") {
         tabs.push({
           key: c,
           label: c.charAt(0).toUpperCase() + c.slice(1),
@@ -380,8 +388,11 @@ export function RawDataPage() {
     if (isTargetRaw) {
       return [
         { value: "raw", label: "Raw (Pending)" },
+        { value: "ready", label: "Ready" },
         { value: "failed", label: "Failed" },
-        ...customCats.map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) })),
+        ...customCats
+          .filter((c) => c !== "ready" && c !== "failed")
+          .map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) })),
       ];
     }
 
@@ -595,6 +606,80 @@ export function RawDataPage() {
     [samples, selectedRowKeys],
   );
 
+  // Navigation for reviewSample modal
+  const currentReviewIndex = useMemo(() => {
+    if (!reviewSample) return -1;
+    return samples.findIndex((s) => s.id === reviewSample.id);
+  }, [samples, reviewSample]);
+
+  const hasReviewPrev = currentReviewIndex > 0;
+  const hasReviewNext =
+    currentReviewIndex >= 0
+      ? currentReviewIndex < samples.length - 1
+      : samples.length > 0;
+
+  const handleReviewPrev = () => {
+    if (hasReviewPrev) {
+      setReviewSample(samples[currentReviewIndex - 1]);
+    }
+  };
+
+  const handleReviewNext = () => {
+    if (currentReviewIndex >= 0 && currentReviewIndex < samples.length - 1) {
+      setReviewSample(samples[currentReviewIndex + 1]);
+    } else if (currentReviewIndex === -1 && samples.length > 0) {
+      setReviewSample(samples[0]);
+    }
+  };
+
+  const advanceReviewSample = () => {
+    const idx = samples.findIndex((s) => s.id === reviewSample?.id);
+    if (idx >= 0 && idx < samples.length - 1) {
+      setReviewSample(samples[idx + 1]);
+    } else if (idx === -1 && samples.length > 0) {
+      setReviewSample(samples[0]);
+    } else {
+      appMessage.info("Reached the end of the current page.");
+    }
+  };
+
+  // Navigation for getValueSample modal
+  const currentGetValueIndex = useMemo(() => {
+    if (!getValueSample) return -1;
+    return samples.findIndex((s) => s.id === getValueSample.id);
+  }, [samples, getValueSample]);
+
+  const hasGetValuePrev = currentGetValueIndex > 0;
+  const hasGetValueNext =
+    currentGetValueIndex >= 0
+      ? currentGetValueIndex < samples.length - 1
+      : samples.length > 0;
+
+  const handleGetValuePrev = () => {
+    if (hasGetValuePrev) {
+      setGetValueSample(samples[currentGetValueIndex - 1]);
+    }
+  };
+
+  const handleGetValueNext = () => {
+    if (currentGetValueIndex >= 0 && currentGetValueIndex < samples.length - 1) {
+      setGetValueSample(samples[currentGetValueIndex + 1]);
+    } else if (currentGetValueIndex === -1 && samples.length > 0) {
+      setGetValueSample(samples[0]);
+    }
+  };
+
+  const advanceGetValueSample = () => {
+    const idx = samples.findIndex((s) => s.id === getValueSample?.id);
+    if (idx >= 0 && idx < samples.length - 1) {
+      setGetValueSample(samples[idx + 1]);
+    } else if (idx === -1 && samples.length > 0) {
+      setGetValueSample(samples[0]);
+    } else {
+      appMessage.info("Reached the end of the current page.");
+    }
+  };
+
   const isFiltered = Boolean(statusFilter !== "all" || categoryFilter !== "all" || searchInput);
 
   const handleResetFilters = () => {
@@ -718,6 +803,13 @@ export function RawDataPage() {
       key: "category",
       width: 100,
       render: (cat: string | undefined) => {
+        if (cat === "ready") {
+          return (
+            <Tag color="green" className="text-xs font-semibold">
+              Ready
+            </Tag>
+          );
+        }
         if (cat === "failed") {
           return (
             <Tag color="volcano" className="text-xs font-semibold">
@@ -1434,10 +1526,16 @@ export function RawDataPage() {
         <RawGetValueModal
           sample={getValueSample}
           datasetId={datasetId}
+          hasPrev={hasGetValuePrev}
+          hasNext={hasGetValueNext}
+          onPrev={handleGetValuePrev}
+          onNext={handleGetValueNext}
+          currentIndex={currentGetValueIndex}
+          totalCount={samples.length}
           onClose={() => setGetValueSample(null)}
           onSaved={(_updated) => {
             void queryClient.invalidateQueries({ queryKey: ["databank"] });
-            setGetValueSample(null);
+            advanceGetValueSample();
           }}
         />
       )}
@@ -1466,10 +1564,16 @@ export function RawDataPage() {
           sample={reviewSample}
           datasetId={datasetId}
           availableCategories={availableCategories}
+          hasPrev={hasReviewPrev}
+          hasNext={hasReviewNext}
+          onPrev={handleReviewPrev}
+          onNext={handleReviewNext}
+          currentIndex={currentReviewIndex}
+          totalCount={samples.length}
           onClose={() => setReviewSample(null)}
           onSaved={() => {
             void queryClient.invalidateQueries({ queryKey: ["databank"] });
-            setReviewSample(null);
+            advanceReviewSample();
           }}
           onOpenGetValue={() => {
             const s = reviewSample;
@@ -1688,11 +1792,23 @@ function RawGetValueModal({
   datasetId,
   onClose,
   onSaved,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  currentIndex,
+  totalCount,
 }: {
   sample: DatabankSample;
   datasetId: string;
   onClose: () => void;
   onSaved: (updated: DatabankSample) => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex?: number;
+  totalCount?: number;
 }) {
   const { message } = App.useApp();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -1736,6 +1852,15 @@ function RawGetValueModal({
     let active = true;
     let objectUrl: string | undefined;
 
+    setImageLoading(true);
+    setPreviewUrl(null);
+    setReviewedValue(sample.final_gt || sample.ground_truth_normalized || "");
+    setExtractedBbox(
+      sample.display_bbox || sample.corrected_bbox || sample.upload_bbox || sample.bbox || null,
+    );
+    setExtractError(null);
+    setUsedModelTag(null);
+
     void fetchDatabankSampleImageUrl(datasetId, sample.id)
       .then((url) => {
         if (active) {
@@ -1752,7 +1877,7 @@ function RawGetValueModal({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, sample.id]);
+  }, [datasetId, sample.id, sample]);
 
   const extractMutation = useMutation({
     mutationFn: (vars: { prompt: string; apiKey?: string; model?: string }) =>
@@ -1778,15 +1903,21 @@ function RawGetValueModal({
   });
 
   const saveMutation = useMutation({
-    mutationFn: ({ gt, bbox }: { gt: string; bbox?: DatabankSample["display_bbox"] | null }) =>
-      reviewDatabankSample(datasetId, sample.id, {
+    mutationFn: async ({ gt, bbox }: { gt: string; bbox?: DatabankSample["display_bbox"] | null }) => {
+      const updated = await reviewDatabankSample(datasetId, sample.id, {
         corrected_gt: gt,
         corrected_bbox: (bbox as unknown as Record<string, unknown>) || undefined,
-      }),
+      });
+      try {
+        await setDatabankSampleCategory(datasetId, sample.id, "ready");
+      } catch {
+        // ignore if already updated or best effort
+      }
+      return { ...updated, category: "ready" };
+    },
     onSuccess: (updated) => {
-      message.success("Ground truth & bounding box saved!");
+      message.success("Ground truth & bounding box saved! Moved to Ready.");
       onSaved(updated);
-      onClose();
     },
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
@@ -1828,9 +1959,38 @@ function RawGetValueModal({
   return (
     <Modal
       title={
-        <div className="flex items-center gap-2">
-          <ThunderboltOutlined className="text-amber-500" />
-          <span>Get Ground Truth Value & BBox (Gemini AI)</span>
+        <div className="flex items-center justify-between pr-8">
+          <div className="flex items-center gap-2">
+            <ThunderboltOutlined className="text-amber-500" />
+            <span className="font-semibold text-slate-800">
+              Get Value & BBox (Gemini AI) · {sample.filename}
+            </span>
+            {typeof currentIndex === "number" && typeof totalCount === "number" && totalCount > 0 && (
+              <Tag color="blue" className="text-xs">
+                {currentIndex + 1} / {totalCount}
+              </Tag>
+            )}
+          </div>
+          <Space size={6}>
+            <Button
+              size="small"
+              icon={<LeftOutlined />}
+              disabled={!hasPrev}
+              onClick={onPrev}
+              title="Previous sample"
+            >
+              Prev
+            </Button>
+            <Button
+              size="small"
+              icon={<RightOutlined />}
+              disabled={!hasNext}
+              onClick={onNext}
+              title="Next sample"
+            >
+              Next
+            </Button>
+          </Space>
         </div>
       }
       open
@@ -1840,7 +2000,23 @@ function RawGetValueModal({
       centered
       footer={
         <div className="flex items-center justify-between">
-          <Button onClick={onClose}>Cancel</Button>
+          <Space>
+            <Button onClick={onClose}>Close</Button>
+            <Button
+              icon={<LeftOutlined />}
+              disabled={!hasPrev}
+              onClick={onPrev}
+            >
+              Prev
+            </Button>
+            <Button
+              icon={<RightOutlined />}
+              disabled={!hasNext}
+              onClick={onNext}
+            >
+              Next
+            </Button>
+          </Space>
           <Space>
             <Button
               danger
@@ -1849,13 +2025,25 @@ function RawGetValueModal({
                   await setDatabankSampleCategory(datasetId, sample.id, "failed");
                   message.info("Marked sample as Failed");
                   onSaved({ ...sample, category: "failed" });
-                  onClose();
                 } catch (e) {
                   message.error(getApiErrorMessage(e));
                 }
               }}
             >
               Move to Failed
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  await setDatabankSampleCategory(datasetId, sample.id, "ready");
+                  message.info("Marked sample as Ready");
+                  onSaved({ ...sample, category: "ready" });
+                } catch (e) {
+                  message.error(getApiErrorMessage(e));
+                }
+              }}
+            >
+              Move to Ready
             </Button>
             <Button
               type="primary"
@@ -2163,6 +2351,11 @@ function RawBatchGeminiModal({
             corrected_gt: numericVal,
             corrected_bbox: (bbox as unknown as Record<string, unknown>) || undefined,
           });
+          try {
+            await setDatabankSampleCategory(datasetId, target.id, "ready");
+          } catch {
+            // ignore
+          }
           savedTotal++;
           setItems((prev) =>
             prev.map((it, idx) =>
@@ -2410,6 +2603,12 @@ function RawSampleReviewModal({
   onClose,
   onSaved,
   onOpenGetValue,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  currentIndex,
+  totalCount,
 }: {
   sample: DatabankSample;
   datasetId: string;
@@ -2417,6 +2616,12 @@ function RawSampleReviewModal({
   onClose: () => void;
   onSaved: () => void;
   onOpenGetValue: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex?: number;
+  totalCount?: number;
 }) {
   const { message } = App.useApp();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -2430,6 +2635,11 @@ function RawSampleReviewModal({
   useEffect(() => {
     let active = true;
     let objectUrl: string | undefined;
+
+    setLoading(true);
+    setPreviewUrl(null);
+    setGtInput(sample.final_gt || sample.ground_truth_normalized || "");
+    setTargetCategory(sample.category || "general");
 
     void fetchDatabankSampleImageUrl(datasetId, sample.id)
       .then((url) => {
@@ -2447,7 +2657,7 @@ function RawSampleReviewModal({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, sample.id]);
+  }, [datasetId, sample.id, sample]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ gt, moveCat }: { gt: string; moveCat?: string }) => {
@@ -2470,14 +2680,63 @@ function RawSampleReviewModal({
 
   return (
     <Modal
-      title={`Inspect Raw Sample · ${sample.filename}`}
+      title={
+        <div className="flex items-center justify-between pr-8">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-800">
+              Inspect Raw Sample · {sample.filename}
+            </span>
+            {typeof currentIndex === "number" && typeof totalCount === "number" && totalCount > 0 && (
+              <Tag color="blue" className="text-xs">
+                {currentIndex + 1} / {totalCount}
+              </Tag>
+            )}
+          </div>
+          <Space size={6}>
+            <Button
+              size="small"
+              icon={<LeftOutlined />}
+              disabled={!hasPrev}
+              onClick={onPrev}
+              title="Previous sample"
+            >
+              Prev
+            </Button>
+            <Button
+              size="small"
+              icon={<RightOutlined />}
+              disabled={!hasNext}
+              onClick={onNext}
+              title="Next sample"
+            >
+              Next
+            </Button>
+          </Space>
+        </div>
+      }
       open
       onCancel={onClose}
       width={780}
       centered
       footer={
         <div className="flex items-center justify-between">
-          <Button onClick={onClose}>Close</Button>
+          <Space>
+            <Button onClick={onClose}>Close</Button>
+            <Button
+              icon={<LeftOutlined />}
+              disabled={!hasPrev}
+              onClick={onPrev}
+            >
+              Prev
+            </Button>
+            <Button
+              icon={<RightOutlined />}
+              disabled={!hasNext}
+              onClick={onNext}
+            >
+              Next
+            </Button>
+          </Space>
           <Space>
             <Button
               type="primary"
@@ -2494,7 +2753,7 @@ function RawSampleReviewModal({
                 saveMutation.mutate({ gt: gtInput, moveCat: targetCategory })
               }
             >
-              Save & Transfer Category
+              Save & Next
             </Button>
           </Space>
         </div>

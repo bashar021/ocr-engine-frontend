@@ -135,6 +135,27 @@ export async function batchMoveDatasetSamples(
   return data;
 }
 
+export async function moveAllEvaluationDatasetSamples(
+  datasetId: string,
+  payload: {
+    target_dataset_id: string;
+    category?: string;
+  },
+): Promise<{
+  moved: boolean;
+  moved_count: number;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  target_dataset_name: string;
+  category?: string;
+}> {
+  const { data } = await apiClient.post(
+    `/v1/evaluation/datasets/${datasetId}/move-all`,
+    payload,
+  );
+  return data;
+}
+
 export async function getDatasetSample(
   datasetId: string,
   sampleId: string,

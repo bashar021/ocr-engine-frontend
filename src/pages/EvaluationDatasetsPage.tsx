@@ -1,5 +1,6 @@
 import {
   AppstoreOutlined,
+  ArrowRightOutlined,
   CheckCircleOutlined,
   ClearOutlined,
   DatabaseOutlined,
@@ -8,6 +9,7 @@ import {
   OrderedListOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SwapOutlined,
   SyncOutlined,
   TableOutlined,
   UploadOutlined,
@@ -20,6 +22,7 @@ import {
   Col,
   Empty,
   Input,
+  Modal,
   Pagination,
   Progress,
   Row,
@@ -32,8 +35,10 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { getApiErrorMessage } from "@/api/client";
+import { moveAllEvaluationDatasetSamples } from "@/api/evaluation";
 import { StatusTag } from "@/components/common/StatusTag";
 import { DatasetSamplesDrawer } from "@/components/evaluation/DatasetSamplesDrawer";
 import { DatasetsTable } from "@/components/evaluation/DatasetsTable";
@@ -110,6 +115,56 @@ export function EvaluationDatasetsPage() {
     useState<EvaluationDataset | null>(null);
   const archiveMutation = useArchiveDataset();
   const hardDeleteMutation = useHardDeleteDataset();
+
+  // Move Complete Data state
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [moveSourceDatasetId, setMoveSourceDatasetId] = useState<string>("");
+  const [moveTargetDatasetId, setMoveTargetDatasetId] = useState<string>("");
+  const [moveCategory, setMoveCategory] = useState<string>("");
+
+  const queryClient = useQueryClient();
+  const moveMutation = useMutation({
+    mutationFn: async ({
+      sourceId,
+      targetId,
+      category,
+    }: {
+      sourceId: string;
+      targetId: string;
+      category?: string;
+    }) => {
+      return moveAllEvaluationDatasetSamples(sourceId, {
+        target_dataset_id: targetId,
+        category: category || undefined,
+      });
+    },
+    onSuccess: (data) => {
+      message.success(
+        `Successfully moved ${data.moved_count.toLocaleString()} samples to ${data.target_dataset_name || "destination dataset"}.`,
+      );
+      setMoveModalOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["evaluation", "datasets"] });
+    },
+    onError: (err: unknown) => {
+      message.error(getApiErrorMessage(err));
+    },
+  });
+
+  const handleOpenMoveModal = (dataset?: EvaluationDataset) => {
+    const allRows = query.data?.datasets ?? [];
+    if (dataset) {
+      setMoveSourceDatasetId(dataset.id);
+      const other = allRows.find((d) => d.id !== dataset.id);
+      setMoveTargetDatasetId(other ? other.id : "");
+    } else if (allRows.length > 0) {
+      const srcWithSamples = allRows.find((d) => (d.sample_count || 0) > 0) || allRows[0];
+      setMoveSourceDatasetId(srcWithSamples.id);
+      const other = allRows.find((d) => d.id !== srcWithSamples.id);
+      setMoveTargetDatasetId(other ? other.id : "");
+    }
+    setMoveCategory("");
+    setMoveModalOpen(true);
+  };
 
   const params = useMemo(
     () => ({
@@ -263,6 +318,12 @@ export function EvaluationDatasetsPage() {
               className="bg-gradient-to-r from-blue-600 to-indigo-600 font-medium shadow-xs"
             >
               Upload dataset
+            </Button>
+            <Button
+              icon={<SwapOutlined />}
+              onClick={() => handleOpenMoveModal()}
+            >
+              Move Data
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -461,6 +522,7 @@ export function EvaluationDatasetsPage() {
                 setPageSize(s);
               }}
               onViewSamples={setSamplesDataset}
+              onMoveData={handleOpenMoveModal}
               onSoftDelete={handleSoftDelete}
               onHardDelete={handleHardDelete}
             />
@@ -543,6 +605,14 @@ export function EvaluationDatasetsPage() {
                         >
                           Samples
                         </Button>
+                        <Button
+                          size="small"
+                          icon={<SwapOutlined />}
+                          disabled={(d.sample_count || 0) === 0}
+                          onClick={() => handleOpenMoveModal(d)}
+                        >
+                          Move
+                        </Button>
 
                         <Space size={4}>
                           <Button
@@ -597,6 +667,165 @@ export function EvaluationDatasetsPage() {
         dataset={samplesDataset}
         onClose={() => setSamplesDataset(null)}
       />
+
+      <MoveEvaluationDataModal
+        open={moveModalOpen}
+        datasets={query.data?.datasets ?? []}
+        sourceDatasetId={moveSourceDatasetId}
+        targetDatasetId={moveTargetDatasetId}
+        category={moveCategory}
+        onSelectSourceDatasetId={setMoveSourceDatasetId}
+        onSelectTargetDatasetId={setMoveTargetDatasetId}
+        onSelectCategory={setMoveCategory}
+        onClose={() => setMoveModalOpen(false)}
+        onSubmit={async () => {
+          if (!moveSourceDatasetId || !moveTargetDatasetId) return;
+          await moveMutation.mutateAsync({
+            sourceId: moveSourceDatasetId,
+            targetId: moveTargetDatasetId,
+            category: moveCategory,
+          });
+        }}
+        loading={moveMutation.isPending}
+      />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Move Evaluation Dataset Data Modal Component
+// ---------------------------------------------------------------------------
+
+function MoveEvaluationDataModal({
+  open,
+  datasets,
+  sourceDatasetId,
+  targetDatasetId,
+  category,
+  onSelectSourceDatasetId,
+  onSelectTargetDatasetId,
+  onSelectCategory,
+  onClose,
+  onSubmit,
+  loading,
+}: {
+  open: boolean;
+  datasets: EvaluationDataset[];
+  sourceDatasetId: string;
+  targetDatasetId: string;
+  category: string;
+  onSelectSourceDatasetId: (id: string) => void;
+  onSelectTargetDatasetId: (id: string) => void;
+  onSelectCategory: (cat: string) => void;
+  onClose: () => void;
+  onSubmit: () => Promise<void>;
+  loading: boolean;
+}) {
+  const sourceDataset = datasets.find((d) => d.id === sourceDatasetId);
+  const targetDataset = datasets.find((d) => d.id === targetDatasetId);
+  const sampleCount = sourceDataset?.sample_count ?? 0;
+
+  const canSubmit =
+    Boolean(sourceDatasetId) &&
+    Boolean(targetDatasetId) &&
+    sourceDatasetId !== targetDatasetId &&
+    sampleCount > 0;
+
+  return (
+    <Modal
+      open={open}
+      title={
+        <div className="flex items-center gap-2">
+          <SwapOutlined className="text-blue-600" />
+          <span>Move Complete Dataset Data</span>
+        </div>
+      }
+      onCancel={onClose}
+      okText={loading ? "Moving..." : `Move Complete Data (${sampleCount.toLocaleString()} Samples)`}
+      confirmLoading={loading}
+      okButtonProps={{
+        danger: true,
+        disabled: !canSubmit,
+      }}
+      onOk={onSubmit}
+      destroyOnHidden
+      width={560}
+    >
+      <div className="space-y-4 py-2">
+        <Alert
+          type="info"
+          showIcon
+          message="Complete Transfer"
+          description="All samples and image files will be completely moved from the source evaluation dataset into the destination dataset. The source dataset will be emptied and no duplicate copies will remain."
+        />
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Source Dataset (Moving From) <span className="text-red-500">*</span>
+          </label>
+          <Select
+            value={sourceDatasetId || undefined}
+            onChange={onSelectSourceDatasetId}
+            style={{ width: "100%" }}
+            placeholder="Select source dataset"
+            options={datasets.map((d) => ({
+              label: `${d.name} (v${d.version}) — ${(d.sample_count || 0).toLocaleString()} samples`,
+              value: d.id,
+            }))}
+          />
+          {sourceDataset && (
+            <div className="mt-1 text-xs text-slate-500">
+              Contains <strong>{(sourceDataset.sample_count || 0).toLocaleString()}</strong> samples.
+              {sourceDataset.sample_count === 0 && (
+                <span className="text-amber-600 ml-1">(This dataset is empty)</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Target Destination Dataset (Moving To) <span className="text-red-500">*</span>
+          </label>
+          <Select
+            value={targetDatasetId || undefined}
+            onChange={onSelectTargetDatasetId}
+            style={{ width: "100%" }}
+            placeholder="Select destination dataset"
+            options={datasets
+              .filter((d) => d.id !== sourceDatasetId)
+              .map((d) => ({
+                label: `${d.name} (v${d.version}) — ${(d.sample_count || 0).toLocaleString()} samples`,
+                value: d.id,
+              }))}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Optional Category (Tag)
+          </label>
+          <Input
+            value={category}
+            onChange={(e) => onSelectCategory(e.target.value)}
+            placeholder="e.g. general, blurry, hard_case (or leave blank)"
+          />
+        </div>
+
+        {sourceDataset && targetDataset && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+            <div className="font-semibold text-slate-700">Summary:</div>
+            <div className="mt-1 flex items-center gap-2 text-slate-600">
+              <span className="font-medium text-slate-900">{sourceDataset.name}</span>
+              <ArrowRightOutlined className="text-slate-400" />
+              <span className="font-medium text-slate-900">{targetDataset.name}</span>
+            </div>
+            <div className="mt-1 text-slate-500">
+              <strong>{sampleCount.toLocaleString()}</strong> sample(s) will be transferred.
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }

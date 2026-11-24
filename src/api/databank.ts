@@ -337,6 +337,27 @@ export async function batchMoveDatabankSamples(
   return data;
 }
 
+export async function moveAllDatabankSamples(
+  datasetId: string,
+  payload: {
+    target_dataset_id: string;
+    target_category?: string;
+  },
+): Promise<{
+  moved_count: number;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  target_category: string;
+}> {
+  const { data } = await apiClient.post<{
+    moved_count: number;
+    source_dataset_id: string;
+    target_dataset_id: string;
+    target_category: string;
+  }>(`/v1/databank/datasets/${datasetId}/move-all`, payload);
+  return data;
+}
+
 export async function listDatabankDatasets(
   ocrType?: string,
   params: {

@@ -1,4 +1,4 @@
-import { EyeOutlined } from "@ant-design/icons";
+import { EyeOutlined, SwapOutlined } from "@ant-design/icons";
 import { Button, Progress, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -44,6 +44,7 @@ interface DatasetsTableProps {
   pageSize: number;
   onPageChange: (page: number, pageSize: number) => void;
   onViewSamples: (dataset: EvaluationDataset) => void;
+  onMoveData?: (dataset: EvaluationDataset) => void;
   onSoftDelete: (dataset: EvaluationDataset) => void;
   onHardDelete: (dataset: EvaluationDataset) => void;
 }
@@ -57,6 +58,7 @@ export function DatasetsTable({
   pageSize,
   onPageChange,
   onViewSamples,
+  onMoveData,
   onSoftDelete,
   onHardDelete,
 }: DatasetsTableProps) {
@@ -157,7 +159,7 @@ export function DatasetsTable({
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 250,
+      width: 320,
       render: (_, row) => {
         const del = getDatasetDeleteAvailability(row, {
           mutating: deletePending,
@@ -198,6 +200,16 @@ export function DatasetsTable({
             >
               Samples
             </Button>
+            {onMoveData && (
+              <Button
+                size="small"
+                icon={<SwapOutlined />}
+                disabled={(row.sample_count || 0) === 0}
+                onClick={() => onMoveData(row)}
+              >
+                Move Data
+              </Button>
+            )}
             {del.canSoftDelete ? (
               softBtn
             ) : (

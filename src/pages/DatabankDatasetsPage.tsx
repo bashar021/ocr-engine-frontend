@@ -1,5 +1,6 @@
 import {
   AppstoreOutlined,
+  ArrowRightOutlined,
   ClearOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
@@ -11,6 +12,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SwapOutlined,
   TableOutlined,
   TagsOutlined,
   UploadOutlined,
@@ -52,6 +54,7 @@ import {
   deleteDatabankDataset,
   downloadDatabankCsv,
   listDatabankDatasets,
+  moveAllDatabankSamples,
   uploadRawToDatabank,
   uploadToDatabank,
 } from "@/api/databank";
@@ -100,6 +103,12 @@ export function DatabankDatasetsPage() {
   const [uploadMode, setUploadMode] = useState<"raw" | "label">("label");
   const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([]);
   const [samplesDataset, setSamplesDataset] = useState<DatabankDataset | null>(null);
+
+  // Move Complete Data state
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [moveSourceDatasetId, setMoveSourceDatasetId] = useState<string>("");
+  const [moveTargetDatasetId, setMoveTargetDatasetId] = useState<string>("");
+  const [moveTargetCategory, setMoveTargetCategory] = useState<string>("keep");
 
   // Datasets Query
   const datasetsQuery = useQuery({
@@ -185,6 +194,34 @@ export function DatabankDatasetsPage() {
       void queryClient.invalidateQueries({ queryKey: ["databank", "datasets-list"] });
     },
     onError: (err) => appMessage.error(getApiErrorMessage(err)),
+  });
+
+  // Move Complete Data Mutation
+  const moveMutation = useMutation({
+    mutationFn: async ({
+      sourceId,
+      targetId,
+      category,
+    }: {
+      sourceId: string;
+      targetId: string;
+      category: string;
+    }) => {
+      return moveAllDatabankSamples(sourceId, {
+        target_dataset_id: targetId,
+        target_category: category,
+      });
+    },
+    onSuccess: (data) => {
+      appMessage.success(
+        `Successfully moved ${data.moved_count.toLocaleString()} samples to destination dataset.`,
+      );
+      setMoveModalOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["databank", "datasets-list"] });
+    },
+    onError: (err: unknown) => {
+      appMessage.error(getApiErrorMessage(err));
+    },
   });
 
   const handleDownloadCsv = async (dataset: DatabankDataset) => {
@@ -375,7 +412,7 @@ export function DatabankDatasetsPage() {
       title: "Actions",
       key: "actions",
       fixed: "right",
-      width: 320,
+      width: 410,
       render: (_, row) => {
         const isDefault = row.name === "data-bank";
         return (
@@ -409,6 +446,23 @@ export function DatabankDatasetsPage() {
                 onClick={() => setSamplesDataset(row)}
               >
                 Samples
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Move complete data from this dataset to another dataset">
+              <Button
+                size="small"
+                icon={<SwapOutlined />}
+                disabled={(row.sample_count || 0) === 0}
+                onClick={() => {
+                  setMoveSourceDatasetId(row.id);
+                  const other = allDatasets.find((d) => d.id !== row.id);
+                  setMoveTargetDatasetId(other ? other.id : "");
+                  setMoveTargetCategory("keep");
+                  setMoveModalOpen(true);
+                }}
+              >
+                Move Data
               </Button>
             </Tooltip>
 
@@ -474,6 +528,22 @@ export function DatabankDatasetsPage() {
               }}
             >
               Upload Data
+            </Button>
+            <Button
+              icon={<SwapOutlined />}
+              onClick={() => {
+                if (allDatasets.length > 0) {
+                  const srcWithSamples =
+                    allDatasets.find((d) => (d.sample_count || 0) > 0) || allDatasets[0];
+                  setMoveSourceDatasetId(srcWithSamples.id);
+                  const other = allDatasets.find((d) => d.id !== srcWithSamples.id);
+                  setMoveTargetDatasetId(other ? other.id : "");
+                  setMoveTargetCategory("keep");
+                }
+                setMoveModalOpen(true);
+              }}
+            >
+              Move Data
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -779,6 +849,22 @@ export function DatabankDatasetsPage() {
                           >
                             Samples
                           </Button>
+                          <Tooltip title="Move complete data to another dataset">
+                            <Button
+                              size="small"
+                              icon={<SwapOutlined />}
+                              disabled={(d.sample_count || 0) === 0}
+                              onClick={() => {
+                                setMoveSourceDatasetId(d.id);
+                                const other = allDatasets.find((x) => x.id !== d.id);
+                                setMoveTargetDatasetId(other ? other.id : "");
+                                setMoveTargetCategory("keep");
+                                setMoveModalOpen(true);
+                              }}
+                            >
+                              Move
+                            </Button>
+                          </Tooltip>
                         </Space>
 
                         <Space size={4}>
@@ -857,6 +943,28 @@ export function DatabankDatasetsPage() {
           });
         }}
         loading={uploadMutation.isPending}
+      />
+
+      {/* Move Complete Data Modal */}
+      <MoveCompleteDataModal
+        open={moveModalOpen}
+        datasets={allDatasets}
+        sourceDatasetId={moveSourceDatasetId}
+        targetDatasetId={moveTargetDatasetId}
+        targetCategory={moveTargetCategory}
+        onSelectSourceDatasetId={setMoveSourceDatasetId}
+        onSelectTargetDatasetId={setMoveTargetDatasetId}
+        onSelectTargetCategory={setMoveTargetCategory}
+        onClose={() => setMoveModalOpen(false)}
+        onSubmit={async () => {
+          if (!moveSourceDatasetId || !moveTargetDatasetId) return;
+          await moveMutation.mutateAsync({
+            sourceId: moveSourceDatasetId,
+            targetId: moveTargetDatasetId,
+            category: moveTargetCategory,
+          });
+        }}
+        loading={moveMutation.isPending}
       />
 
       {/* Samples Drawer */}
@@ -1055,6 +1163,192 @@ function UploadDataModal({
             </p>
           </Upload.Dragger>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Move Complete Data Modal Component
+// ---------------------------------------------------------------------------
+
+function MoveCompleteDataModal({
+  open,
+  datasets,
+  sourceDatasetId,
+  targetDatasetId,
+  targetCategory,
+  onSelectSourceDatasetId,
+  onSelectTargetDatasetId,
+  onSelectTargetCategory,
+  onClose,
+  onSubmit,
+  loading,
+}: {
+  open: boolean;
+  datasets: DatabankDataset[];
+  sourceDatasetId: string;
+  targetDatasetId: string;
+  targetCategory: string;
+  onSelectSourceDatasetId: (id: string) => void;
+  onSelectTargetDatasetId: (id: string) => void;
+  onSelectTargetCategory: (cat: string) => void;
+  onClose: () => void;
+  onSubmit: () => Promise<void>;
+  loading: boolean;
+}) {
+  const sourceDataset = datasets.find((d) => d.id === sourceDatasetId);
+  const targetDataset = datasets.find((d) => d.id === targetDatasetId);
+  const sampleCount = sourceDataset?.sample_count ?? 0;
+
+  const isTargetRaw =
+    targetDataset &&
+    (targetDataset.metadata?.dataset_type === "raw" ||
+      targetDataset.name === "raw-data-bank" ||
+      targetDataset.name.startsWith("raw-"));
+
+  const targetCategoryOptions = useMemo(() => {
+    if (!targetDataset) return [];
+    if (isTargetRaw) {
+      return [
+        { label: "Keep current category (or Raw)", value: "keep" },
+        { label: "Raw Pending (raw)", value: "raw" },
+        { label: "Failed (failed)", value: "failed" },
+      ];
+    }
+    const customCats = Object.keys(targetDataset.category_counts || {}).filter(
+      (c) => c && c !== "raw",
+    );
+    const standard = [
+      { label: "Keep current categories (Recommended)", value: "keep" },
+      { label: "General / Uncategorized", value: "" },
+      { label: "Blurry", value: "blurry" },
+      { label: "Dead Display", value: "dead" },
+    ];
+    for (const c of customCats) {
+      if (!standard.some((s) => s.value === c)) {
+        standard.push({ label: c, value: c });
+      }
+    }
+    return standard;
+  }, [targetDataset, isTargetRaw]);
+
+  const canSubmit =
+    Boolean(sourceDatasetId) &&
+    Boolean(targetDatasetId) &&
+    sourceDatasetId !== targetDatasetId &&
+    sampleCount > 0;
+
+  return (
+    <Modal
+      open={open}
+      title={
+        <div className="flex items-center gap-2">
+          <SwapOutlined className="text-teal-600" />
+          <span>Move Complete Dataset Data</span>
+        </div>
+      }
+      onCancel={onClose}
+      okText={loading ? "Moving..." : `Move Complete Data (${sampleCount.toLocaleString()} Samples)`}
+      confirmLoading={loading}
+      okButtonProps={{
+        danger: true,
+        disabled: !canSubmit,
+      }}
+      onOk={onSubmit}
+      destroyOnHidden
+      width={560}
+    >
+      <div className="space-y-4 py-2">
+        <Alert
+          type="info"
+          showIcon
+          message="Complete Transfer"
+          description="All samples and image files will be completely moved into the target dataset. They will be removed from the source dataset so no duplicate copy is left behind."
+        />
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Source Dataset (Moving From) <span className="text-red-500">*</span>
+          </label>
+          <Select
+            value={sourceDatasetId || undefined}
+            onChange={onSelectSourceDatasetId}
+            style={{ width: "100%" }}
+            placeholder="Select source dataset to move data from"
+            options={datasets.map((d) => {
+              const isRaw =
+                d.metadata?.dataset_type === "raw" ||
+                d.name === "raw-data-bank" ||
+                d.name.startsWith("raw-");
+              return {
+                label: `${d.name} [${isRaw ? "Raw Data Bank" : "Labeled Data Bank"}] (${d.ocr_type || "odometer"}) — ${(d.sample_count || 0).toLocaleString()} samples`,
+                value: d.id,
+              };
+            })}
+          />
+          {sourceDataset && (
+            <div className="mt-1 text-xs text-slate-500">
+              Contains <strong>{(sourceDataset.sample_count || 0).toLocaleString()}</strong> samples.
+              {sourceDataset.sample_count === 0 && (
+                <span className="text-amber-600 ml-1">(This dataset is empty)</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Target Destination Dataset (Moving To) <span className="text-red-500">*</span>
+          </label>
+          <Select
+            value={targetDatasetId || undefined}
+            onChange={onSelectTargetDatasetId}
+            style={{ width: "100%" }}
+            placeholder="Select target dataset"
+            options={datasets
+              .filter((d) => d.id !== sourceDatasetId)
+              .map((d) => {
+                const isRaw =
+                  d.metadata?.dataset_type === "raw" ||
+                  d.name === "raw-data-bank" ||
+                  d.name.startsWith("raw-");
+                return {
+                  label: `${d.name} [${isRaw ? "Raw Data Bank" : "Labeled Data Bank"}] (${d.ocr_type || "odometer"}) — ${(d.sample_count || 0).toLocaleString()} samples`,
+                  value: d.id,
+                };
+              })}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            Category Handling
+          </label>
+          <Select
+            value={targetCategory}
+            onChange={onSelectTargetCategory}
+            style={{ width: "100%" }}
+            options={targetCategoryOptions}
+          />
+          <span className="mt-1 block text-[11px] text-slate-400">
+            Choose whether to keep each sample's current category or assign them to a specific category in the target dataset.
+          </span>
+        </div>
+
+        {sourceDataset && targetDataset && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+            <div className="font-semibold text-slate-700">Summary:</div>
+            <div className="mt-1 flex items-center gap-2 text-slate-600">
+              <span className="font-medium text-slate-900">{sourceDataset.name}</span>
+              <ArrowRightOutlined className="text-slate-400" />
+              <span className="font-medium text-slate-900">{targetDataset.name}</span>
+            </div>
+            <div className="mt-1 text-slate-500">
+              <strong>{sampleCount.toLocaleString()}</strong> sample(s) will be transferred.
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );
