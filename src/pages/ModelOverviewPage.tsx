@@ -1,5 +1,5 @@
 import { PageHeader } from '@/components/common/PageHeader'
-import { ModelsOverviewPanel } from '@/components/models/ModelsOverviewPanel'
+import { LlmOverviewPanel } from '@/components/models/LlmOverviewPanel'
 
 export function ModelOverviewPage() {
   return (
@@ -8,11 +8,11 @@ export function ModelOverviewPage() {
         breadcrumbs={[
           { title: 'Dashboard', path: '/' },
           { title: 'Models', path: '/models/list' },
-          { title: 'Overview' },
+          { title: 'LLM Overview' },
         ]}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
-        <ModelsOverviewPanel />
+        <LlmOverviewPanel />
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
-import { CloudUploadOutlined } from "@ant-design/icons";
+import { CloudUploadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Alert, Button, Select, Tabs } from "antd";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { getApiErrorMessage } from "@/api/client";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -10,6 +11,7 @@ import {
 } from "@/components/models/ModelFilters";
 import { ModelsTable } from "@/components/models/ModelsTable";
 import { QwenModelPanel } from "@/components/models/QwenModelPanel";
+import { LlmOverviewPanel } from "@/components/models/LlmOverviewPanel";
 import { UploadModelModal } from "@/components/models/UploadModelModal";
 import { useArtifactMutations } from "@/features/models/useArtifactMutations";
 import { useModelsQuery } from "@/features/models/useModelsQuery";
@@ -18,13 +20,26 @@ import { useDebounce } from "@/hooks/useDebounce";
 
 const DEFAULT_FILTERS: ModelFilterState = { search: "" };
 
-type RoleTab = "detection" | "recognition" | "llm";
+type RoleTab = "overview" | "detection" | "recognition" | "llm";
 type ActivationFilter = "activated" | "deactivated";
 
 export function ModelListPage() {
   const { activeTaskKey } = useTaskContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const [filters, setFilters] = useState<ModelFilterState>(DEFAULT_FILTERS);
-  const [roleTab, setRoleTab] = useState<RoleTab>("detection");
+  const [roleTab, setRoleTab] = useState<RoleTab>(
+    tabParam === "overview" ? "overview" : tabParam === "llm" ? "llm" : "detection"
+  );
+
+  useEffect(() => {
+    if (tabParam === "overview" && roleTab !== "overview") {
+      setRoleTab("overview");
+    } else if (tabParam === "llm" && roleTab !== "llm") {
+      setRoleTab("llm");
+    }
+  }, [tabParam]);
+
   const [activationFilter, setActivationFilter] =
     useState<ActivationFilter>("activated");
   const [page, setPage] = useState(1);
@@ -32,7 +47,9 @@ export function ModelListPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const debouncedSearch = useDebounce(filters.search, 300);
   const mutations = useArtifactMutations();
+  const isOverviewTab = roleTab === "overview";
   const isLlmTab = roleTab === "llm";
+  const isArtifactsTab = !isOverviewTab && !isLlmTab;
 
   const params = useMemo(() => {
     const deactivated = activationFilter === "deactivated";
@@ -44,7 +61,7 @@ export function ModelListPage() {
     return {
       search: debouncedSearch || undefined,
       ocr_type: activeTaskKey,
-      role: isLlmTab ? undefined : roleTab,
+      role: isArtifactsTab ? roleTab : undefined,
       runtime: filters.runtime,
       status: conflict
         ? "retired"
@@ -67,12 +84,12 @@ export function ModelListPage() {
     activationFilter,
     activeTaskKey,
     roleTab,
-    isLlmTab,
+    isArtifactsTab,
     page,
     pageSize,
   ]);
 
-  const query = useModelsQuery(params, !isLlmTab);
+  const query = useModelsQuery(params, isArtifactsTab);
 
   const actionLoadingId = useMemo(() => {
     if (mutations.retire.isPending && mutations.retire.variables) {
@@ -101,16 +118,40 @@ export function ModelListPage() {
         <Tabs
           activeKey={roleTab}
           onChange={(key) => {
-            setRoleTab(key as RoleTab);
+            const nextTab = key as RoleTab;
+            setRoleTab(nextTab);
             setPage(1);
+            if (nextTab === "overview") {
+              setSearchParams({ tab: "overview" });
+            } else if (nextTab === "llm") {
+              setSearchParams({ tab: "llm" });
+            } else {
+              setSearchParams({});
+            }
           }}
           items={[
+            {
+              key: "overview",
+              label: (
+                <span className="flex items-center gap-1.5 font-medium">
+                  <ThunderboltOutlined className="text-amber-500" />
+                  LLM Overview
+                </span>
+              ),
+            },
             { key: "detection", label: "Detection" },
             { key: "recognition", label: "Recognition" },
-            { key: "llm", label: "LLM" },
+            { key: "llm", label: "Qwen Vision (Local)" },
           ]}
         />
-        {isLlmTab ? <QwenModelPanel /> : <>
+        {isOverviewTab ? (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <LlmOverviewPanel />
+          </div>
+        ) : isLlmTab ? (
+          <QwenModelPanel />
+        ) : (
+          <>
         <ModelFilters
           tab="models"
           value={filters}
@@ -176,7 +217,9 @@ export function ModelListPage() {
             onDelete={(art) => mutations.remove.mutateAsync(art.id)}
           />
         </div>
-        </>}</div>
+          </>
+        )}
+      </div>
       <UploadModelModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}

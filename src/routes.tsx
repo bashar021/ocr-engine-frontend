@@ -37,6 +37,7 @@ import { EvaluationRunsPage } from "@/pages/EvaluationRunsPage";
 import { ImportExportPage } from "@/pages/ImportExportPage";
 import { JobsPage } from "@/pages/JobsPage";
 import { ModelListPage } from "@/pages/ModelListPage";
+import { ModelOverviewPage } from "@/pages/ModelOverviewPage";
 import { ModelRefsPage } from "@/pages/ModelRefsPage";
 import { OcrPlaygroundPage } from "@/pages/OcrPlaygroundPage";
 import { ScraperPage } from "@/pages/ScraperPage";
@@ -86,10 +87,8 @@ export function AppRoutes() {
           path="/models/recognition-configs"
           element={<RecognitionConfigsPage />}
         />
-        <Route
-          path="/models/overview"
-          element={<Navigate to="/models/list" replace />}
-        />
+        <Route path="/models/overview" element={<ModelOverviewPage />} />
+        <Route path="/llm-overview" element={<ModelOverviewPage />} />
         <Route
           path="/evaluation"
           element={<Navigate to="/evaluation/datasets" replace />}

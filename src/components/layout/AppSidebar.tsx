@@ -239,6 +239,11 @@ export function AppSidebar() {
         ],
       },
       {
+        key: "/models/overview",
+        icon: <ThunderboltOutlined className="text-amber-500" />,
+        label: <Link to="/models/overview">LLM Overview</Link>,
+      },
+      {
         key: "models-group",
         icon: <ClusterOutlined />,
         label: "Models",
@@ -402,6 +407,12 @@ export function AppSidebar() {
     if (path.startsWith("/history")) return "/history";
     if (path.startsWith("/jobs")) return "/jobs";
     if (path.startsWith("/import-export")) return "/import-export";
+    if (
+      path.startsWith("/models/overview") ||
+      path.startsWith("/llm-overview")
+    ) {
+      return "/models/overview";
+    }
     if (path.startsWith("/models/refs")) return "/models/refs";
     if (path.startsWith("/models/recognition-configs"))
       return "/models/recognition-configs";
@@ -480,7 +491,9 @@ export function AppSidebar() {
       return;
     }
 
-    if (
+    if (location.pathname === "/models/overview") {
+      setOpenKeys([]);
+    } else if (
       location.pathname.startsWith("/models") ||
       location.pathname.startsWith("/releases") ||
       location.pathname.startsWith("/deployments")
