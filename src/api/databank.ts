@@ -56,6 +56,40 @@ export async function uploadRawToDatabank(
   return data;
 }
 
+export async function importDatabankRawCsv(
+  ocrType: string,
+  file: File,
+  odometerCol: string,
+  s3UrlCol: string,
+  datasetId?: string,
+): Promise<
+  DatabankDataset & {
+    accepted?: boolean;
+    job_id?: string;
+    message?: string | null;
+  }
+> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("odometer_col", odometerCol);
+  form.append("s3_url_col", s3UrlCol);
+  const q = new URLSearchParams({ ocr_type: ocrType });
+  if (datasetId) q.set("dataset_id", datasetId);
+  const url = datasetId
+    ? `/v1/databank/datasets/${encodeURIComponent(datasetId)}/import-csv-s3?${q.toString()}`
+    : `/v1/databank/import-csv-s3?${q.toString()}`;
+  const { data } = await apiClient.post<
+    DatabankDataset & {
+      accepted?: boolean;
+      job_id?: string;
+      message?: string | null;
+    }
+  >(url, form, {
+    timeout: 300_000,
+  });
+  return data;
+}
+
 export async function getDatabankDataset(id: string): Promise<DatabankDataset> {
   const { data } = await apiClient.get<DatabankDataset>(
     `/v1/databank/datasets/${id}`,
@@ -75,6 +109,7 @@ export async function listDatabankSamples(
     upload_match?: "yes" | "no" | "none";
     has_final_gt?: boolean;
     has_rerun?: "has" | "missing" | "ok" | "miss";
+    has_bbox?: boolean;
     limit?: number;
     offset?: number;
   } = {},
@@ -96,6 +131,7 @@ export async function getDatabankCategoryCounts(
     upload_match?: "yes" | "no" | "none";
     has_final_gt?: boolean;
     has_rerun?: "has" | "missing" | "ok" | "miss";
+    has_bbox?: boolean;
   } = {},
 ): Promise<Record<string, number>> {
   const { data } = await apiClient.get<Record<string, number>>(

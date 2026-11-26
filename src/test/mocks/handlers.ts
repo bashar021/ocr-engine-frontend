@@ -1105,6 +1105,26 @@ export const handlers = [
     });
   }),
 
+  http.post("*/v1/databank/import-csv-s3", () => {
+    return HttpResponse.json({
+      id: "odo-bank-1",
+      status: "processing",
+      accepted: true,
+      job_id: "job-csv-1",
+      message: "CSV import accepted — downloading images in background",
+    });
+  }),
+
+  http.post("*/v1/databank/datasets/:datasetId/import-csv-s3", ({ params }) => {
+    return HttpResponse.json({
+      id: String(params.datasetId),
+      status: "processing",
+      accepted: true,
+      job_id: "job-csv-1",
+      message: "CSV import accepted — downloading images in background",
+    });
+  }),
+
   http.post("*/v1/databank/datasets/:datasetId/batch-category", async ({ request, params }) => {
     const body = (await request.json()) as { sample_ids: string[]; category: string };
     return HttpResponse.json({

@@ -1,5 +1,6 @@
 import {
   AppstoreOutlined,
+  BorderOutlined,
   CheckCircleOutlined,
   CheckSquareOutlined,
   ClearOutlined,
@@ -9,9 +10,11 @@ import {
   DownloadOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
+  FileExcelOutlined,
   FilterOutlined,
   InboxOutlined,
   LeftOutlined,
+  MoreOutlined,
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -35,6 +38,7 @@ import {
   Card,
   Col,
   Divider,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -71,7 +75,9 @@ import {
   extractDatabankSampleWithGemini,
   fetchDatabankSampleImageUrl,
   getDatabank,
+  getDatabankCategoryCounts,
   getDatabankDataset,
+  importDatabankRawCsv,
   listDatabankDatasets,
   listDatabankSamples,
   reanalyzeDatabankUnreviewed,
@@ -93,7 +99,9 @@ import type { OcrBoundingBox } from "@/types/ocr";
 function toViewerBox(
   box: DatabankSample["display_bbox"] | DatabankSample["corrected_bbox"] | DatabankSample["upload_bbox"] | DatabankSample["bbox"],
 ): OcrBoundingBox | null {
-  if (!box) return null;
+  if (!box || typeof box.x1 !== "number" || typeof box.y1 !== "number" || typeof box.x2 !== "number" || typeof box.y2 !== "number") {
+    return null;
+  }
   return {
     x1: box.x1,
     y1: box.y1,
@@ -214,17 +222,33 @@ export function RawDataPage() {
     queryKey: ["databank", "dataset", effectiveDatasetId],
     enabled: Boolean(effectiveDatasetId),
     queryFn: () => getDatabankDataset(effectiveDatasetId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const job = data?.upload_progress;
+      if (
+        data?.status === "processing" ||
+        data?.status === "predicting" ||
+        job?.status === "running"
+      ) {
+        return 2000;
+      }
+      return false;
+    },
   });
 
   const dataset = activeDatasetQuery.data || defaultBankQuery.data;
   const datasetId = dataset?.id;
 
   // Filters state
+  type BboxFilter = "all" | "yes" | "no";
   const [statusFilter, setStatusFilter] = useState<"all" | "unreviewed" | "reviewed">(
     (searchParams.get("status") as "all" | "unreviewed" | "reviewed") || "all",
   );
   const [categoryFilter, setCategoryFilter] = useState<string>(
     searchParams.get("category") || "all",
+  );
+  const [bboxFilter, setBboxFilter] = useState<BboxFilter>(
+    (searchParams.get("has_bbox") as BboxFilter) || "all",
   );
   const [searchInput, setSearchInput] = useState(searchParams.get("search") || "");
   const debouncedSearch = useDebounce(searchInput, 400);
@@ -270,6 +294,7 @@ export function RawDataPage() {
 
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [importCsvModalOpen, setImportCsvModalOpen] = useState(false);
   const [createDatasetModalOpen, setCreateDatasetModalOpen] = useState(false);
   const [batchGeminiOpen, setBatchGeminiOpen] = useState(false);
   const [getValueSample, setGetValueSample] = useState<DatabankSample | null>(null);
@@ -284,6 +309,9 @@ export function RawDataPage() {
     if (categoryFilter !== "all") next.set("category", categoryFilter);
     else next.delete("category");
 
+    if (bboxFilter !== "all") next.set("has_bbox", bboxFilter);
+    else next.delete("has_bbox");
+
     if (debouncedSearch) next.set("search", debouncedSearch);
     else next.delete("search");
 
@@ -291,7 +319,7 @@ export function RawDataPage() {
     else next.delete("dataset_id");
 
     setSearchParams(next, { replace: true });
-  }, [statusFilter, categoryFilter, debouncedSearch, selectedDatasetId, setSearchParams, searchParams]);
+  }, [statusFilter, categoryFilter, bboxFilter, debouncedSearch, selectedDatasetId, setSearchParams, searchParams]);
 
   // Query Raw Samples
   const samplesQuery = useQuery({
@@ -301,6 +329,7 @@ export function RawDataPage() {
       datasetId,
       statusFilter,
       categoryFilter,
+      bboxFilter,
       debouncedSearch,
       page,
       pageSize,
@@ -310,6 +339,7 @@ export function RawDataPage() {
       listDatabankSamples(datasetId!, {
         category: categoryFilter === "all" ? undefined : categoryFilter,
         within_review_status: statusFilter,
+        has_bbox: bboxFilter === "all" ? undefined : bboxFilter === "yes",
         search: debouncedSearch.trim() || undefined,
         limit: pageSize,
         offset: (page - 1) * pageSize,
@@ -321,6 +351,25 @@ export function RawDataPage() {
     () => dataset?.custom_categories ?? [],
     [dataset?.custom_categories],
   );
+
+  // Dynamic Category Counts Query for active filters
+  const categoryCountsQuery = useQuery({
+    queryKey: [
+      "databank",
+      "raw-category-counts",
+      datasetId,
+      statusFilter,
+      bboxFilter,
+      debouncedSearch,
+    ],
+    enabled: Boolean(datasetId),
+    queryFn: () =>
+      getDatabankCategoryCounts(datasetId!, {
+        within_review_status: statusFilter === "all" ? undefined : statusFilter,
+        has_bbox: bboxFilter === "all" ? undefined : bboxFilter === "yes",
+        search: debouncedSearch.trim() || undefined,
+      }),
+  });
 
   const availableCategories = useMemo(() => {
     return [
@@ -335,27 +384,41 @@ export function RawDataPage() {
 
   // Short Category Tabs for selected raw dataset
   const rawCategoryTabs = useMemo(() => {
-    const catCounts = dataset?.category_counts || {};
+    const staticCatCounts = dataset?.category_counts || {};
+    const dynCounts = categoryCountsQuery.data;
+    const isFilteredActive = Boolean(
+      statusFilter !== "all" || bboxFilter !== "all" || debouncedSearch.trim(),
+    );
+
+    const getCount = (key: string, staticTotal: number) => {
+      if (isFilteredActive && dynCounts && key in dynCounts) {
+        return dynCounts[key] ?? 0;
+      }
+      return staticTotal;
+    };
+
     const tabs: { key: string; label: string; count: number }[] = [
       {
         key: "all",
         label: "All Categories",
-        count: dataset?.sample_count ?? dataset?.raw_pending_count ?? 0,
+        count: isFilteredActive
+          ? (samplesQuery.data?.total ?? 0)
+          : (dataset?.sample_count ?? dataset?.raw_pending_count ?? 0),
       },
       {
         key: "raw",
         label: "Raw (Pending)",
-        count: catCounts["raw"]?.total ?? dataset?.raw_pending_count ?? 0,
+        count: getCount("raw", staticCatCounts["raw"]?.total ?? dataset?.raw_pending_count ?? 0),
       },
       {
         key: "ready",
         label: "Ready",
-        count: catCounts["ready"]?.total ?? 0,
+        count: getCount("ready", staticCatCounts["ready"]?.total ?? 0),
       },
       {
         key: "failed",
         label: "Failed",
-        count: catCounts["failed"]?.total ?? 0,
+        count: getCount("failed", staticCatCounts["failed"]?.total ?? 0),
       },
     ];
     for (const c of customCategories) {
@@ -363,12 +426,12 @@ export function RawDataPage() {
         tabs.push({
           key: c,
           label: c.charAt(0).toUpperCase() + c.slice(1),
-          count: catCounts[c]?.total ?? 0,
+          count: getCount(c, staticCatCounts[c]?.total ?? 0),
         });
       }
     }
     return tabs;
-  }, [dataset, customCategories]);
+  }, [dataset, customCategories, categoryCountsQuery.data, statusFilter, bboxFilter, debouncedSearch, samplesQuery.data?.total]);
 
   // Target dataset object & categories for Move modal
   const targetDatasetObj = useMemo(() => {
@@ -467,6 +530,10 @@ export function RawDataPage() {
     dataset?.has_gt_count ??
     dataset?.category_counts?.raw?.has_gt ??
     0;
+  const hasBboxCount =
+    dataset?.has_bbox_count ??
+    dataset?.category_counts?.raw?.has_bbox ??
+    0;
   const pendingGtCount = Math.max(0, totalRaw - hasGtCount);
   const pendingCount = pendingGtCount;
   const reviewedCount =
@@ -474,6 +541,22 @@ export function RawDataPage() {
     dataset?.category_counts?.raw?.reviewed ??
     0;
   const failedCount = dataset?.category_counts?.failed?.total ?? 0;
+
+  const currentTabCounts = useMemo(() => {
+    if (categoryFilter === "all") {
+      return {
+        total: totalRaw,
+        has_bbox: hasBboxCount,
+        has_gt: hasGtCount,
+      };
+    }
+    const cat = dataset?.category_counts?.[categoryFilter];
+    return {
+      total: cat?.total ?? 0,
+      has_bbox: cat?.has_bbox ?? 0,
+      has_gt: cat?.has_gt ?? 0,
+    };
+  }, [categoryFilter, dataset, totalRaw, hasBboxCount, hasGtCount]);
 
   // Mutations
   const createDatasetMutation = useMutation({
@@ -503,6 +586,31 @@ export function RawDataPage() {
         data.message || `Uploaded ${data.added_samples ?? 0} raw samples`,
       );
       setUploadModalOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["databank"] });
+    },
+    onError: (error) => appMessage.error(getApiErrorMessage(error)),
+  });
+
+  const importRawCsvMutation = useMutation({
+    mutationFn: (values: {
+      ocr_type: string;
+      file: File;
+      odometer_col: string;
+      s3_url_col: string;
+      dataset_id?: string;
+    }) =>
+      importDatabankRawCsv(
+        values.ocr_type,
+        values.file,
+        values.odometer_col,
+        values.s3_url_col,
+        values.dataset_id,
+      ),
+    onSuccess: (data) => {
+      appMessage.success(
+        data.message || "Import started in background. Downloading images...",
+      );
+      setImportCsvModalOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
     },
     onError: (error) => appMessage.error(getApiErrorMessage(error)),
@@ -685,11 +793,17 @@ export function RawDataPage() {
     }
   };
 
-  const isFiltered = Boolean(statusFilter !== "all" || categoryFilter !== "all" || searchInput);
+  const isFiltered = Boolean(
+    statusFilter !== "all" ||
+      categoryFilter !== "all" ||
+      bboxFilter !== "all" ||
+      searchInput,
+  );
 
   const handleResetFilters = () => {
     setStatusFilter("all");
     setCategoryFilter("all");
+    setBboxFilter("all");
     setSearchInput("");
     setPage(1);
   };
@@ -783,8 +897,8 @@ export function RawDataPage() {
       key: "bounding_box",
       width: 170,
       render: (_: unknown, row: DatabankSample) => {
-        const box = row.display_bbox || row.corrected_bbox || row.upload_bbox || row.bbox;
-        if (!box) {
+        const box = row.display_bbox || row.bbox || (row.bbox_cleared ? null : row.corrected_bbox || row.upload_bbox);
+        if (!box || typeof box.x1 !== "number" || typeof box.y1 !== "number") {
           return <span className="text-xs text-slate-400 italic">No BBox</span>;
         }
         return (
@@ -975,6 +1089,23 @@ export function RawDataPage() {
             >
               Upload Raw Data
             </Button>
+
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "import-data",
+                    icon: <FileExcelOutlined className="text-emerald-600" />,
+                    label: "Import Data",
+                    onClick: () => setImportCsvModalOpen(true),
+                  },
+                ],
+              }}
+              trigger={["click"]}
+            >
+              <Button icon={<MoreOutlined />} title="More actions" />
+            </Dropdown>
+
             <Button icon={<DownloadOutlined />} onClick={handleDownloadCsv}>
               Export CSV
             </Button>
@@ -1010,9 +1141,53 @@ export function RawDataPage() {
       </div>
 
       <div className="flex-1 space-y-5 p-6">
+        {Boolean(
+          dataset?.status === "processing" ||
+            dataset?.upload_progress?.status === "running"
+        ) && (
+          <Alert
+            type="info"
+            showIcon
+            className="border-blue-200 bg-blue-50/70"
+            message={
+              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="font-semibold text-slate-800">
+                    Background Processing:
+                  </span>{" "}
+                  <span className="text-slate-600">
+                    {dataset?.upload_progress?.message ||
+                      "Importing / processing data in background..."}
+                  </span>
+                  {Boolean(
+                    dataset?.upload_progress?.total_samples &&
+                      dataset.upload_progress.total_samples > 0
+                  ) && (
+                    <span className="ml-2 text-xs font-mono text-slate-500">
+                      ({dataset?.upload_progress?.processed_samples || 0}/
+                      {dataset?.upload_progress?.total_samples})
+                    </span>
+                  )}
+                </div>
+                {dataset?.upload_progress?.progress_pct !== undefined && (
+                  <div className="w-48">
+                    <Progress
+                      percent={Math.round(
+                        dataset.upload_progress.progress_pct
+                      )}
+                      size="small"
+                      status="active"
+                    />
+                  </div>
+                )}
+              </div>
+            }
+          />
+        )}
+
         {/* KPI Strip */}
         <Row gutter={[16, 16]}>
-          <Col xs={12} sm={6}>
+          <Col flex="1 1 180px" className="min-w-[160px]">
             <Card size="small" className="border-slate-200 shadow-xs">
               <Statistic
                 title={
@@ -1027,13 +1202,29 @@ export function RawDataPage() {
             </Card>
           </Col>
 
-          <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
+          <Col flex="1 1 180px" className="min-w-[160px]">
+            <Card
+              size="small"
+              className={`border-slate-200 shadow-xs cursor-pointer transition-all hover:border-emerald-500 hover:shadow-xs ${
+                statusFilter === "reviewed" ? "border-emerald-500 ring-2 ring-emerald-200" : ""
+              }`}
+              onClick={() => {
+                setStatusFilter((prev) => (prev === "reviewed" ? "all" : "reviewed"));
+                setPage(1);
+              }}
+            >
               <Statistic
                 title={
-                  <span className="text-xs font-medium text-slate-500">
-                    Ground Truth Labeled
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">
+                      Ground Truth Labeled
+                    </span>
+                    {statusFilter === "reviewed" && (
+                      <Tag color="emerald" className="text-[10px] leading-tight">
+                        Active
+                      </Tag>
+                    )}
+                  </div>
                 }
                 value={hasGtCount}
                 prefix={<CheckCircleOutlined className="text-emerald-500" />}
@@ -1049,13 +1240,67 @@ export function RawDataPage() {
             </Card>
           </Col>
 
-          <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
+          <Col flex="1 1 180px" className="min-w-[160px]">
+            <Card
+              size="small"
+              className={`border-slate-200 shadow-xs cursor-pointer transition-all hover:border-teal-500 hover:shadow-xs ${
+                bboxFilter === "yes" ? "border-teal-500 ring-2 ring-teal-200" : ""
+              }`}
+              onClick={() => {
+                setBboxFilter((prev) => (prev === "yes" ? "all" : "yes"));
+                setPage(1);
+              }}
+            >
               <Statistic
                 title={
-                  <span className="text-xs font-medium text-slate-500">
-                    Pending GT Review
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">
+                      Has Bounding Box
+                    </span>
+                    {bboxFilter === "yes" && (
+                      <Tag color="teal" className="text-[10px] leading-tight">
+                        Active
+                      </Tag>
+                    )}
+                  </div>
+                }
+                value={hasBboxCount}
+                prefix={<BorderOutlined className="text-teal-600" />}
+                suffix={
+                  totalRaw > 0 ? (
+                    <Tag color="cyan" className="ml-1 text-xs">
+                      {((hasBboxCount / totalRaw) * 100).toFixed(0)}%
+                    </Tag>
+                  ) : null
+                }
+                valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#0d9488" }}
+              />
+            </Card>
+          </Col>
+
+          <Col flex="1 1 180px" className="min-w-[160px]">
+            <Card
+              size="small"
+              className={`border-slate-200 shadow-xs cursor-pointer transition-all hover:border-amber-500 hover:shadow-xs ${
+                statusFilter === "unreviewed" ? "border-amber-500 ring-2 ring-amber-200" : ""
+              }`}
+              onClick={() => {
+                setStatusFilter((prev) => (prev === "unreviewed" ? "all" : "unreviewed"));
+                setPage(1);
+              }}
+            >
+              <Statistic
+                title={
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">
+                      Pending GT Review
+                    </span>
+                    {statusFilter === "unreviewed" && (
+                      <Tag color="amber" className="text-[10px] leading-tight">
+                        Active
+                      </Tag>
+                    )}
+                  </div>
                 }
                 value={pendingGtCount}
                 prefix={<ExclamationCircleOutlined className="text-amber-500" />}
@@ -1064,13 +1309,29 @@ export function RawDataPage() {
             </Card>
           </Col>
 
-          <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
+          <Col flex="1 1 180px" className="min-w-[160px]">
+            <Card
+              size="small"
+              className={`border-slate-200 shadow-xs cursor-pointer transition-all hover:border-rose-500 hover:shadow-xs ${
+                categoryFilter === "failed" ? "border-rose-500 ring-2 ring-rose-200" : ""
+              }`}
+              onClick={() => {
+                setCategoryFilter((prev) => (prev === "failed" ? "all" : "failed"));
+                setPage(1);
+              }}
+            >
               <Statistic
                 title={
-                  <span className="text-xs font-medium text-slate-500">
-                    Failed Extraction
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">
+                      Failed Extraction
+                    </span>
+                    {categoryFilter === "failed" && (
+                      <Tag color="rose" className="text-[10px] leading-tight">
+                        Active
+                      </Tag>
+                    )}
+                  </div>
                 }
                 value={failedCount}
                 prefix={<CloseCircleOutlined className="text-rose-500" />}
@@ -1122,7 +1383,7 @@ export function RawDataPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
                   Category
@@ -1156,6 +1417,26 @@ export function RawDataPage() {
                     { label: "All Raw Samples", value: "all" },
                     { label: "Pending Review (Needs GT)", value: "unreviewed" },
                     { label: "Reviewed (Has GT)", value: "reviewed" },
+                  ]}
+                  style={{ width: "100%" }}
+                  size="middle"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Bounding Box
+                </label>
+                <Select
+                  value={bboxFilter}
+                  onChange={(v) => {
+                    setBboxFilter(v);
+                    setPage(1);
+                  }}
+                  options={[
+                    { label: "All (With & Without BBox)", value: "all" },
+                    { label: "Has Bounding Box", value: "yes" },
+                    { label: "No Bounding Box", value: "no" },
                   ]}
                   style={{ width: "100%" }}
                   size="middle"
@@ -1218,6 +1499,60 @@ export function RawDataPage() {
               ),
             }))}
           />
+
+          {/* Active Tab Bounding Box & Ground Truth Summary */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3 pt-1 border-t border-slate-100 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-slate-500 font-medium">Tab Summary:</span>
+              <Tag
+                color="cyan"
+                className={`font-semibold text-xs flex items-center gap-1 cursor-pointer select-none transition hover:opacity-85 ${
+                  bboxFilter === "yes" ? "ring-2 ring-teal-500" : ""
+                }`}
+                onClick={() => {
+                  setBboxFilter((prev) => (prev === "yes" ? "all" : "yes"));
+                  setPage(1);
+                }}
+              >
+                <BorderOutlined /> Has Bounding Box: {currentTabCounts.has_bbox ?? 0}
+                {currentTabCounts.total > 0
+                  ? ` (${(((currentTabCounts.has_bbox ?? 0) / currentTabCounts.total) * 100).toFixed(0)}%)`
+                  : ""}
+                {bboxFilter === "yes" && " (Active)"}
+              </Tag>
+              <Tag
+                color="green"
+                className={`font-semibold text-xs flex items-center gap-1 cursor-pointer select-none transition hover:opacity-85 ${
+                  statusFilter === "reviewed" ? "ring-2 ring-emerald-500" : ""
+                }`}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "reviewed" ? "all" : "reviewed"));
+                  setPage(1);
+                }}
+              >
+                <CheckCircleOutlined /> Has Ground Truth: {currentTabCounts.has_gt ?? 0}
+                {currentTabCounts.total > 0
+                  ? ` (${(((currentTabCounts.has_gt ?? 0) / currentTabCounts.total) * 100).toFixed(0)}%)`
+                  : ""}
+                {statusFilter === "reviewed" && " (Active)"}
+              </Tag>
+              {currentTabCounts.total > (currentTabCounts.has_bbox ?? 0) && (
+                <Tag
+                  color="orange"
+                  className={`text-xs cursor-pointer select-none transition hover:opacity-85 ${
+                    bboxFilter === "no" ? "ring-2 ring-amber-500" : ""
+                  }`}
+                  onClick={() => {
+                    setBboxFilter((prev) => (prev === "no" ? "all" : "no"));
+                    setPage(1);
+                  }}
+                >
+                  Missing BBox: {currentTabCounts.total - (currentTabCounts.has_bbox ?? 0)}
+                  {bboxFilter === "no" && " (Active)"}
+                </Tag>
+              )}
+            </div>
+          </div>
         </Card>
 
         {/* Selection summary indicator */}
@@ -1444,6 +1779,19 @@ export function RawDataPage() {
         confirmLoading={uploadRawMutation.isPending}
         onClose={() => setUploadModalOpen(false)}
         onSubmit={(values) => uploadRawMutation.mutate(values)}
+      />
+
+      {/* ------------------------------------------------------------------- */}
+      {/* Import Raw CSV Modal (S3 URLs + GT/Prediction)                    */}
+      {/* ------------------------------------------------------------------- */}
+      <ImportRawCsvModal
+        open={importCsvModalOpen}
+        ocrType={activeTaskKey}
+        datasetId={datasetId}
+        datasetName={dataset?.name}
+        confirmLoading={importRawCsvMutation.isPending}
+        onClose={() => setImportCsvModalOpen(false)}
+        onSubmit={(values) => importRawCsvMutation.mutate(values)}
       />
 
       {/* ------------------------------------------------------------------- */}
@@ -1753,6 +2101,254 @@ function UploadRawModal({
             Supports .zip packages, PNG, JPEG, and WebP format images
           </p>
         </Upload.Dragger>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Import Raw CSV with S3 URLs Modal Component
+// ---------------------------------------------------------------------------
+
+function ImportRawCsvModal({
+  open,
+  ocrType,
+  datasetId,
+  datasetName,
+  onClose,
+  onSubmit,
+  confirmLoading,
+}: {
+  open: boolean;
+  ocrType: string;
+  datasetId?: string;
+  datasetName?: string;
+  onClose: () => void;
+  onSubmit: (values: {
+    ocr_type: string;
+    file: File;
+    odometer_col: string;
+    s3_url_col: string;
+    dataset_id?: string;
+  }) => void;
+  confirmLoading: boolean;
+}) {
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [detectedColumns, setDetectedColumns] = useState<string[]>([]);
+  const [odometerCol, setOdometerCol] = useState<string>("");
+  const [s3UrlCol, setS3UrlCol] = useState<string>("");
+  const { message: appMessage } = App.useApp();
+
+  const handleFileChange = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = (e.target?.result as string) || "";
+      const firstLine = text.split(/\r?\n/)[0] || "";
+      if (firstLine) {
+        const cols = firstLine
+          .split(",")
+          .map((c) => c.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+        setDetectedColumns(cols);
+
+        const lowerCols = cols.map((c) => c.toLowerCase());
+        const odoMatchIdx = lowerCols.findIndex((c) =>
+          ["odometer", "reading", "value", "gt", "expected", "prediction"].some((k) =>
+            c.includes(k),
+          ),
+        );
+        if (odoMatchIdx !== -1) {
+          setOdometerCol(cols[odoMatchIdx]);
+        }
+
+        const urlMatchIdx = lowerCols.findIndex((c) =>
+          ["s3", "url", "image", "link", "path"].some((k) => c.includes(k)),
+        );
+        if (urlMatchIdx !== -1) {
+          setS3UrlCol(cols[urlMatchIdx]);
+        }
+      }
+    };
+    reader.readAsText(file.slice(0, 8192));
+  };
+
+  const handleOk = () => {
+    const file =
+      selectedFile ||
+      (fileList[0]?.originFileObj as File | undefined) ||
+      (fileList[0] instanceof File ? (fileList[0] as File) : undefined);
+    if (!file) {
+      appMessage.error("Please select a CSV file to upload.");
+      return;
+    }
+    const cleanOdo = odometerCol.trim();
+    const cleanUrl = s3UrlCol.trim();
+    if (!cleanOdo) {
+      appMessage.error("Please enter the odometer value column header.");
+      return;
+    }
+    if (!cleanUrl) {
+      appMessage.error("Please enter the S3 URL column header.");
+      return;
+    }
+
+    onSubmit({
+      ocr_type: ocrType,
+      file,
+      odometer_col: cleanOdo,
+      s3_url_col: cleanUrl,
+      dataset_id: datasetId,
+    });
+    setSelectedFile(null);
+    setFileList([]);
+    setDetectedColumns([]);
+    setOdometerCol("");
+    setS3UrlCol("");
+  };
+
+  return (
+    <Modal
+      title={
+        <Space>
+          <FileExcelOutlined className="text-emerald-600" />
+          <span>Import Data from CSV</span>
+        </Space>
+      }
+      open={open}
+      onCancel={() => {
+        setSelectedFile(null);
+        setFileList([]);
+        setDetectedColumns([]);
+        onClose();
+      }}
+      onOk={handleOk}
+      okText="Start Import"
+      confirmLoading={confirmLoading}
+      destroyOnHidden
+      width={580}
+    >
+      <div className="space-y-4 pt-2">
+        <Alert
+          type="info"
+          showIcon
+          message="Background Download & Ingestion"
+          description={
+            <div className="text-xs text-slate-600 space-y-1 mt-1">
+              <div>
+                • Specify the <strong>Odometer Value</strong> column (expected GT / predicted value). If missing or empty in any row, it defaults to <strong>000</strong>.
+              </div>
+              <div>
+                • Specify the <strong>S3 URL</strong> column for downloading the images (supports S3 and HTTP/HTTPS URLs).
+              </div>
+              <div>
+                • After clicking <strong>Start Import</strong>, downloading runs in the background so you can close this modal.
+              </div>
+            </div>
+          }
+        />
+
+        {datasetName && (
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span>Target Dataset:</span>
+            <Tag color="blue" className="font-semibold">
+              {datasetName}
+            </Tag>
+          </div>
+        )}
+
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-700">
+            1. Select CSV File:
+          </label>
+          <Upload.Dragger
+            accept=".csv,text/csv"
+            maxCount={1}
+            fileList={fileList}
+            beforeUpload={(file) => {
+              setSelectedFile(file);
+              setFileList([
+                {
+                  uid: file.uid || String(Date.now()),
+                  name: file.name,
+                  status: "done",
+                  originFileObj: file,
+                },
+              ]);
+              handleFileChange(file);
+              return false;
+            }}
+            onRemove={() => {
+              setSelectedFile(null);
+              setFileList([]);
+              setDetectedColumns([]);
+            }}
+          >
+            <p className="ant-upload-drag-icon">
+              <FileExcelOutlined className="text-3xl text-emerald-500" />
+            </p>
+            <p className="ant-upload-text text-sm font-medium">
+              Click or drag CSV file to this area to upload
+            </p>
+            <p className="ant-upload-hint text-xs text-slate-400">
+              CSV file should contain odometer reading values and S3/HTTP image URLs.
+            </p>
+          </Upload.Dragger>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-700">
+              2. Odometer Column Header:
+            </label>
+            {detectedColumns.length > 0 ? (
+              <Select
+                showSearch
+                allowClear
+                value={odometerCol || undefined}
+                onChange={(val) => setOdometerCol(val || "")}
+                placeholder="Select or enter column"
+                options={detectedColumns.map((c) => ({ label: c, value: c }))}
+                style={{ width: "100%" }}
+              />
+            ) : (
+              <Input
+                value={odometerCol}
+                onChange={(e) => setOdometerCol(e.target.value)}
+                placeholder="e.g. odometer_reading"
+              />
+            )}
+            <span className="text-[11px] text-slate-400 mt-0.5 block">
+              Expected GT / predicted value. Blank rows save as "000".
+            </span>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-700">
+              3. S3 URL Column Header:
+            </label>
+            {detectedColumns.length > 0 ? (
+              <Select
+                showSearch
+                allowClear
+                value={s3UrlCol || undefined}
+                onChange={(val) => setS3UrlCol(val || "")}
+                placeholder="Select or enter column"
+                options={detectedColumns.map((c) => ({ label: c, value: c }))}
+                style={{ width: "100%" }}
+              />
+            ) : (
+              <Input
+                value={s3UrlCol}
+                onChange={(e) => setS3UrlCol(e.target.value)}
+                placeholder="e.g. s3_url or image_url"
+              />
+            )}
+            <span className="text-[11px] text-slate-400 mt-0.5 block">
+              Column header with S3 or HTTP image URLs.
+            </span>
+          </div>
+        </div>
       </div>
     </Modal>
   );

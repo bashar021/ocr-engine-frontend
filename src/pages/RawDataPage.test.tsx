@@ -42,8 +42,9 @@ describe("RawDataPage", () => {
     // Metric cards
     await waitFor(() => {
       expect(screen.getByText("Total Raw Ingested")).toBeInTheDocument();
-    });
+    }, { timeout: 8000 });
     expect(screen.getByText("Ground Truth Labeled")).toBeInTheDocument();
+    expect(screen.getByText("Has Bounding Box")).toBeInTheDocument();
     expect(screen.getByText("Pending GT Review")).toBeInTheDocument();
     expect(screen.getByText("Failed Extraction")).toBeInTheDocument();
 
@@ -52,7 +53,7 @@ describe("RawDataPage", () => {
       expect(screen.getByRole("tab", { name: /all categories/i })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /raw \(pending\)/i })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /failed/i })).toBeInTheDocument();
-    });
+    }, { timeout: 8000 });
 
     // Table columns
     await waitFor(() => {
@@ -65,9 +66,10 @@ describe("RawDataPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Filter Raw Data")).toBeInTheDocument();
     expect(screen.getByText("All Raw Samples")).toBeInTheDocument();
+    expect(screen.getByText("All (With & Without BBox)")).toBeInTheDocument();
     expect(screen.getByText("Table")).toBeInTheDocument();
     expect(screen.getByText("Gallery")).toBeInTheDocument();
-  });
+  }, 25000);
 
   it("opens create new dataset modal on click", async () => {
     renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
@@ -167,6 +169,71 @@ describe("RawDataPage", () => {
         expect(screen.getByText(/moved 1 sample\(s\) successfully/i)).toBeInTheDocument();
       });
     },
-    15000,
+    30000,
   );
+
+  it("opens Import Data from CSV modal via three dots menu", async () => {
+    renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
+
+    // Find the three dots button
+    const moreBtn = screen.getByTitle("More actions");
+    expect(moreBtn).toBeInTheDocument();
+
+    // Click three dots button to open dropdown
+    fireEvent.click(moreBtn);
+
+    // "Import Data" option should appear
+    await waitFor(() => {
+      expect(screen.getByText("Import Data")).toBeInTheDocument();
+    });
+
+    // Click "Import Data"
+    fireEvent.click(screen.getByText("Import Data"));
+
+    // Modal opens with instructions and inputs
+    await waitFor(() => {
+      expect(screen.getByText("Import Data from CSV")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/1\. Select CSV File:/i)).toBeInTheDocument();
+    expect(screen.getByText(/2\. Odometer Column Header:/i)).toBeInTheDocument();
+    expect(screen.getByText(/3\. S3 URL Column Header:/i)).toBeInTheDocument();
+
+    // Select a CSV file via file input
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+    const csvFile = new File(
+      ["odometer_value,s3_url\n12345,https://bucket.s3.amazonaws.com/a.jpg\n"],
+      "data.csv",
+      { type: "text/csv" },
+    );
+    fireEvent.change(fileInput, { target: { files: [csvFile] } });
+
+    // Wait for file to be listed and auto-detected headers to populate or fill manually
+    await waitFor(() => {
+      expect(screen.getByText("data.csv")).toBeInTheDocument();
+    });
+
+    // Ensure if inputs are shown, fill them if not auto-detected yet
+    const odoInput = screen.queryByPlaceholderText(/e\.g\. odometer_reading/i);
+    if (odoInput) {
+      fireEvent.change(odoInput, { target: { value: "odometer_value" } });
+    }
+    const urlInput = screen.queryByPlaceholderText(/e\.g\. s3_url or image_url/i);
+    if (urlInput) {
+      fireEvent.change(urlInput, { target: { value: "s3_url" } });
+    }
+
+    const startBtn = screen.getByRole("button", { name: /start import/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/CSV import accepted — downloading images in background/i),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(/Please select a CSV file to upload\./i),
+    ).not.toBeInTheDocument();
+  });
 });

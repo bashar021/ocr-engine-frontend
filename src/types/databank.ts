@@ -42,12 +42,22 @@ export interface DatabankDataset {
   unreviewed_count: number;
   has_gt_count?: number;
   no_gt_count?: number;
+  has_bbox_count?: number;
+  no_bbox_count?: number;
   blurry_count?: number;
   raw_pending_count?: number;
   dataset_type?: string;
   category_counts?: Record<
     string,
-    { total: number; reviewed: number; unreviewed?: number; has_gt?: number; no_gt?: number }
+    {
+      total: number;
+      reviewed: number;
+      unreviewed?: number;
+      has_gt?: number;
+      no_gt?: number;
+      has_bbox?: number;
+      no_bbox?: number;
+    }
   >;
   custom_categories?: string[];
   reviewed_eval_chunk_count?: number;

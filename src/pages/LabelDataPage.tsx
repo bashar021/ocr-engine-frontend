@@ -93,6 +93,7 @@ type MatchFilter = "all" | "yes" | "no" | "none";
 type FinalGtFilter = "all" | "yes" | "no";
 type RerunFilter = "all" | "has" | "missing" | "ok" | "miss";
 type ReviewStatusFilter = "all" | "reviewed" | "unreviewed";
+type BboxFilter = "all" | "yes" | "no";
 
 const ENHANCE_PRESETS: { key: ImageEnhancePreset; label: string }[] = [
   { key: "identity", label: "Identity" },
@@ -327,6 +328,9 @@ export function LabelDataPage() {
   const [rerunFilter, setRerunFilter] = useState<RerunFilter>(
     (searchParams.get("rerun") as RerunFilter) || "all",
   );
+  const [bboxFilter, setBboxFilter] = useState<BboxFilter>(
+    (searchParams.get("has_bbox") as BboxFilter) || "all",
+  );
   const [searchInput, setSearchInput] = useState(searchParams.get("search") || "");
   const debouncedSearch = useDebounce(searchInput, 300);
 
@@ -395,6 +399,9 @@ export function LabelDataPage() {
     if (rerunFilter !== "all") next.set("rerun", rerunFilter);
     else next.delete("rerun");
 
+    if (bboxFilter !== "all") next.set("has_bbox", bboxFilter);
+    else next.delete("has_bbox");
+
     setSearchParams(next, { replace: true });
   }, [
     selectedDatasetId,
@@ -406,6 +413,7 @@ export function LabelDataPage() {
     matchFilter,
     finalGtFilter,
     rerunFilter,
+    bboxFilter,
     setSearchParams,
     searchParams,
   ]);
@@ -424,6 +432,7 @@ export function LabelDataPage() {
       matchFilter,
       finalGtFilter,
       rerunFilter,
+      bboxFilter,
       page,
       pageSize,
     ],
@@ -441,6 +450,7 @@ export function LabelDataPage() {
         has_final_gt:
           finalGtFilter === "all" ? undefined : finalGtFilter === "yes",
         has_rerun: rerunFilter === "all" ? undefined : rerunFilter,
+        has_bbox: bboxFilter === "all" ? undefined : bboxFilter === "yes",
         limit: pageSize,
         offset: (page - 1) * pageSize,
       }),
@@ -543,6 +553,7 @@ export function LabelDataPage() {
       matchFilter,
       finalGtFilter,
       rerunFilter,
+      bboxFilter,
     ],
     enabled: Boolean(datasetId),
     queryFn: () =>
@@ -557,6 +568,7 @@ export function LabelDataPage() {
         has_final_gt:
           finalGtFilter === "all" ? undefined : finalGtFilter === "yes",
         has_rerun: rerunFilter === "all" ? undefined : rerunFilter,
+        has_bbox: bboxFilter === "all" ? undefined : bboxFilter === "yes",
       }),
   });
 
@@ -585,6 +597,7 @@ export function LabelDataPage() {
     setMatchFilter("all");
     setFinalGtFilter("all");
     setRerunFilter("all");
+    setBboxFilter("all");
     setPage(1);
   };
 
@@ -595,7 +608,8 @@ export function LabelDataPage() {
     predictedFilter !== "all" ||
     matchFilter !== "all" ||
     finalGtFilter !== "all" ||
-    rerunFilter !== "all";
+    rerunFilter !== "all" ||
+    bboxFilter !== "all";
 
   // Mutations
   const createDatasetMutation = useMutation({
@@ -1504,6 +1518,22 @@ export function LabelDataPage() {
                   { value: "missing", label: "No re-run" },
                   { value: "ok", label: "Re-run match" },
                   { value: "miss", label: "Re-run miss" },
+                ]}
+              />
+
+              {/* Bounding Box Filter */}
+              <Select
+                size="small"
+                value={bboxFilter}
+                onChange={(val) => {
+                  setBboxFilter(val);
+                  setPage(1);
+                }}
+                style={{ width: 135 }}
+                options={[
+                  { value: "all", label: "BBox: All" },
+                  { value: "yes", label: "Has Bbox" },
+                  { value: "no", label: "No Bbox" },
                 ]}
               />
             </div>
