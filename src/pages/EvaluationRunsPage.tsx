@@ -29,7 +29,7 @@ import {
   sortEvaluations,
   type EvaluationSortKey,
 } from "@/utils/evaluationSort";
-import { isRealLabelDataset } from "@/utils/datasetFilters";
+import { isRawDataset, isRealLabelDataset } from "@/utils/datasetFilters";
 
 const RUN_STATUSES = [
   { value: "queued", label: "Queued" },
@@ -72,10 +72,10 @@ export function EvaluationRunsPage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [bulkReEvaluateLoading, setBulkReEvaluateLoading] = useState(false);
 
-  // 1. Query only real Label Data datasets (excluding any raw datasets)
-  const labelDatasetsQuery = useQuery({
-    queryKey: ["databank", "datasets-list", activeTaskKey, "label"],
-    queryFn: () => listDatabankDatasets(activeTaskKey, { dataset_type: "label" }),
+  // 1. Query both Label Data and Raw Data datasets for evaluation
+  const datasetsQuery = useQuery({
+    queryKey: ["databank", "datasets-list", activeTaskKey, "all"],
+    queryFn: () => listDatabankDatasets(activeTaskKey),
   });
 
   const defaultBankQuery = useQuery({
@@ -84,22 +84,44 @@ export function EvaluationRunsPage() {
   });
 
   const labelDatasets = useMemo(() => {
-    const list = labelDatasetsQuery.data?.datasets || [];
+    const list = datasetsQuery.data?.datasets || [];
     const filtered = list.filter((d) => isRealLabelDataset(d));
     if (filtered.length === 0 && defaultBankQuery.data && isRealLabelDataset(defaultBankQuery.data)) {
       return [defaultBankQuery.data];
     }
     return filtered;
-  }, [labelDatasetsQuery.data?.datasets, defaultBankQuery.data]);
+  }, [datasetsQuery.data?.datasets, defaultBankQuery.data]);
 
-  const datasetOptions = useMemo(
-    () =>
-      labelDatasets.map((d) => ({
-        value: d.id,
-        label: `${d.name} (${d.sample_count ?? 0} samples)`,
-      })),
-    [labelDatasets],
-  );
+  const rawDatasets = useMemo(() => {
+    const list = datasetsQuery.data?.datasets || [];
+    return list.filter((d) => isRawDataset(d));
+  }, [datasetsQuery.data?.datasets]);
+
+  const datasetOptions = useMemo(() => {
+    const groups: Array<{
+      label: string;
+      options: Array<{ value: string; label: string }>;
+    }> = [];
+    if (labelDatasets.length > 0) {
+      groups.push({
+        label: "Label Datasets",
+        options: labelDatasets.map((d) => ({
+          value: d.id,
+          label: `${d.name} (${d.sample_count ?? 0} samples)`,
+        })),
+      });
+    }
+    if (rawDatasets.length > 0) {
+      groups.push({
+        label: "Raw Datasets",
+        options: rawDatasets.map((d) => ({
+          value: d.id,
+          label: `${d.name} [Raw] (${d.sample_count ?? 0} samples)`,
+        })),
+      });
+    }
+    return groups;
+  }, [labelDatasets, rawDatasets]);
 
   // 2. Query available model pipelines for running evaluation
   const modelRefsQuery = useModelRefsQuery(
@@ -124,7 +146,7 @@ export function EvaluationRunsPage() {
   // Pre-fill modal fields when opened
   useEffect(() => {
     if (runModalOpen) {
-      const defaultDs = datasetId || labelDatasets[0]?.id || "";
+      const defaultDs = datasetId || labelDatasets[0]?.id || rawDatasets[0]?.id || "";
       const defaultModel =
         availableModelRefOptions.find((m) => m.isDefault)?.value ||
         availableModelRefOptions[0]?.value ||
@@ -137,7 +159,7 @@ export function EvaluationRunsPage() {
         worker_threads: 4,
       });
     }
-  }, [runModalOpen, datasetId, labelDatasets, availableModelRefOptions, runForm]);
+  }, [runModalOpen, datasetId, labelDatasets, rawDatasets, availableModelRefOptions, runForm]);
 
   const params = useMemo(
     () => ({
@@ -366,7 +388,7 @@ export function EvaluationRunsPage() {
                 optionFilterProp="label"
                 value={datasetId}
                 options={datasetOptions}
-                loading={labelDatasetsQuery.isLoading}
+                loading={datasetsQuery.isLoading}
                 onChange={(v) => {
                   setDatasetId(v);
                   setPage(1);
@@ -453,9 +475,9 @@ export function EvaluationRunsPage() {
         }}
       />
 
-      {/* Modal to Run Evaluation on Label Dataset */}
+      {/* Modal to Run Evaluation on Label or Raw Dataset */}
       <Modal
-        title="Run Evaluation on Label Dataset"
+        title="Run Evaluation"
         open={runModalOpen}
         onCancel={() => setRunModalOpen(false)}
         onOk={handleStartEvaluationSubmit}
@@ -467,16 +489,16 @@ export function EvaluationRunsPage() {
         <Form form={runForm} layout="vertical" className="pt-2">
           <Form.Item
             name="dataset_id"
-            label="Label Dataset"
-            rules={[{ required: true, message: "Please select a label dataset" }]}
-            extra="Only verified real label datasets are available for evaluation."
+            label="Dataset"
+            rules={[{ required: true, message: "Please select a dataset" }]}
+            extra="Both Label datasets and Raw datasets are available for evaluation."
           >
             <Select
-              placeholder="Select label dataset"
+              placeholder="Select dataset"
               options={datasetOptions}
               showSearch
               optionFilterProp="label"
-              loading={labelDatasetsQuery.isLoading}
+              loading={datasetsQuery.isLoading}
             />
           </Form.Item>
 

@@ -76,7 +76,7 @@ describe('Evaluation pages', () => {
     })
   })
 
-  it('opens Run Evaluation modal with label datasets only and shows label datasets in dropdown filter', async () => {
+  it('opens Run Evaluation modal with both label and raw datasets in dropdown', async () => {
     renderWithProviders(<EvaluationRunsPage />, { route: '/evaluation/runs' })
 
     const runEvalBtn = screen.getByRole('button', { name: /run evaluation/i })
@@ -88,10 +88,20 @@ describe('Evaluation pages', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Run Evaluation on Label Dataset')).toBeInTheDocument()
-    expect(within(dialog).getByText('Label Dataset')).toBeInTheDocument()
+    expect(within(dialog).getByText('Run Evaluation')).toBeInTheDocument()
+    expect(within(dialog).getByText('Dataset')).toBeInTheDocument()
     expect(within(dialog).getByText('Model / Pipeline')).toBeInTheDocument()
     expect(within(dialog).getByText('Evaluation Type')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /start evaluation/i })).toBeInTheDocument()
+
+    // Open Dataset dropdown inside the modal and verify both Label and Raw dataset groups/items appear
+    const datasetCombobox = within(dialog).getAllByRole('combobox')[0]
+    fireEvent.mouseDown(datasetCombobox)
+
+    await waitFor(() => {
+      expect(screen.getByText('Label Datasets')).toBeInTheDocument()
+      expect(screen.getByText('Raw Datasets')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/raw-batch-2026 \[Raw\]/i)).toBeInTheDocument()
   })
 })
