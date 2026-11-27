@@ -97,6 +97,25 @@ export async function getDatabankDataset(id: string): Promise<DatabankDataset> {
   return data;
 }
 
+export async function separateDatabankDuplicates(
+  datasetId: string,
+): Promise<
+  DatabankDataset & {
+    accepted?: boolean;
+    job_id?: string;
+    message?: string | null;
+  }
+> {
+  const { data } = await apiClient.post<
+    DatabankDataset & {
+      accepted?: boolean;
+      job_id?: string;
+      message?: string | null;
+    }
+  >(`/v1/databank/datasets/${encodeURIComponent(datasetId)}/separate-duplicates`);
+  return data;
+}
+
 export async function listDatabankSamples(
   datasetId: string,
   params: {

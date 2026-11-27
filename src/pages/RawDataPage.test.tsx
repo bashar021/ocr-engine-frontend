@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { AppTopBar } from "@/components/layout/AppTopBar";
 import { RawDataPage } from "@/pages/RawDataPage";
 import { server } from "@/test/mocks/server";
 import { renderWithProviders } from "@/test/test-utils";
@@ -19,24 +20,20 @@ describe("RawDataPage", () => {
       screen.queryByText(/Ingest unreviewed raw images, extract ground-truth digits via Gemini AI/i),
     ).not.toBeInTheDocument();
 
-    // Dataset selector and New Dataset button
+    // Dataset selector
     expect(screen.getByText("Dataset:")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new dataset/i })).toBeInTheDocument();
 
     // Batch action buttons at top bar (disabled when 0 rows are selected)
     const batchGeminiBtn = screen.getByRole("button", { name: /batch gemini gt/i });
     const moveBtn = screen.getByRole("button", { name: /move/i });
     const deleteBtn = screen.getByRole("button", { name: /delete selected/i });
-    const deselectBtn = screen.getByRole("button", { name: /deselect all/i });
 
     expect(batchGeminiBtn).toBeDisabled();
     expect(moveBtn).toBeDisabled();
     expect(deleteBtn).toBeDisabled();
-    expect(deselectBtn).toBeDisabled();
 
     // Standard action buttons
-    expect(screen.getByRole("button", { name: /upload raw data/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /export csv/i })).toBeEnabled();
+    expect(screen.getByTitle("More actions")).toBeEnabled();
     expect(screen.getByRole("button", { name: /refresh/i })).toBeEnabled();
 
     // Metric cards
@@ -64,18 +61,37 @@ describe("RawDataPage", () => {
     expect(
       screen.getByPlaceholderText(/search by filename, ground truth, or predicted ocr string/i),
     ).toBeInTheDocument();
-    expect(screen.getByText("Filter Raw Data")).toBeInTheDocument();
     expect(screen.getByText("All Raw Samples")).toBeInTheDocument();
     expect(screen.getByText("All (With & Without BBox)")).toBeInTheDocument();
-    expect(screen.getByText("Table")).toBeInTheDocument();
-    expect(screen.getByText("Gallery")).toBeInTheDocument();
   }, 25000);
 
-  it("opens create new dataset modal on click", async () => {
+  it("renders Table and Gallery view switcher at the most left side of the main OCR Platform header and shows loading state on switch", async () => {
+    renderWithProviders(
+      <>
+        <AppTopBar />
+        <RawDataPage />
+      </>,
+      { route: "/databank/raw" },
+    );
+    expect(screen.getByText("OCR Platform")).toBeInTheDocument();
+    expect(screen.getByText("Table")).toBeInTheDocument();
+    expect(screen.getByText("Gallery")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Gallery"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Loading Gallery view...")).toBeInTheDocument();
+    });
+  });
+
+  it("opens create new dataset modal on click via three dots menu", async () => {
     renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
 
-    const newDsBtn = screen.getByRole("button", { name: /new dataset/i });
-    fireEvent.click(newDsBtn);
+    fireEvent.click(screen.getByTitle("More actions"));
+    await waitFor(() => {
+      expect(screen.getByText("New Dataset")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("New Dataset"));
 
     await waitFor(() => {
       expect(screen.getByText("Create New Raw Dataset")).toBeInTheDocument();
@@ -182,9 +198,11 @@ describe("RawDataPage", () => {
     // Click three dots button to open dropdown
     fireEvent.click(moreBtn);
 
-    // "Import Data" option should appear
+    // "Upload Raw Data", "Import Data", "Separate Duplicate", and "Export CSV" options should appear
     await waitFor(() => {
+      expect(screen.getByText("Upload Raw Data")).toBeInTheDocument();
       expect(screen.getByText("Import Data")).toBeInTheDocument();
+      expect(screen.getByText("Export CSV")).toBeInTheDocument();
     });
 
     // Click "Import Data"
@@ -235,5 +253,28 @@ describe("RawDataPage", () => {
     expect(
       screen.queryByText(/Please select a CSV file to upload\./i),
     ).not.toBeInTheDocument();
+  });
+
+  it("triggers Separate Duplicate from three dots menu", async () => {
+    renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
+
+    await waitFor(() => {
+      expect(screen.getByText(/raw-batch-2026 \(/i)).toBeInTheDocument();
+    });
+
+    const moreBtn = screen.getByTitle("More actions");
+    fireEvent.click(moreBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Separate Duplicate")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Separate Duplicate"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Duplicate separation started in background/i),
+      ).toBeInTheDocument();
+    });
   });
 });

@@ -1,5 +1,6 @@
-import { Breadcrumb, Layout, Space, Tag, Typography } from "antd";
-import { Link, useLocation } from "react-router-dom";
+import { AppstoreOutlined, TableOutlined } from "@ant-design/icons";
+import { Breadcrumb, Layout, Segmented, Space, Tag, Typography } from "antd";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "@/api/client";
@@ -44,6 +45,10 @@ async function fetchHealth(): Promise<{ status?: string }> {
 export function AppTopBar() {
   const { activeTask, activeTaskKey } = useTaskContext();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isRawDataRoute = location.pathname.startsWith("/databank/raw");
+  const rawViewMode: "table" | "gallery" =
+    searchParams.get("view") === "gallery" ? "gallery" : "table";
   const healthQuery = useQuery({
     queryKey: ["health", "live"],
     queryFn: fetchHealth,
@@ -63,6 +68,22 @@ export function AppTopBar() {
   return (
     <Header className="!sticky !top-0 !z-20 flex !h-14 items-center justify-between border-b border-slate-200 !bg-white !px-4 !leading-none shadow-sm">
       <Space size="middle" wrap className="min-w-0">
+        {isRawDataRoute && (
+          <Segmented
+            value={rawViewMode}
+            onChange={(v) => {
+              const next = new URLSearchParams(searchParams);
+              if (v === "gallery") next.set("view", "gallery");
+              else next.delete("view");
+              setSearchParams(next, { replace: true });
+            }}
+            options={[
+              { label: "Table", value: "table", icon: <TableOutlined /> },
+              { label: "Gallery", value: "gallery", icon: <AppstoreOutlined /> },
+            ]}
+            size="small"
+          />
+        )}
         <Typography.Text strong className="!text-slate-800">
           OCR Platform
         </Typography.Text>

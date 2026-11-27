@@ -1,17 +1,15 @@
 import {
-  AppstoreOutlined,
   BorderOutlined,
   CheckCircleOutlined,
   CheckSquareOutlined,
-  ClearOutlined,
   CloseCircleOutlined,
+  CopyOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
   FileExcelOutlined,
-  FilterOutlined,
   InboxOutlined,
   LeftOutlined,
   MoreOutlined,
@@ -22,7 +20,6 @@ import {
   SaveOutlined,
   SearchOutlined,
   SyncOutlined,
-  TableOutlined,
   TagsOutlined,
   ThunderboltOutlined,
   UndoOutlined,
@@ -47,7 +44,6 @@ import {
   Popconfirm,
   Progress,
   Row,
-  Segmented,
   Select,
   Space,
   Spin,
@@ -82,6 +78,7 @@ import {
   listDatabankSamples,
   reanalyzeDatabankUnreviewed,
   reviewDatabankSample,
+  separateDatabankDuplicates,
   setDatabankSampleCategory,
   syncDatabankReviewedEval,
   uploadRawToDatabank,
@@ -239,6 +236,17 @@ export function RawDataPage() {
   const dataset = activeDatasetQuery.data || defaultBankQuery.data;
   const datasetId = dataset?.id;
 
+  const prevJobStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const curStatus = dataset?.upload_progress?.status;
+    if (prevJobStatusRef.current === "running" && curStatus === "completed") {
+      void queryClient.invalidateQueries({ queryKey: ["databank", "raw-samples"] });
+      void queryClient.invalidateQueries({ queryKey: ["databank", "category-counts"] });
+      void queryClient.invalidateQueries({ queryKey: ["databank", "datasets-list"] });
+    }
+    prevJobStatusRef.current = curStatus;
+  }, [dataset?.upload_progress?.status, queryClient]);
+
   // Filters state
   type BboxFilter = "all" | "yes" | "no";
   const [statusFilter, setStatusFilter] = useState<"all" | "unreviewed" | "reviewed">(
@@ -255,7 +263,29 @@ export function RawDataPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [viewMode, setViewMode] = useState<"table" | "gallery">("table");
+  const viewMode: "table" | "gallery" =
+    searchParams.get("view") === "gallery" ? "gallery" : "table";
+  const [renderedViewMode, setRenderedViewMode] = useState<"table" | "gallery">(viewMode);
+  const [isSwitchingView, setIsSwitchingView] = useState(false);
+
+  useEffect(() => {
+    if (viewMode === renderedViewMode) {
+      setIsSwitchingView(false);
+      return;
+    }
+    setIsSwitchingView(true);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setRenderedViewMode(viewMode);
+        setIsSwitchingView(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [viewMode, renderedViewMode]);
 
   // Selection for batch actions
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -542,22 +572,6 @@ export function RawDataPage() {
     0;
   const failedCount = dataset?.category_counts?.failed?.total ?? 0;
 
-  const currentTabCounts = useMemo(() => {
-    if (categoryFilter === "all") {
-      return {
-        total: totalRaw,
-        has_bbox: hasBboxCount,
-        has_gt: hasGtCount,
-      };
-    }
-    const cat = dataset?.category_counts?.[categoryFilter];
-    return {
-      total: cat?.total ?? 0,
-      has_bbox: cat?.has_bbox ?? 0,
-      has_gt: cat?.has_gt ?? 0,
-    };
-  }, [categoryFilter, dataset, totalRaw, hasBboxCount, hasGtCount]);
-
   // Mutations
   const createDatasetMutation = useMutation({
     mutationFn: (values: { name: string; description?: string }) =>
@@ -611,6 +625,17 @@ export function RawDataPage() {
         data.message || "Import started in background. Downloading images...",
       );
       setImportCsvModalOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["databank"] });
+    },
+    onError: (error) => appMessage.error(getApiErrorMessage(error)),
+  });
+
+  const separateDuplicatesMutation = useMutation({
+    mutationFn: (dsId: string) => separateDatabankDuplicates(dsId),
+    onSuccess: (data) => {
+      appMessage.success(
+        data.message || "Duplicate separation started in background.",
+      );
       void queryClient.invalidateQueries({ queryKey: ["databank"] });
     },
     onError: (error) => appMessage.error(getApiErrorMessage(error)),
@@ -793,21 +818,6 @@ export function RawDataPage() {
     }
   };
 
-  const isFiltered = Boolean(
-    statusFilter !== "all" ||
-      categoryFilter !== "all" ||
-      bboxFilter !== "all" ||
-      searchInput,
-  );
-
-  const handleResetFilters = () => {
-    setStatusFilter("all");
-    setCategoryFilter("all");
-    setBboxFilter("all");
-    setSearchInput("");
-    setPage(1);
-  };
-
   // Table columns definition
   const columns: ColumnsType<DatabankSample> = [
     {
@@ -936,6 +946,13 @@ export function RawDataPage() {
             </Tag>
           );
         }
+        if (cat === "duplicate") {
+          return (
+            <Tag color="orange" className="text-xs font-semibold">
+              Duplicate
+            </Tag>
+          );
+        }
         if (cat === "raw" || !cat) {
           return <Tag color="cyan" className="text-xs">Raw</Tag>;
         }
@@ -1004,7 +1021,7 @@ export function RawDataPage() {
       {/* Top Header Bar with Dataset Dropdown & Action / Batch Buttons */}
       <div className="border-b border-slate-200 bg-white px-6 py-3.5 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Left: Dataset Dropdown & Create Dataset */}
+          {/* Left: Dataset Dropdown */}
           <div className="flex items-center gap-2">
             <DatabaseOutlined className="text-blue-600 text-base" />
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1022,12 +1039,6 @@ export function RawDataPage() {
               style={{ minWidth: 230 }}
               placeholder="Select raw dataset"
             />
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => setCreateDatasetModalOpen(true)}
-            >
-              New Dataset
-            </Button>
           </div>
 
           {/* Right: Batch Actions (Dependent on Selection) & Main Tools */}
@@ -1072,61 +1083,8 @@ export function RawDataPage() {
               </Button>
             </Popconfirm>
 
-            <Button
-              disabled={selectedRowKeys.length === 0}
-              onClick={() => setSelectedRowKeys([])}
-            >
-              Deselect All
-            </Button>
-
             <div className="mx-1 h-5 w-[1px] bg-slate-200" />
 
-            <Button
-              type="primary"
-              icon={<UploadOutlined />}
-              onClick={() => setUploadModalOpen(true)}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 font-medium shadow-xs"
-            >
-              Upload Raw Data
-            </Button>
-
-            <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: "import-data",
-                    icon: <FileExcelOutlined className="text-emerald-600" />,
-                    label: "Import Data",
-                    onClick: () => setImportCsvModalOpen(true),
-                  },
-                ],
-              }}
-              trigger={["click"]}
-            >
-              <Button icon={<MoreOutlined />} title="More actions" />
-            </Dropdown>
-
-            <Button icon={<DownloadOutlined />} onClick={handleDownloadCsv}>
-              Export CSV
-            </Button>
-            {pendingCount > 0 && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => reanalyzeMutation.mutate()}
-                loading={reanalyzeMutation.isPending}
-              >
-                Re-analyze
-              </Button>
-            )}
-            {reviewedCount > 0 && (
-              <Button
-                icon={<SyncOutlined />}
-                onClick={() => syncMutation.mutate()}
-                loading={syncMutation.isPending}
-              >
-                Sync to Datasets
-              </Button>
-            )}
             <Button
               icon={<ReloadOutlined />}
               onClick={() => {
@@ -1136,11 +1094,78 @@ export function RawDataPage() {
             >
               Refresh
             </Button>
+
+            <Dropdown
+              menu={{
+                items: [
+                  ...(pendingCount > 0
+                    ? [
+                        {
+                          key: "reanalyze",
+                          icon: <ReloadOutlined spin={reanalyzeMutation.isPending} className="text-sky-600" />,
+                          label: "Re-analyze",
+                          disabled: reanalyzeMutation.isPending,
+                          onClick: () => reanalyzeMutation.mutate(),
+                        },
+                      ]
+                    : []),
+                  ...(reviewedCount > 0
+                    ? [
+                        {
+                          key: "sync-to-datasets",
+                          icon: <SyncOutlined spin={syncMutation.isPending} className="text-teal-600" />,
+                          label: "Sync to Datasets",
+                          disabled: syncMutation.isPending,
+                          onClick: () => syncMutation.mutate(),
+                        },
+                      ]
+                    : []),
+                  {
+                    key: "upload-raw-data",
+                    icon: <UploadOutlined className="text-blue-600" />,
+                    label: "Upload Raw Data",
+                    onClick: () => setUploadModalOpen(true),
+                  },
+                  {
+                    key: "new-dataset",
+                    icon: <PlusOutlined className="text-indigo-600" />,
+                    label: "New Dataset",
+                    onClick: () => setCreateDatasetModalOpen(true),
+                  },
+                  {
+                    key: "import-data",
+                    icon: <FileExcelOutlined className="text-emerald-600" />,
+                    label: "Import Data",
+                    onClick: () => setImportCsvModalOpen(true),
+                  },
+                  {
+                    key: "separate-duplicate",
+                    icon: <CopyOutlined className="text-amber-600" />,
+                    label: "Separate Duplicate",
+                    disabled: !datasetId || separateDuplicatesMutation.isPending,
+                    onClick: () => {
+                      if (datasetId) {
+                        separateDuplicatesMutation.mutate(datasetId);
+                      }
+                    },
+                  },
+                  {
+                    key: "export-csv",
+                    icon: <DownloadOutlined className="text-blue-600" />,
+                    label: "Export CSV",
+                    onClick: handleDownloadCsv,
+                  },
+                ],
+              }}
+              trigger={["click"]}
+            >
+              <Button icon={<MoreOutlined />} title="More actions" />
+            </Dropdown>
           </Space>
         </div>
       </div>
 
-      <div className="flex-1 space-y-5 p-6">
+      <div className="flex-1 flex flex-col gap-3 p-4">
         {Boolean(
           dataset?.status === "processing" ||
             dataset?.upload_progress?.status === "running"
@@ -1186,7 +1211,7 @@ export function RawDataPage() {
         )}
 
         {/* KPI Strip */}
-        <Row gutter={[16, 16]}>
+        <Row gutter={[12, 12]}>
           <Col flex="1 1 180px" className="min-w-[160px]">
             <Card size="small" className="border-slate-200 shadow-xs">
               <Statistic
@@ -1219,11 +1244,6 @@ export function RawDataPage() {
                     <span className="text-xs font-medium text-slate-500">
                       Ground Truth Labeled
                     </span>
-                    {statusFilter === "reviewed" && (
-                      <Tag color="emerald" className="text-[10px] leading-tight">
-                        Active
-                      </Tag>
-                    )}
                   </div>
                 }
                 value={hasGtCount}
@@ -1257,11 +1277,6 @@ export function RawDataPage() {
                     <span className="text-xs font-medium text-slate-500">
                       Has Bounding Box
                     </span>
-                    {bboxFilter === "yes" && (
-                      <Tag color="teal" className="text-[10px] leading-tight">
-                        Active
-                      </Tag>
-                    )}
                   </div>
                 }
                 value={hasBboxCount}
@@ -1295,11 +1310,6 @@ export function RawDataPage() {
                     <span className="text-xs font-medium text-slate-500">
                       Pending GT Review
                     </span>
-                    {statusFilter === "unreviewed" && (
-                      <Tag color="amber" className="text-[10px] leading-tight">
-                        Active
-                      </Tag>
-                    )}
                   </div>
                 }
                 value={pendingGtCount}
@@ -1326,11 +1336,6 @@ export function RawDataPage() {
                     <span className="text-xs font-medium text-slate-500">
                       Failed Extraction
                     </span>
-                    {categoryFilter === "failed" && (
-                      <Tag color="rose" className="text-[10px] leading-tight">
-                        Active
-                      </Tag>
-                    )}
                   </div>
                 }
                 value={failedCount}
@@ -1348,41 +1353,6 @@ export function RawDataPage() {
         {/* Filters & Search Toolbar Card */}
         <Card size="small" className="border-slate-200 bg-white shadow-xs">
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FilterOutlined className="text-blue-600" />
-                <span className="text-sm font-semibold text-slate-800">
-                  Filter Raw Data
-                </span>
-                {isFiltered && (
-                  <Tag color="blue" closable onClose={handleResetFilters}>
-                    Filters active
-                  </Tag>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Segmented
-                  value={viewMode}
-                  onChange={(v) => setViewMode(v as "table" | "gallery")}
-                  options={[
-                    { label: "Table", value: "table", icon: <TableOutlined /> },
-                    { label: "Gallery", value: "gallery", icon: <AppstoreOutlined /> },
-                  ]}
-                  size="small"
-                />
-                {isFiltered && (
-                  <Button
-                    size="small"
-                    icon={<ClearOutlined />}
-                    onClick={handleResetFilters}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -1469,10 +1439,11 @@ export function RawDataPage() {
         <Card
           variant="borderless"
           className="rounded-xl border border-slate-200/80 bg-white shadow-xs"
-          styles={{ body: { padding: "12px 20px 0px 20px" } }}
+          styles={{ body: { padding: "0 16px" } }}
         >
           <Tabs
             activeKey={categoryFilter}
+            tabBarStyle={{ marginBottom: 0 }}
             onChange={(key) => {
               setCategoryFilter(key);
               setPage(1);
@@ -1482,7 +1453,7 @@ export function RawDataPage() {
             items={rawCategoryTabs.map((t) => ({
               key: t.key,
               label: (
-                <Space size={6} className="py-1">
+                <Space size={6} className="py-0.5">
                   <span>{t.label}</span>
                   <Badge
                     count={t.count}
@@ -1499,60 +1470,6 @@ export function RawDataPage() {
               ),
             }))}
           />
-
-          {/* Active Tab Bounding Box & Ground Truth Summary */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3 pt-1 border-t border-slate-100 text-xs">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-slate-500 font-medium">Tab Summary:</span>
-              <Tag
-                color="cyan"
-                className={`font-semibold text-xs flex items-center gap-1 cursor-pointer select-none transition hover:opacity-85 ${
-                  bboxFilter === "yes" ? "ring-2 ring-teal-500" : ""
-                }`}
-                onClick={() => {
-                  setBboxFilter((prev) => (prev === "yes" ? "all" : "yes"));
-                  setPage(1);
-                }}
-              >
-                <BorderOutlined /> Has Bounding Box: {currentTabCounts.has_bbox ?? 0}
-                {currentTabCounts.total > 0
-                  ? ` (${(((currentTabCounts.has_bbox ?? 0) / currentTabCounts.total) * 100).toFixed(0)}%)`
-                  : ""}
-                {bboxFilter === "yes" && " (Active)"}
-              </Tag>
-              <Tag
-                color="green"
-                className={`font-semibold text-xs flex items-center gap-1 cursor-pointer select-none transition hover:opacity-85 ${
-                  statusFilter === "reviewed" ? "ring-2 ring-emerald-500" : ""
-                }`}
-                onClick={() => {
-                  setStatusFilter((prev) => (prev === "reviewed" ? "all" : "reviewed"));
-                  setPage(1);
-                }}
-              >
-                <CheckCircleOutlined /> Has Ground Truth: {currentTabCounts.has_gt ?? 0}
-                {currentTabCounts.total > 0
-                  ? ` (${(((currentTabCounts.has_gt ?? 0) / currentTabCounts.total) * 100).toFixed(0)}%)`
-                  : ""}
-                {statusFilter === "reviewed" && " (Active)"}
-              </Tag>
-              {currentTabCounts.total > (currentTabCounts.has_bbox ?? 0) && (
-                <Tag
-                  color="orange"
-                  className={`text-xs cursor-pointer select-none transition hover:opacity-85 ${
-                    bboxFilter === "no" ? "ring-2 ring-amber-500" : ""
-                  }`}
-                  onClick={() => {
-                    setBboxFilter((prev) => (prev === "no" ? "all" : "no"));
-                    setPage(1);
-                  }}
-                >
-                  Missing BBox: {currentTabCounts.total - (currentTabCounts.has_bbox ?? 0)}
-                  {bboxFilter === "no" && " (Active)"}
-                </Tag>
-              )}
-            </div>
-          </div>
         </Card>
 
         {/* Selection summary indicator */}
@@ -1571,7 +1488,18 @@ export function RawDataPage() {
         )}
 
         {/* Main Content Area */}
-        {viewMode === "table" ? (
+        {isSwitchingView ? (
+          <Card size="small" className="border-slate-200 shadow-xs">
+            <div className="flex flex-col items-center justify-center py-24 gap-3">
+              <Spin size="large" />
+              <Typography.Text type="secondary" className="text-sm font-medium">
+                {viewMode === "gallery"
+                  ? "Loading Gallery view..."
+                  : "Loading Table view..."}
+              </Typography.Text>
+            </div>
+          </Card>
+        ) : renderedViewMode === "table" ? (
           <Card size="small" className="border-slate-200 shadow-xs">
             <Table
               rowKey="id"
@@ -1615,7 +1543,7 @@ export function RawDataPage() {
             />
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-3">
             {samplesQuery.isLoading ? (
               <div className="flex h-64 items-center justify-center">
                 <Spin tip="Loading raw images..." />

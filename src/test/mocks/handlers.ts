@@ -1125,6 +1125,16 @@ export const handlers = [
     });
   }),
 
+  http.post("*/v1/databank/datasets/:datasetId/separate-duplicates", ({ params }) => {
+    return HttpResponse.json({
+      id: String(params.datasetId),
+      status: "processing",
+      accepted: true,
+      job_id: "job-dedupe-1",
+      message: "Duplicate separation started in background",
+    });
+  }),
+
   http.post("*/v1/databank/datasets/:datasetId/batch-category", async ({ request, params }) => {
     const body = (await request.json()) as { sample_ids: string[]; category: string };
     return HttpResponse.json({
