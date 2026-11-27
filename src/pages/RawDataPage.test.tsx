@@ -277,4 +277,76 @@ describe("RawDataPage", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it(
+    "supports X/Y axis bounding box adjustment and cropped-only zoom view in Review modal",
+    async () => {
+      renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
+
+      await waitFor(() => {
+        expect(screen.getByText("1-887512.jpg")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("[20, 15, 80, 65]"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Inspect Raw Sample · 1-887512\.jpg/i)).toBeInTheDocument();
+      });
+
+      // Verify initial bbox [20, 15, 80, 65] in modal and X/Y axis controls
+      expect(screen.getAllByText("[20, 15, 80, 65]").length).toBeGreaterThanOrEqual(2);
+
+      fireEvent.click(screen.getByLabelText("Increase X-axis"));
+      expect(screen.getAllByText("[10, 15, 90, 65]").length).toBeGreaterThanOrEqual(2);
+
+      fireEvent.click(screen.getByLabelText("Decrease Y-axis"));
+      expect(screen.getAllByText("[10, 25, 90, 55]").length).toBeGreaterThanOrEqual(2);
+
+      // Toggle cropped-only view and verify zoom controls remain active
+      fireEvent.click(screen.getByText("Crop View"));
+      expect(screen.getByText("Cropped")).toBeInTheDocument();
+      expect(
+        screen.getByText(/Showing cropped bounding box region/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText("100%")).toBeInTheDocument();
+    },
+    15000,
+  );
+
+  it(
+    "shows Recognition Prediction column and opens Evaluate Data modal with Detection+Recognition / Recognition Only options",
+    async () => {
+      renderWithProviders(<RawDataPage />, { route: "/databank/raw" });
+
+      await waitFor(() => {
+        expect(screen.getByText("1-887512.jpg")).toBeInTheDocument();
+      });
+
+      expect(
+        screen.getByRole("columnheader", { name: /recognition prediction/i }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTitle("More actions"));
+      await waitFor(() => {
+        expect(screen.getByText("Evaluate Data")).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText("Evaluate Data"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Evaluate Raw Data/i)).toBeInTheDocument();
+      });
+      expect(screen.getByText("Detection + Recognition")).toBeInTheDocument();
+      expect(screen.getByText("Recognition Only")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Recognition Only"));
+      fireEvent.click(screen.getByText("Start Evaluation"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Evaluation started \(recognition only\)/i),
+        ).toBeInTheDocument();
+      });
+    },
+    15000,
+  );
 });

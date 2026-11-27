@@ -8,16 +8,19 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   ExclamationCircleOutlined,
+  ExperimentOutlined,
   EyeOutlined,
   FileExcelOutlined,
   InboxOutlined,
   LeftOutlined,
+  MinusOutlined,
   MoreOutlined,
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   RightOutlined,
   SaveOutlined,
+  ScissorOutlined,
   SearchOutlined,
   SyncOutlined,
   TagsOutlined,
@@ -39,10 +42,12 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Pagination,
   Popconfirm,
   Progress,
+  Radio,
   Row,
   Select,
   Space,
@@ -68,6 +73,7 @@ import {
   createDatabankDataset,
   deleteDatabankSample,
   downloadDatabankCsv,
+  evaluateRawDataset,
   extractDatabankSampleWithGemini,
   fetchDatabankSampleImageUrl,
   getDatabank,
@@ -325,6 +331,7 @@ export function RawDataPage() {
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [importCsvModalOpen, setImportCsvModalOpen] = useState(false);
+  const [evaluateModalOpen, setEvaluateModalOpen] = useState(false);
   const [createDatasetModalOpen, setCreateDatasetModalOpen] = useState(false);
   const [batchGeminiOpen, setBatchGeminiOpen] = useState(false);
   const [getValueSample, setGetValueSample] = useState<DatabankSample | null>(null);
@@ -641,6 +648,26 @@ export function RawDataPage() {
     onError: (error) => appMessage.error(getApiErrorMessage(error)),
   });
 
+  const evaluateRawMutation = useMutation({
+    mutationFn: ({
+      dsId,
+      mode,
+      category,
+    }: {
+      dsId: string;
+      mode: "detection_and_recognition" | "recognition_only";
+      category?: string;
+    }) => evaluateRawDataset(dsId, { mode, category }),
+    onSuccess: (data) => {
+      appMessage.success(
+        data.message || "Evaluation started in background.",
+      );
+      setEvaluateModalOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["databank"] });
+    },
+    onError: (error) => appMessage.error(getApiErrorMessage(error)),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (sampleId: string) => deleteDatabankSample(datasetId!, sampleId),
     onSuccess: (res) => {
@@ -871,13 +898,14 @@ export function RawDataPage() {
       },
     },
     {
-      title: "Model Prediction",
-      key: "prediction",
-      width: 170,
+      title: "Recognition Prediction",
+      key: "recognition_prediction",
+      width: 185,
       render: (_: unknown, row: DatabankSample) => {
-        const pred = row.upload_predicted ?? row.rerun_predicted;
-        const conf = row.upload_confidence ?? row.rerun_confidence;
-        const match = row.upload_match ?? row.rerun_match;
+        const hasRerun = row.rerun_predicted != null && row.rerun_predicted !== "";
+        const pred = hasRerun ? row.rerun_predicted : row.upload_predicted;
+        const conf = hasRerun ? row.rerun_confidence : row.upload_confidence;
+        const match = hasRerun ? row.rerun_match : row.upload_match;
 
         if (!pred) {
           return <span className="text-xs text-slate-400 italic">No prediction</span>;
@@ -1148,6 +1176,13 @@ export function RawDataPage() {
                         separateDuplicatesMutation.mutate(datasetId);
                       }
                     },
+                  },
+                  {
+                    key: "evaluate-data",
+                    icon: <ExperimentOutlined className="text-violet-600" />,
+                    label: "Evaluate Data",
+                    disabled: !datasetId || evaluateRawMutation.isPending,
+                    onClick: () => setEvaluateModalOpen(true),
                   },
                   {
                     key: "export-csv",
@@ -1838,6 +1873,26 @@ export function RawDataPage() {
       )}
 
       {/* ------------------------------------------------------------------- */}
+      {/* Evaluate Raw Data Modal                                             */}
+      {/* ------------------------------------------------------------------- */}
+      {evaluateModalOpen && datasetId && (
+        <EvaluateRawDataModal
+          open={evaluateModalOpen}
+          datasetName={dataset?.name || datasetId}
+          currentCategory={categoryFilter}
+          confirmLoading={evaluateRawMutation.isPending}
+          onClose={() => setEvaluateModalOpen(false)}
+          onStart={({ mode, category }) => {
+            evaluateRawMutation.mutate({
+              dsId: datasetId,
+              mode,
+              category,
+            });
+          }}
+        />
+      )}
+
+      {/* ------------------------------------------------------------------- */}
       {/* Sample Review / Inspector Modal                                     */}
       {/* ------------------------------------------------------------------- */}
       {reviewSample && datasetId && (
@@ -1864,6 +1919,116 @@ export function RawDataPage() {
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Evaluate Raw Data Modal Component
+// ---------------------------------------------------------------------------
+
+function EvaluateRawDataModal({
+  open,
+  datasetName,
+  currentCategory,
+  confirmLoading,
+  onClose,
+  onStart,
+}: {
+  open: boolean;
+  datasetName: string;
+  currentCategory: string;
+  confirmLoading: boolean;
+  onClose: () => void;
+  onStart: (params: {
+    mode: "detection_and_recognition" | "recognition_only";
+    category?: string;
+  }) => void;
+}) {
+  const [mode, setMode] = useState<"detection_and_recognition" | "recognition_only">(
+    "detection_and_recognition",
+  );
+  const [scope, setScope] = useState<"all" | "current">(
+    currentCategory && currentCategory !== "all" ? "current" : "all",
+  );
+
+  return (
+    <Modal
+      title={
+        <Space>
+          <ExperimentOutlined className="text-violet-600" />
+          <span>Evaluate Raw Data · {datasetName}</span>
+        </Space>
+      }
+      open={open}
+      onCancel={onClose}
+      onOk={() => {
+        onStart({
+          mode,
+          category:
+            scope === "current" && currentCategory && currentCategory !== "all"
+              ? currentCategory
+              : undefined,
+        });
+      }}
+      okText="Start Evaluation"
+      confirmLoading={confirmLoading}
+      width={540}
+      centered
+    >
+      <div className="space-y-4 pt-2">
+        <div>
+          <div className="mb-2 text-xs font-semibold text-slate-700">
+            Select Evaluation Mode
+          </div>
+          <Radio.Group
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+            className="flex flex-col gap-2.5 w-full"
+          >
+            <Radio
+              value="detection_and_recognition"
+              className="w-full rounded-lg border border-slate-200 p-3 hover:border-violet-400"
+            >
+              <div className="font-semibold text-slate-800">
+                Detection + Recognition
+              </div>
+              <div className="text-xs text-slate-500">
+                Runs full odometer detection to locate the bounding box, then runs recognition and updates Recognition Prediction.
+              </div>
+            </Radio>
+            <Radio
+              value="recognition_only"
+              className="w-full rounded-lg border border-slate-200 p-3 hover:border-violet-400"
+            >
+              <div className="font-semibold text-slate-800">
+                Recognition Only
+              </div>
+              <div className="text-xs text-slate-500">
+                Skips detection and runs recognition directly on existing bounding boxes (or full image if no box is present).
+              </div>
+            </Radio>
+          </Radio.Group>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-semibold text-slate-700">
+            Sample Scope
+          </div>
+          <Radio.Group
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            className="flex gap-3"
+          >
+            <Radio value="all">All non-duplicate samples</Radio>
+            {currentCategory && currentCategory !== "all" && (
+              <Radio value="current">
+                Only &ldquo;{currentCategory}&rdquo; tab
+              </Radio>
+            )}
+          </Radio.Group>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3157,16 +3322,55 @@ function RawSampleReviewModal({
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState<number>(1);
   const [isAutoZoomed, setIsAutoZoomed] = useState<boolean>(false);
+  const [croppedOnly, setCroppedOnly] = useState<boolean>(false);
   const [targetAction, setTargetAction] = useState<string | null>(null);
 
   const [gtInput, setGtInput] = useState(
     sample.final_gt || sample.ground_truth_normalized || "",
   );
 
-  const activeBox = useMemo(
+  const initialBox = useMemo(
     () => toViewerBox(sample.display_bbox || sample.corrected_bbox || sample.upload_bbox || sample.bbox),
     [sample],
   );
+  const [bboxDraft, setBboxDraft] = useState<OcrBoundingBox | null>(initialBox);
+
+  const isBboxDirty = useMemo(() => {
+    if (!initialBox && !bboxDraft) return false;
+    if (!initialBox || !bboxDraft) return true;
+    return (
+      Math.round(initialBox.x1) !== Math.round(bboxDraft.x1) ||
+      Math.round(initialBox.y1) !== Math.round(bboxDraft.y1) ||
+      Math.round(initialBox.x2) !== Math.round(bboxDraft.x2) ||
+      Math.round(initialBox.y2) !== Math.round(bboxDraft.y2)
+    );
+  }, [initialBox, bboxDraft]);
+
+  const adjustBboxAxis = (axis: "x" | "y", delta: number) => {
+    setBboxDraft((prev) => {
+      if (!prev) return prev;
+      const maxW = sample.width && sample.width > 0 ? sample.width : 10000;
+      const maxH = sample.height && sample.height > 0 ? sample.height : 10000;
+      if (axis === "x") {
+        let nx1 = Math.max(0, Math.round(prev.x1 - delta));
+        let nx2 = Math.min(maxW, Math.round(prev.x2 + delta));
+        if (nx2 - nx1 < 4) {
+          const mid = Math.round((prev.x1 + prev.x2) / 2);
+          nx1 = Math.max(0, mid - 2);
+          nx2 = Math.min(maxW, mid + 2);
+        }
+        return { ...prev, x1: nx1, x2: nx2 };
+      }
+      let ny1 = Math.max(0, Math.round(prev.y1 - delta));
+      let ny2 = Math.min(maxH, Math.round(prev.y2 + delta));
+      if (ny2 - ny1 < 4) {
+        const mid = Math.round((prev.y1 + prev.y2) / 2);
+        ny1 = Math.max(0, mid - 2);
+        ny2 = Math.min(maxH, mid + 2);
+      }
+      return { ...prev, y1: ny1, y2: ny2 };
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -3175,14 +3379,16 @@ function RawSampleReviewModal({
     setLoading(true);
     setPreviewUrl(null);
     setGtInput(sample.final_gt || sample.ground_truth_normalized || "");
+    setBboxDraft(initialBox);
+    setCroppedOnly(false);
     setTargetAction(null);
 
     // Calculate default zoom: zoom into the bounding box if it's too small relative to the frame
-    if (activeBox) {
+    if (initialBox) {
       const refW = sample.width && sample.width > 0 ? sample.width : 1000;
       const refH = sample.height && sample.height > 0 ? sample.height : 1000;
-      const bw = Math.abs(activeBox.x2 - activeBox.x1);
-      const bh = Math.abs(activeBox.y2 - activeBox.y1);
+      const bw = Math.abs(initialBox.x2 - initialBox.x1);
+      const bh = Math.abs(initialBox.y2 - initialBox.y1);
       if (bw > 0 && bh > 0) {
         const ratioW = bw / refW;
         const ratioH = bh / refH;
@@ -3222,12 +3428,23 @@ function RawSampleReviewModal({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, sample.id, sample, activeBox]);
+  }, [datasetId, sample.id, sample, initialBox]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ gt, moveCat }: { gt: string; moveCat?: string }) => {
       await reviewDatabankSample(datasetId, sample.id, {
         corrected_gt: gt.trim() || undefined,
+        corrected_bbox:
+          isBboxDirty && bboxDraft
+            ? {
+                x1: Math.round(bboxDraft.x1),
+                y1: Math.round(bboxDraft.y1),
+                x2: Math.round(bboxDraft.x2),
+                y2: Math.round(bboxDraft.y2),
+                confidence: bboxDraft.confidence ?? 0.95,
+                label: bboxDraft.label ?? "manual",
+              }
+            : undefined,
       });
       if (moveCat !== undefined) {
         const catValue = moveCat === "general" ? "" : moveCat;
@@ -3321,72 +3538,221 @@ function RawSampleReviewModal({
       }
     >
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 pt-2">
-        {/* Left Section: Image Preview with Zoom In / Zoom Out Controls */}
+        {/* Left Section: Image Preview with Zoom In / Zoom Out Controls & Bounding Box Tools */}
         <div className="lg:col-span-7 flex flex-col">
-          <div className="relative flex h-[510px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 p-2">
-            {/* Floating Zoom Controls Bar */}
-            <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-md backdrop-blur-xs">
-              <Tooltip title="Zoom Out (-)">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<ZoomOutOutlined />}
-                  disabled={zoom <= 0.5}
-                  onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
-                />
-              </Tooltip>
-              <span className="w-12 text-center text-xs font-mono font-semibold text-slate-700">
-                {Math.round(zoom * 100)}%
-              </span>
-              <Tooltip title="Zoom In (+)">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<ZoomInOutlined />}
-                  disabled={zoom >= 4.0}
-                  onClick={() => setZoom((z) => Math.min(4.0, Math.round((z + 0.25) * 100) / 100))}
-                />
-              </Tooltip>
-              <Divider type="vertical" className="my-0 h-4" />
-              <Tooltip title="Reset Zoom to 1x">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<UndoOutlined />}
-                  onClick={() => {
-                    setZoom(1);
-                    setIsAutoZoomed(false);
-                  }}
-                >
-                  1x
-                </Button>
-              </Tooltip>
-              {isAutoZoomed && (
-                <Tag color="cyan" className="ml-1 text-[10px] leading-tight">
-                  Auto-Zoomed
-                </Tag>
-              )}
+          <div className="flex h-[440px] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5">
+            {/* Dedicated Preview Toolbar Header (does not overlap image) */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-medium text-slate-500">
+                  {croppedOnly ? "Cropped Region" : "Full Image"}
+                </span>
+                {isAutoZoomed && (
+                  <Tag color="cyan" className="m-0 text-[10px] leading-tight">
+                    Auto-Zoomed
+                  </Tag>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <Tooltip title="Zoom Out (-)">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<ZoomOutOutlined />}
+                    disabled={zoom <= 0.5}
+                    onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
+                  />
+                </Tooltip>
+                <span className="w-12 text-center text-xs font-mono font-semibold text-slate-700">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <Tooltip title="Zoom In (+)">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<ZoomInOutlined />}
+                    disabled={zoom >= 4.0}
+                    onClick={() => setZoom((z) => Math.min(4.0, Math.round((z + 0.25) * 100) / 100))}
+                  />
+                </Tooltip>
+                <Divider type="vertical" className="my-0 h-4" />
+                <Tooltip title="Reset Zoom to 1x">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<UndoOutlined />}
+                    onClick={() => {
+                      setZoom(1);
+                      setIsAutoZoomed(false);
+                    }}
+                  >
+                    1x
+                  </Button>
+                </Tooltip>
+                <Divider type="vertical" className="my-0 h-4" />
+                <Tooltip title={bboxDraft ? (croppedOnly ? "Show Full Image" : "View Only Cropped Bounding Box") : "No bounding box to crop"}>
+                  <Button
+                    size="small"
+                    type={croppedOnly ? "primary" : "text"}
+                    icon={<ScissorOutlined />}
+                    disabled={!bboxDraft}
+                    onClick={() => {
+                      setCroppedOnly((prev) => !prev);
+                      setZoom(1);
+                      setIsAutoZoomed(false);
+                    }}
+                  >
+                    {croppedOnly ? "Cropped" : "Crop View"}
+                  </Button>
+                </Tooltip>
+              </div>
             </div>
 
-            {loading ? (
-              <Spin tip="Loading image..." />
-            ) : previewUrl ? (
-              <OcrImageViewer
-                className="h-full w-full"
-                src={previewUrl}
-                imageWidth={sample.width}
-                imageHeight={sample.height}
-                selected={activeBox}
-                zoom={zoom}
-                autoCenterSelected={true}
-              />
-            ) : (
-              <PictureOutlined className="text-5xl text-slate-400" />
-            )}
+            <div className="relative flex flex-1 min-h-0 w-full items-center justify-center overflow-hidden p-2">
+              {loading ? (
+                <Spin tip="Loading image..." />
+              ) : previewUrl ? (
+                <OcrImageViewer
+                  className="h-full w-full"
+                  src={previewUrl}
+                  imageWidth={sample.width}
+                  imageHeight={sample.height}
+                  selected={bboxDraft}
+                  zoom={zoom}
+                  autoCenterSelected={!croppedOnly}
+                  cropToSelected={croppedOnly}
+                  onSelectedChange={setBboxDraft}
+                />
+              ) : (
+                <PictureOutlined className="text-5xl text-slate-400" />
+              )}
+            </div>
           </div>
           <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-500">
             <span>Dimensions: {sample.width ?? "—"} × {sample.height ?? "—"}</span>
-            <span>Green rectangle highlights detected odometer boundary</span>
+            <span>
+              {croppedOnly
+                ? "Showing cropped bounding box region (use +/- to zoom)"
+                : "Green rectangle highlights detected odometer boundary (drag box to move)"}
+            </span>
+          </div>
+
+          {/* Bounding Box Tool Container (Left Side) */}
+          <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <Typography.Text type="secondary" className="font-medium">
+                Bounding Box Controls:
+              </Typography.Text>
+              <div className="flex items-center gap-1.5">
+                {bboxDraft ? (
+                  <Tag color={isBboxDirty ? "orange" : "blue"} className="font-mono text-xs m-0">
+                    [{Math.round(bboxDraft.x1)}, {Math.round(bboxDraft.y1)}, {Math.round(bboxDraft.x2)}, {Math.round(bboxDraft.y2)}]
+                  </Tag>
+                ) : (
+                  <Button
+                    size="small"
+                    type="dashed"
+                    onClick={() => {
+                      const w = sample.width && sample.width > 0 ? sample.width : 400;
+                      const h = sample.height && sample.height > 0 ? sample.height : 300;
+                      setBboxDraft({
+                        x1: Math.round(w * 0.25),
+                        y1: Math.round(h * 0.35),
+                        x2: Math.round(w * 0.75),
+                        y2: Math.round(h * 0.65),
+                        confidence: 1,
+                        label: "manual",
+                      });
+                    }}
+                  >
+                    Add Box
+                  </Button>
+                )}
+                {isBboxDirty && (
+                  <Button
+                    size="small"
+                    type="link"
+                    className="p-0 text-xs h-auto"
+                    onClick={() => setBboxDraft(initialBox)}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {bboxDraft && (
+              <div className="rounded-lg border border-slate-200 bg-white p-2 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-2 py-1">
+                    <span className="text-[11px] font-medium text-slate-600">
+                      X-Axis ({Math.round(bboxDraft.x2 - bboxDraft.x1)}px)
+                    </span>
+                    <Space size={2}>
+                      <Tooltip title="Decrease X-axis width">
+                        <Button
+                          size="small"
+                          aria-label="Decrease X-axis"
+                          icon={<MinusOutlined />}
+                          onClick={() => adjustBboxAxis("x", -10)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="Increase X-axis width">
+                        <Button
+                          size="small"
+                          aria-label="Increase X-axis"
+                          icon={<PlusOutlined />}
+                          onClick={() => adjustBboxAxis("x", 10)}
+                        />
+                      </Tooltip>
+                    </Space>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-2 py-1">
+                    <span className="text-[11px] font-medium text-slate-600">
+                      Y-Axis ({Math.round(bboxDraft.y2 - bboxDraft.y1)}px)
+                    </span>
+                    <Space size={2}>
+                      <Tooltip title="Decrease Y-axis height">
+                        <Button
+                          size="small"
+                          aria-label="Decrease Y-axis"
+                          icon={<MinusOutlined />}
+                          onClick={() => adjustBboxAxis("y", -10)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="Increase Y-axis height">
+                        <Button
+                          size="small"
+                          aria-label="Increase Y-axis"
+                          icon={<PlusOutlined />}
+                          onClick={() => adjustBboxAxis("y", 10)}
+                        />
+                      </Tooltip>
+                    </Space>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(["x1", "y1", "x2", "y2"] as const).map((coord) => (
+                    <div key={coord} className="flex flex-col">
+                      <span className="text-[10px] uppercase text-slate-400">{coord}</span>
+                      <InputNumber
+                        size="small"
+                        className="w-full font-mono text-xs"
+                        value={Math.round(bboxDraft[coord])}
+                        min={0}
+                        step={5}
+                        onChange={(val) => {
+                          if (typeof val !== "number" || Number.isNaN(val)) return;
+                          setBboxDraft((prev) => (prev ? { ...prev, [coord]: val } : prev));
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3433,9 +3799,9 @@ function RawSampleReviewModal({
 
               <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
                 <Typography.Text type="secondary">Bounding Box:</Typography.Text>
-                {activeBox ? (
-                  <Tag color="blue" className="font-mono text-xs">
-                    [{Math.round(activeBox.x1)}, {Math.round(activeBox.y1)}, {Math.round(activeBox.x2)}, {Math.round(activeBox.y2)}]
+                {bboxDraft ? (
+                  <Tag color={isBboxDirty ? "orange" : "blue"} className="font-mono text-xs m-0">
+                    [{Math.round(bboxDraft.x1)}, {Math.round(bboxDraft.y1)}, {Math.round(bboxDraft.x2)}, {Math.round(bboxDraft.y2)}]
                   </Tag>
                 ) : (
                   <span className="text-slate-400 italic">None detected</span>

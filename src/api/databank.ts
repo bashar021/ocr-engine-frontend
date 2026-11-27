@@ -116,6 +116,32 @@ export async function separateDatabankDuplicates(
   return data;
 }
 
+export async function evaluateRawDataset(
+  datasetId: string,
+  body: {
+    mode: "detection_and_recognition" | "recognition_only";
+    category?: string;
+    model_ref?: string;
+  },
+): Promise<
+  DatabankDataset & {
+    accepted?: boolean;
+    job_id?: string;
+    mode?: "detection_and_recognition" | "recognition_only";
+    message?: string | null;
+  }
+> {
+  const { data } = await apiClient.post<
+    DatabankDataset & {
+      accepted?: boolean;
+      job_id?: string;
+      mode?: "detection_and_recognition" | "recognition_only";
+      message?: string | null;
+    }
+  >(`/v1/databank/datasets/${encodeURIComponent(datasetId)}/evaluate`, body);
+  return data;
+}
+
 export async function listDatabankSamples(
   datasetId: string,
   params: {

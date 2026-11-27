@@ -1135,6 +1135,21 @@ export const handlers = [
     });
   }),
 
+  http.post("*/v1/databank/datasets/:datasetId/evaluate", async ({ request, params }) => {
+    const body = (await request.json()) as {
+      mode?: "detection_and_recognition" | "recognition_only";
+    };
+    const mode = body.mode || "detection_and_recognition";
+    return HttpResponse.json({
+      id: String(params.datasetId),
+      status: "processing",
+      accepted: true,
+      job_id: "job-eval-raw-1",
+      mode,
+      message: `Evaluation started (${mode.replace(/_/g, " ")})`,
+    });
+  }),
+
   http.post("*/v1/databank/datasets/:datasetId/batch-category", async ({ request, params }) => {
     const body = (await request.json()) as { sample_ids: string[]; category: string };
     return HttpResponse.json({
