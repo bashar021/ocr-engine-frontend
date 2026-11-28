@@ -145,6 +145,8 @@ export function TrainingCurationPage() {
           { label: "Gemini 3.5 Flash Lite (Fastest & Stable)", value: "gemini-3.5-flash-lite" },
           { label: "Gemini 3.5 Flash", value: "gemini-3.5-flash" },
           { label: "Gemini 3 Flash Preview", value: "gemini-3-flash-preview" },
+          { label: "Gemini 3 Flash Live", value: "gemini-3-flash-live" },
+          { label: "Gemma 4 31B", value: "gemma-4-31b-it" },
         ];
 
   const evalsQuery = useQuery({
