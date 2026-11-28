@@ -28,6 +28,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Collapse,
   Dropdown,
   Empty,
   Input,
@@ -278,6 +279,12 @@ export function SpyderPage() {
 
   // Session detail modal
   const [detailSession, setDetailSession] = useState<ScraperSession | null>(null);
+
+  // Compact toolbar filter & pagination state (matching Scrape Data tab)
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionStatusTab, setSessionStatusTab] = useState<"all" | "running" | "completed" | "stopped">("all");
+  const [sessionPage, setSessionPage] = useState(1);
+  const [sessionPageSize, setSessionPageSize] = useState(15);
 
   const categoriesQuery = useQuery({
     queryKey: ["scraper", "categories"],
@@ -575,39 +582,40 @@ export function SpyderPage() {
     },
   ];
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/50">
-      <PageHeader
-        title="Spyder"
-        description="Harvest images from the web and monitor crawl sessions"
-        actions={
-          <Space>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => sessionsQuery.refetch()}
-              loading={sessionsQuery.isFetching}
-            >
-              Refresh
-            </Button>
-            <Button
-              type="primary"
-              size="middle"
-              icon={<ThunderboltOutlined />}
-              onClick={() => {
-                setRunSuccessNotice(null);
-                setRunModalOpen(true);
-              }}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 font-medium shadow-xs"
-            >
-              Run Spyder
-            </Button>
-          </Space>
-        }
-      />
+  const filteredSessions = useMemo(() => {
+    const q = sessionSearch.trim().toLowerCase();
+    return sessions.filter((s) => {
+      if (sessionStatusTab === "running" && s.status !== "running" && s.status !== "pending") {
+        return false;
+      }
+      if (sessionStatusTab === "completed" && s.status !== "completed") {
+        return false;
+      }
+      if (
+        sessionStatusTab === "stopped" &&
+        s.status !== "stopped" &&
+        s.status !== "failed"
+      ) {
+        return false;
+      }
+      if (q) {
+        const hay = `${s.seed_url ?? ""} ${s.id} ${s.status}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [sessions, sessionSearch, sessionStatusTab]);
 
-      <div className="flex-1 space-y-5 p-6">
-        {/* KPI Strip */}
-        <Row gutter={[16, 16]}>
+  const pagedSessions = useMemo(() => {
+    const start = (sessionPage - 1) * sessionPageSize;
+    return filteredSessions.slice(start, start + sessionPageSize);
+  }, [filteredSessions, sessionPage, sessionPageSize]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3.5">
+        {/* KPI Strip (static) */}
+        <Row gutter={[12, 12]} className="shrink-0">
           <Col xs={12} sm={6}>
             <Card size="small" className="border-slate-200 shadow-xs">
               <Statistic
@@ -679,40 +687,126 @@ export function SpyderPage() {
           </Col>
         </Row>
 
-        {/* Sessions Monitor Table */}
+        {/* Compact Toolbar & Status Tabs Card (static) */}
         <Card
-          title={
-            <div className="flex items-center justify-between">
-              <Space>
-                <CompassOutlined className="text-blue-500" />
-                <span className="font-semibold text-slate-800">Spyder Crawl Sessions</span>
-                <Badge
-                  count={sessions.length}
-                  overflowCount={999}
-                  style={{ backgroundColor: "#0284c7" }}
-                />
-              </Space>
-              <Button
-                type="primary"
-                ghost
-                size="small"
-                icon={<ThunderboltOutlined />}
-                onClick={() => {
-                  setRunSuccessNotice(null);
-                  setRunModalOpen(true);
-                }}
-              >
-                New Crawl
-              </Button>
-            </div>
-          }
           size="small"
-          className="border-slate-200 shadow-xs"
+          className="shrink-0 border-slate-200 bg-white shadow-xs"
+          styles={{ body: { padding: "10px 12px" } }}
         >
-          {sessions.length === 0 ? (
-            <div className="py-12 text-center">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Input
+                placeholder="Search by keyword, URL, or session ID..."
+                allowClear
+                value={sessionSearch}
+                onChange={(e) => {
+                  setSessionSearch(e.target.value);
+                  setSessionPage(1);
+                }}
+                prefix={<SearchOutlined className="text-slate-400" />}
+                size="middle"
+                style={{ width: 320, maxWidth: "100%" }}
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={() => {
+                    setRunSuccessNotice(null);
+                    setRunModalOpen(true);
+                  }}
+                  className="bg-gradient-to-r from-blue-600 to-indigo-600 font-medium shadow-xs"
+                >
+                  Run Spyder
+                </Button>
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={() => {
+                    setSessionSearch("");
+                    setSessionStatusTab("all");
+                    setSessionPage(1);
+                  }}
+                >
+                  Reset
+                </Button>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => sessionsQuery.refetch()}
+                  loading={sessionsQuery.isFetching}
+                >
+                  Refresh
+                </Button>
+              </div>
+            </div>
+
+            <Tabs
+              size="small"
+              activeKey={sessionStatusTab}
+              onChange={(key) => {
+                setSessionStatusTab(key as "all" | "running" | "completed" | "stopped");
+                setSessionPage(1);
+              }}
+              tabBarStyle={{ marginBottom: 0 }}
+              className="mb-0 [&_.ant-tabs-content-holder]:hidden"
+              items={[
+                {
+                  key: "all",
+                  label: (
+                    <span className="text-xs font-medium">
+                      All ({sessions.length})
+                    </span>
+                  ),
+                },
+                {
+                  key: "running",
+                  label: (
+                    <span className="text-xs font-medium">
+                      Running ({activeCount})
+                    </span>
+                  ),
+                },
+                {
+                  key: "completed",
+                  label: (
+                    <span className="text-xs font-medium">
+                      Completed ({completedCount})
+                    </span>
+                  ),
+                },
+                {
+                  key: "stopped",
+                  label: (
+                    <span className="text-xs font-medium">
+                      Stopped / Failed (
+                      {sessions.filter((s) => s.status === "stopped" || s.status === "failed").length}
+                      )
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        </Card>
+
+        {/* Sessions Monitor Table (static header, only body scrolls) */}
+        <Card
+          size="small"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 shadow-xs"
+          styles={{
+            body: {
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              padding: 0,
+              overflow: "hidden",
+            },
+          }}
+        >
+          {filteredSessions.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center py-12 text-center">
               <Empty
-                description="No Spyder crawl sessions have been launched yet"
+                description="No Spyder crawl sessions found"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               >
                 <Button
@@ -731,15 +825,39 @@ export function SpyderPage() {
           ) : (
             <Table
               rowKey="id"
-              dataSource={sessions}
+              dataSource={pagedSessions}
               columns={sessionColumns}
               loading={sessionsQuery.isLoading}
-              pagination={{ pageSize: 15, showSizeChanger: true }}
+              className="flex-1 min-h-0 [&_.ant-table-wrapper]:h-full [&_.ant-spin-nested-loading]:h-full [&_.ant-spin-container]:h-full [&_.ant-table]:h-full [&_.ant-table-container]:flex [&_.ant-table-container]:h-full [&_.ant-table-container]:flex-col [&_.ant-table-header]:shrink-0 [&_.ant-table-body]:flex-1 [&_.ant-table-body]:overflow-y-auto"
+              pagination={false}
               size="small"
-              scroll={{ x: 850 }}
+              scroll={{ x: 850, y: "calc(100vh - 375px)" }}
             />
           )}
         </Card>
+
+        {/* Sticky Bottom Pagination Bar (static) */}
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
+          <Typography.Text type="secondary" className="text-xs">
+            {filteredSessions.length > 0
+              ? `Showing ${(sessionPage - 1) * sessionPageSize + 1} - ${Math.min(
+                  sessionPage * sessionPageSize,
+                  filteredSessions.length,
+                )} of ${filteredSessions.length.toLocaleString()} sessions`
+              : "0 sessions"}
+          </Typography.Text>
+          <Pagination
+            current={sessionPage}
+            pageSize={sessionPageSize}
+            total={filteredSessions.length}
+            showSizeChanger
+            pageSizeOptions={["15", "30", "50"]}
+            onChange={(p, ps) => {
+              setSessionPage(p);
+              setSessionPageSize(ps);
+            }}
+          />
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------- */}
@@ -809,26 +927,35 @@ export function SpyderPage() {
             />
           )}
 
-          <Alert
-            type="info"
-            showIcon
-            message="How harvesting works"
-            description={
-              <div className="mt-1 space-y-1 text-xs text-slate-600">
-                <div>
-                  • <strong>Keywords only (default):</strong> searches Bing Images &amp; Wikimedia Commons for your query. Max Pages / Depth do not apply.
-                </div>
-                <div>
-                  • <strong>Google image-search URL:</strong> a <code>google.com</code> image-search link is rendered in a browser and scraped (may hit a CAPTCHA).
-                </div>
-                <div>
-                  • <strong>Any other Seed URL:</strong> crawls that site's same-origin pages up to Max Pages / Depth, keeping images that match your keywords.
-                </div>
-                <div className="text-slate-500">
-                  Duplicates are skipped by URL and image hash within the chosen category.
-                </div>
-              </div>
-            }
+          <Collapse
+            size="small"
+            className="border-blue-200 bg-blue-50/50"
+            items={[
+              {
+                key: "how-harvesting-works",
+                label: (
+                  <span className="text-xs font-medium text-blue-900">
+                    How harvesting works
+                  </span>
+                ),
+                children: (
+                  <div className="space-y-1 text-xs text-slate-600">
+                    <div>
+                      • <strong>Keywords only (default):</strong> searches Bing Images &amp; Wikimedia Commons for your query. Max Pages / Depth do not apply.
+                    </div>
+                    <div>
+                      • <strong>Google image-search URL:</strong> a <code>google.com</code> image-search link is rendered in a browser and scraped (may hit a CAPTCHA).
+                    </div>
+                    <div>
+                      • <strong>Any other Seed URL:</strong> crawls that site's same-origin pages up to Max Pages / Depth, keeping images that match your keywords.
+                    </div>
+                    <div className="text-slate-500">
+                      Duplicates are skipped by URL and image hash within the chosen category.
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
           />
 
           <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
