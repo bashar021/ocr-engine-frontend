@@ -9,6 +9,7 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
   FilterOutlined,
+  MoreOutlined,
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -27,6 +28,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Dropdown,
   Empty,
   Input,
   InputNumber,
@@ -42,6 +44,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tabs,
   Tooltip,
   Typography,
 } from "antd";
@@ -1229,8 +1232,9 @@ export function ScrapeDataPage() {
   const [filterScope, setFilterScope] = useState<"unlabeled" | "all" | "selected">("unlabeled");
   const [filterGarbageCategory, setFilterGarbageCategory] = useState<string | undefined>();
   const [filterValidCategory, setFilterValidCategory] = useState<string | undefined>();
+  const [filterEngine, setFilterEngine] = useState<"mirage" | "ollama">("mirage");
   const [filterModel, setFilterModel] = useState<string>("qwen2.5vl:7b");
-  const [selectedPromptId, setSelectedPromptId] = useState<string>("builtin-odometer-meter");
+  const [selectedPromptId, setSelectedPromptId] = useState<string>("builtin-car-odometer-only");
   const [customPromptText, setCustomPromptText] = useState<string>("");
   const [savePromptModalOpen, setSavePromptModalOpen] = useState(false);
   const [newPromptName, setNewPromptName] = useState("");
@@ -1554,7 +1558,8 @@ export function ScrapeDataPage() {
     onSuccess: (job) => {
       setFilterJobId(job.id);
       setFilterModalOpen(false);
-      message.success("AI Garbage Filter job started with Qwen2.5-VL");
+      const label = job.model === "mirage" ? "Mirage VLM" : job.model || "Ollama Vision";
+      message.success(`AI Garbage Filter job started with ${label}`);
     },
     onError: (err) => message.error(getApiErrorMessage(err)),
   });
@@ -1566,7 +1571,7 @@ export function ScrapeDataPage() {
     enabled: Boolean(filterJobId),
     refetchInterval: (query) => {
       const s = query.state.data?.status;
-      return s === "pending" || s === "running" ? 2000 : false;
+      return s === "pending" || s === "running" ? 800 : false;
     },
   });
   const filterJob = filterJobQuery.data ?? null;
@@ -1734,69 +1739,15 @@ export function ScrapeDataPage() {
       ),
     },
     {
-      title: "Category",
-      dataIndex: "category_id",
-      key: "category_id",
-      width: 170,
-      render: (_: unknown, record: ScraperImage) => (
-        <Select
-          size="small"
-          placeholder="Unassigned"
-          allowClear
-          value={record.category_id ?? undefined}
-          onChange={(val) => handleCategoryChange(record.id, val ?? null)}
-          options={(categoriesQuery.data ?? []).map((c) => ({
-            label: c.name,
-            value: c.id,
-          }))}
-          style={{ width: "100%" }}
-        />
-      ),
-    },
-    {
-      title: "Ground Truth (GT)",
-      dataIndex: "ground_truth",
-      key: "ground_truth",
-      width: 170,
-      render: (text: string | null | undefined, record: ScraperImage) =>
-        text ? (
-          <Space size={4} wrap>
-            <Tag color="cyan" className="font-mono text-xs px-2 py-0.5">
-              {text}
-            </Tag>
-            {record.gt_bbox && (
-              <Tag color="green" className="text-xs">
-                bbox ✓
-              </Tag>
-            )}
-          </Space>
-        ) : (
-          <Tag color="orange" className="text-xs">
-            Needs GT
-          </Tag>
-        ),
-    },
-    {
-      title: "Get Value (AI)",
-      key: "get_value",
-      width: 125,
-      render: (_: unknown, record: ScraperImage) => (
-        <Button
-          size="small"
-          type="primary"
-          ghost
-          icon={<ThunderboltOutlined />}
-          onClick={() => setGetValueImage(record)}
-          className="text-xs"
-        >
-          Get Value
-        </Button>
-      ),
-    },
-    {
       title: "Source / License",
       key: "provenance",
       width: 170,
+      filters: SOURCE_OPTIONS.map((o) => ({
+        text: SOURCE_LABELS[o.value],
+        value: o.value,
+      })),
+      filterMultiple: false,
+      filteredValue: providerFilter ? [providerFilter] : null,
       render: (_: unknown, record: ScraperImage) =>
         record.provider || record.license ? (
           <div className="space-y-1">
@@ -1812,7 +1763,14 @@ export function ScrapeDataPage() {
     {
       title: "Dimensions",
       key: "dimensions",
-      width: 115,
+      width: 120,
+      filters: [
+        { text: "High Res (≥ 800px)", value: "high" },
+        { text: "Medium Res (300 - 800px)", value: "medium" },
+        { text: "Low Res (< 300px)", value: "small" },
+      ],
+      filterMultiple: false,
+      filteredValue: resFilter !== "all" ? [resFilter] : null,
       render: (_: unknown, record: ScraperImage) =>
         record.width && record.height ? (
           <span className="font-mono text-xs text-slate-600">
@@ -1827,6 +1785,13 @@ export function ScrapeDataPage() {
       dataIndex: "file_size_bytes",
       key: "file_size_bytes",
       width: 90,
+      sorter: true,
+      sortOrder:
+        sortBy === "size_desc"
+          ? "descend"
+          : sortBy === "size_asc"
+            ? "ascend"
+            : null,
       render: (bytes: number) => (
         <span className="text-xs text-slate-600">{formatBytes(bytes)}</span>
       ),
@@ -1836,6 +1801,13 @@ export function ScrapeDataPage() {
       dataIndex: "created_at",
       key: "created_at",
       width: 160,
+      sorter: true,
+      sortOrder:
+        sortBy === "created_at_desc"
+          ? "descend"
+          : sortBy === "created_at_asc"
+            ? "ascend"
+            : null,
       render: (v: string) => (
         <span className="text-xs text-slate-500">
           {new Date(v).toLocaleDateString()} {new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -1872,15 +1844,10 @@ export function ScrapeDataPage() {
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/50">
-      <PageHeader
-        title="Scrape Data"
-        description="Filter, inspect, and label harvested images with Gemini AI"
-      />
-
-      <div className="flex-1 space-y-5 p-6">
-        {/* KPI Overview Strip */}
-        <Row gutter={[16, 16]}>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3.5">
+        {/* KPI Overview Strip (static) */}
+        <Row gutter={[12, 12]} className="shrink-0">
           <Col xs={12} sm={6}>
             <Card size="small" className="border-slate-200 shadow-xs">
               <Statistic
@@ -1904,256 +1871,108 @@ export function ScrapeDataPage() {
           </Col>
 
           <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
+            <Card
+              size="small"
+              className="border-slate-200 shadow-xs cursor-pointer transition hover:border-cyan-400"
+              onClick={() => {
+                const rawCat = (categoriesQuery.data ?? []).find(
+                  (c) => c.name.trim().toLowerCase() === "raw",
+                );
+                if (rawCat) {
+                  setCategoryFilter((prev) => (prev === rawCat.id ? undefined : rawCat.id));
+                  setPage(1);
+                }
+              }}
+            >
               <Statistic
                 title={
                   <span className="text-xs font-medium text-slate-500">
-                    Ground Truth Labeled
+                    Raw
                   </span>
                 }
-                value={stats?.images_with_gt ?? 0}
-                prefix={<CheckCircleOutlined className="text-emerald-500" />}
-                suffix={
-                  stats?.total_images ? (
-                    <Tag color="success" className="ml-1 text-xs">
-                      {((stats.images_with_gt ?? 0) / stats.total_images * 100).toFixed(0)}%
-                    </Tag>
-                  ) : null
+                value={
+                  (categoriesQuery.data ?? []).find(
+                    (c) => c.name.trim().toLowerCase() === "raw",
+                  )?.image_count ?? 0
                 }
+                prefix={<PictureOutlined className="text-cyan-500" />}
+                valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#0891b2" }}
+              />
+            </Card>
+          </Col>
+
+          <Col xs={12} sm={6}>
+            <Card
+              size="small"
+              className="border-slate-200 shadow-xs cursor-pointer transition hover:border-emerald-400"
+              onClick={() => {
+                const filteredCat = (categoriesQuery.data ?? []).find(
+                  (c) => c.name.trim().toLowerCase() === "filtered",
+                );
+                if (filteredCat) {
+                  setCategoryFilter((prev) => (prev === filteredCat.id ? undefined : filteredCat.id));
+                  setPage(1);
+                }
+              }}
+            >
+              <Statistic
+                title={
+                  <span className="text-xs font-medium text-slate-500">
+                    Filtered
+                  </span>
+                }
+                value={
+                  (categoriesQuery.data ?? []).find(
+                    (c) => c.name.trim().toLowerCase() === "filtered",
+                  )?.image_count ?? 0
+                }
+                prefix={<CheckCircleOutlined className="text-emerald-500" />}
                 valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#059669" }}
               />
             </Card>
           </Col>
 
           <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
+            <Card
+              size="small"
+              className="border-slate-200 shadow-xs cursor-pointer transition hover:border-rose-400"
+              onClick={() => {
+                const garbageCat = (categoriesQuery.data ?? []).find(
+                  (c) => c.name.trim().toLowerCase() === "garbage",
+                );
+                if (garbageCat) {
+                  setCategoryFilter((prev) => (prev === garbageCat.id ? undefined : garbageCat.id));
+                  setPage(1);
+                }
+              }}
+            >
               <Statistic
                 title={
                   <span className="text-xs font-medium text-slate-500">
-                    Pending GT Review
+                    Garbage
                   </span>
                 }
-                value={stats?.images_without_gt ?? 0}
-                prefix={<ExclamationCircleOutlined className="text-amber-500" />}
-                valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#d97706" }}
-              />
-            </Card>
-          </Col>
-
-          <Col xs={12} sm={6}>
-            <Card size="small" className="border-slate-200 shadow-xs">
-              <Statistic
-                title={
-                  <span className="text-xs font-medium text-slate-500">
-                    Active Categories
-                  </span>
+                value={
+                  (categoriesQuery.data ?? []).find(
+                    (c) => c.name.trim().toLowerCase() === "garbage",
+                  )?.image_count ?? 0
                 }
-                value={stats?.categories?.length ?? categoriesQuery.data?.length ?? 0}
-                prefix={<TagsOutlined className="text-indigo-500" />}
-                valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#4f46e5" }}
+                prefix={<DeleteOutlined className="text-rose-500" />}
+                valueStyle={{ fontSize: "1.25rem", fontWeight: 700, color: "#e11d48" }}
               />
             </Card>
           </Col>
         </Row>
 
-        {/* Comprehensive Filter Bar Card */}
-        <Card size="small" className="border-slate-200 bg-white shadow-xs">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FilterOutlined className="text-blue-600" />
-                <span className="text-sm font-semibold text-slate-800">
-                  Filter Scrape Data
-                </span>
-                {isFiltered && (
-                  <Tag color="blue" closable onClose={handleResetFilters}>
-                    Filters active
-                  </Tag>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Segmented
-                  value={viewMode}
-                  onChange={(v) => setViewMode(v as "table" | "gallery")}
-                  options={[
-                    { label: "Table", value: "table", icon: <TableOutlined /> },
-                    { label: "Gallery", value: "gallery", icon: <AppstoreOutlined /> },
-                  ]}
-                  size="small"
-                />
-                {isFiltered && (
-                  <Button
-                    size="small"
-                    icon={<ClearOutlined />}
-                    onClick={handleResetFilters}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Row of Filter Controls */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {/* 1. Category Filter */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Category
-                </label>
-                <Select
-                  placeholder="All Categories"
-                  allowClear
-                  value={categoryFilter}
-                  onChange={(v) => {
-                    setCategoryFilter(v);
-                    setPage(1);
-                  }}
-                  loading={categoriesQuery.isLoading}
-                  options={(categoriesQuery.data ?? []).map((c) => ({
-                    label: `${c.name} (${c.image_count})`,
-                    value: c.id,
-                  }))}
-                  style={{ width: "100%" }}
-                  size="middle"
-                />
-              </div>
-
-              {/* 2. Session Filter */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Crawl Session
-                </label>
-                <Select
-                  placeholder="All Sessions"
-                  allowClear
-                  value={sessionFilter}
-                  onChange={(v) => {
-                    setSessionFilter(v);
-                    setPage(1);
-                  }}
-                  loading={sessionsQuery.isLoading}
-                  options={(sessionsQuery.data?.sessions ?? []).map((s) => {
-                    const kw = s.seed_url?.startsWith("auto:")
-                      ? s.seed_url.replace("auto:", "")
-                      : s.seed_url;
-                    return {
-                      label: `${kw || "Session"} (${s.image_count} imgs) - ${new Date(s.created_at).toLocaleDateString()}`,
-                      value: s.id,
-                    };
-                  })}
-                  style={{ width: "100%" }}
-                  size="middle"
-                  showSearch
-                  optionFilterProp="label"
-                />
-              </div>
-
-              {/* 3. Ground Truth Filter */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Ground Truth (GT) Status
-                </label>
-                <Select
-                  value={gtFilter}
-                  onChange={(v) => {
-                    setGtFilter(v);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: "All Images", value: "all" },
-                    { label: "Labeled (Has GT)", value: "with_gt" },
-                    { label: "Unlabeled (Needs GT)", value: "without_gt" },
-                  ]}
-                  style={{ width: "100%" }}
-                  size="middle"
-                />
-              </div>
-
-              {/* 4. Resolution Filter */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Image Resolution
-                </label>
-                <Select
-                  value={resFilter}
-                  onChange={(v) => {
-                    setResFilter(v);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: "All Resolutions", value: "all" },
-                    { label: "High Res (≥ 800px)", value: "high" },
-                    { label: "Medium Res (300 - 800px)", value: "medium" },
-                    { label: "Low Res (< 300px)", value: "small" },
-                  ]}
-                  style={{ width: "100%" }}
-                  size="middle"
-                />
-              </div>
-
-              {/* Provider + license filters */}
-              <div>
-                <label
-                  htmlFor="provider-filter"
-                  className="mb-1 block text-xs font-medium text-slate-500"
-                >
-                  Source
-                </label>
-                <Select
-                  id="provider-filter"
-                  value={providerFilter ?? "all"}
-                  onChange={(v) => {
-                    setProviderFilter(v === "all" ? undefined : v);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: "All Sources", value: "all" },
-                    ...SOURCE_OPTIONS.map((o) => ({
-                      label: SOURCE_LABELS[o.value],
-                      value: o.value,
-                    })),
-                  ]}
-                  style={{ width: "100%" }}
-                  size="middle"
-                />
-                <Checkbox
-                  className="mt-1.5 text-xs"
-                  checked={licensedOnly}
-                  onChange={(e) => {
-                    setLicensedOnly(e.target.checked);
-                    setPage(1);
-                  }}
-                >
-                  Licensed only
-                </Checkbox>
-              </div>
-
-              {/* 5. Sort By */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Sort Order
-                </label>
-                <Select
-                  value={sortBy}
-                  onChange={(v) => {
-                    setSortBy(v);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: "Newest First", value: "created_at_desc" },
-                    { label: "Oldest First", value: "created_at_asc" },
-                    { label: "Largest File Size", value: "size_desc" },
-                    { label: "Smallest File Size", value: "size_asc" },
-                  ]}
-                  style={{ width: "100%" }}
-                  size="middle"
-                />
-              </div>
-            </div>
-
-            {/* Search row */}
-            <div className="pt-1">
+        {/* Comprehensive Filter Bar Card (static) */}
+        <Card
+          size="small"
+          className="shrink-0 border-slate-200 bg-white shadow-xs"
+          styles={{ body: { padding: "10px 12px" } }}
+        >
+          <div className="space-y-2">
+            {/* Search row with fixed-width search bar & right-side toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Input
                 placeholder="Search by alt text, URL, or ground truth string..."
                 allowClear
@@ -2164,14 +1983,119 @@ export function ScrapeDataPage() {
                 }}
                 prefix={<SearchOutlined className="text-slate-400" />}
                 size="middle"
+                style={{ width: 320, maxWidth: "100%" }}
               />
+              <div className="flex items-center gap-2">
+                <Button
+                  icon={<FilterOutlined />}
+                  disabled={filterJobActive}
+                  onClick={() => {
+                    setFilterScope(selectedIds.length > 0 ? "selected" : "unlabeled");
+                    setFilterModalOpen(true);
+                  }}
+                >
+                  Filter Garbage (AI)
+                </Button>
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={handleResetFilters}
+                >
+                  Reset
+                </Button>
+                <Segmented
+                  value={viewMode}
+                  onChange={(v) => setViewMode(v as "table" | "gallery")}
+                  options={[
+                    { label: "Table", value: "table", icon: <TableOutlined /> },
+                    { label: "Gallery", value: "gallery", icon: <AppstoreOutlined /> },
+                  ]}
+                />
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => {
+                    void queryClient.invalidateQueries({ queryKey: ["scraper"] });
+                  }}
+                  loading={imagesQuery.isFetching || categoriesQuery.isFetching}
+                >
+                  Refresh
+                </Button>
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: "transfer-to-dataset",
+                        icon: <DatabaseOutlined className="text-cyan-600" />,
+                        label: "Transfer to Another Dataset",
+                        onClick: () => {
+                          if (selectedIds.length > 0) {
+                            setPromoteScope("selected");
+                            setPromoteModalOpen(true);
+                          } else if (categoryFilter) {
+                            setPromoteScope("category");
+                            setPromoteModalOpen(true);
+                          } else {
+                            message.info(
+                              "Select images or choose a category tab to transfer data to another dataset.",
+                            );
+                          }
+                        },
+                      },
+                    ],
+                  }}
+                  trigger={["click"]}
+                >
+                  <Button icon={<MoreOutlined />} title="More actions" />
+                </Dropdown>
+              </div>
             </div>
+
+            {/* Short Category Tabs */}
+            <Tabs
+              size="small"
+              activeKey={categoryFilter ?? "all"}
+              onChange={(key) => {
+                setCategoryFilter(key === "all" ? undefined : key);
+                setPage(1);
+              }}
+              tabBarStyle={{ marginBottom: 0 }}
+              className="mb-0 [&_.ant-tabs-content-holder]:hidden"
+              items={[
+                {
+                  key: "all",
+                  label: (
+                    <span className="text-xs font-medium">
+                      All ({stats?.total_images ?? total})
+                    </span>
+                  ),
+                },
+                ...[...(categoriesQuery.data ?? [])]
+                  .sort((a, b) => {
+                    const order: Record<string, number> = {
+                      raw: 0,
+                      filtered: 1,
+                      garbage: 2,
+                    };
+                    const ra = order[a.name.trim().toLowerCase()] ?? 99;
+                    const rb = order[b.name.trim().toLowerCase()] ?? 99;
+                    if (ra !== rb) return ra - rb;
+                    return a.name.localeCompare(b.name);
+                  })
+                  .map((c) => ({
+                    key: c.id,
+                    label: (
+                      <span className="text-xs font-medium">
+                        {c.name} ({c.image_count})
+                      </span>
+                    ),
+                  })),
+              ]}
+            />
           </div>
         </Card>
 
         {/* Batch Actions Bar (visible when items selected) */}
         {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50/70 px-4 py-2.5 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2 text-sm">
             <Space>
               <CheckCircleOutlined className="text-teal-600" />
               <span className="font-semibold text-teal-900">
@@ -2203,15 +2127,6 @@ export function ScrapeDataPage() {
               </Button>
               <Button
                 size="small"
-                type="primary"
-                ghost
-                icon={<ThunderboltOutlined />}
-                onClick={() => setBulkLabelOpen(true)}
-              >
-                Auto-label (AI)
-              </Button>
-              <Button
-                size="small"
                 icon={<TagsOutlined />}
                 onClick={() => setBatchCategoryModalOpen(true)}
               >
@@ -2238,229 +2153,132 @@ export function ScrapeDataPage() {
           </div>
         )}
 
-        {/* Dataset-readiness card for the active category (T8) with the backend
-            bulk-label job controls (T7). */}
-        {categoryFilter && (() => {
-          const catTotal =
-            categoriesQuery.data?.find((c) => c.id === categoryFilter)?.image_count ?? 0;
-          const labeled = categoryLabeledQuery.data?.total;
-          const unlabeled =
-            labeled == null ? undefined : Math.max(0, catTotal - labeled);
-          const pct =
-            labeled == null || catTotal === 0
-              ? 0
-              : Math.round((labeled / catTotal) * 100);
-          return (
-            <Card size="small" className="border-slate-200 shadow-xs">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <Statistic
-                    title={<span className="text-xs text-slate-500">Labeled</span>}
-                    value={labeled == null ? "—" : labeled}
-                    valueStyle={{ fontSize: "1.1rem", fontWeight: 700, color: "#0891b2" }}
-                  />
-                  <Statistic
-                    title={<span className="text-xs text-slate-500">Unlabeled</span>}
-                    value={unlabeled == null ? "—" : unlabeled}
-                    valueStyle={{ fontSize: "1.1rem", fontWeight: 700, color: "#d97706" }}
-                  />
-                  <div className="min-w-[160px]">
-                    <div className="mb-1 text-xs text-slate-500">
-                      % labeled · {catTotal.toLocaleString()} total
-                    </div>
-                    <Progress percent={pct} size="small" status="active" />
-                  </div>
-                </div>
-                <Space size="small" wrap>
-                  <Button
-                    size="small"
-                    icon={<FilterOutlined />}
-                    disabled={filterJobActive}
-                    onClick={() => {
-                      setFilterScope("unlabeled");
-                      setFilterModalOpen(true);
-                    }}
-                  >
-                    Filter Garbage (Qwen2.5-VL)
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    ghost
-                    icon={<ThunderboltOutlined />}
-                    loading={startLabelJobMutation.isPending}
-                    disabled={labelJobActive}
-                    onClick={() => startLabelJobMutation.mutate(categoryFilter)}
-                  >
-                    Auto-label all unlabeled (AI)
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<DatabaseOutlined />}
-                    disabled={!labeled}
-                    onClick={() => {
-                      setPromoteScope("category");
-                      setPromoteModalOpen(true);
-                    }}
-                  >
-                    Send labeled → databank
-                  </Button>
-                </Space>
-              </div>
-
-              {/* Live progress of the backend bulk-label job (T7). */}
-              {labelJob && (
-                <div className="mt-3 border-t border-slate-100 pt-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="font-medium">Auto-label job:</span>
-                      <Tag
-                        color={
-                          labelJob.status === "completed"
-                            ? "success"
-                            : labelJob.status === "failed"
-                              ? "error"
-                              : labelJob.status === "stopped"
-                                ? "warning"
-                                : "processing"
-                        }
-                      >
-                        {labelJob.status}
-                      </Tag>
-                      <span>
-                        {labelJob.processed}/{labelJob.total} processed · saved{" "}
-                        {labelJob.saved} · failed {labelJob.failed}
-                      </span>
-                    </div>
-                    {labelJobActive && (
-                      <Button
-                        size="small"
-                        danger
-                        icon={<StopOutlined />}
-                        loading={stopLabelJobMutation.isPending}
-                        onClick={() => stopLabelJobMutation.mutate(labelJob.id)}
-                      >
-                        Stop
-                      </Button>
-                    )}
-                  </div>
-                  <Progress
-                    className="mt-1"
-                    percent={
-                      labelJob.total > 0
-                        ? Math.round((labelJob.processed / labelJob.total) * 100)
-                        : 0
-                    }
-                    size="small"
-                    status={
-                      labelJob.status === "failed"
-                        ? "exception"
-                        : labelJobActive
-                          ? "active"
-                          : "normal"
-                    }
-                  />
-                </div>
-              )}
-
-              {/* Live progress of the Qwen2.5-VL Garbage Filter job */}
-              {filterJob && (
-                <div className="mt-3 border-t border-slate-100 pt-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="font-medium text-purple-700">Qwen2.5-VL Garbage Filter:</span>
-                      <Tag
-                        color={
-                          filterJob.status === "completed"
-                            ? "success"
-                            : filterJob.status === "failed"
-                              ? "error"
-                              : filterJob.status === "stopped"
-                                ? "warning"
-                                : "processing"
-                        }
-                      >
-                        {filterJob.status}
-                      </Tag>
-                      <span>
-                        {filterJob.processed}/{filterJob.total} processed · valid{" "}
-                        <span className="font-semibold text-emerald-600">{filterJob.valid_count}</span> · moved to garbage{" "}
-                        <span className="font-semibold text-rose-600">{filterJob.garbage_count}</span>
-                        {filterJob.failed_count > 0 && (
-                          <span className="text-amber-600"> · errors {filterJob.failed_count}</span>
-                        )}
-                      </span>
-                    </div>
-                    {filterJobActive && (
-                      <Button
-                        size="small"
-                        danger
-                        icon={<StopOutlined />}
-                        loading={stopFilterJobMutation.isPending}
-                        onClick={() => stopFilterJobMutation.mutate(filterJob.id)}
-                      >
-                        Stop
-                      </Button>
-                    )}
-                  </div>
-                  <Progress
-                    className="mt-1"
-                    percent={
-                      filterJob.total > 0
-                        ? Math.round((filterJob.processed / filterJob.total) * 100)
-                        : 0
-                    }
-                    size="small"
-                    strokeColor={{
-                      "0%": "#10b981",
-                      "100%": "#8b5cf6",
-                    }}
-                    status={
-                      filterJob.status === "failed"
-                        ? "exception"
-                        : filterJobActive
-                          ? "active"
-                          : "normal"
-                    }
-                  />
-                </div>
-              )}
-            </Card>
-          );
-        })()}
-
-        {/* Content: Table or Gallery View */}
-        {viewMode === "table" ? (
+        {/* Live progress of the AI Garbage Filter job */}
+        {filterJob && (
           <Card size="small" className="border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="font-medium text-purple-700">
+                  {filterJob.model === "mirage"
+                    ? "Mirage VLM Garbage Filter:"
+                    : `Ollama (${filterJob.model || "qwen2.5vl:7b"}) Garbage Filter:`}
+                </span>
+                <Tag
+                  color={
+                    filterJob.status === "completed"
+                      ? "success"
+                      : filterJob.status === "failed"
+                        ? "error"
+                        : filterJob.status === "stopped"
+                          ? "warning"
+                          : "processing"
+                  }
+                >
+                  {filterJob.status}
+                </Tag>
+                <span>
+                  {filterJob.processed}/{filterJob.total} processed · valid{" "}
+                  <span className="font-semibold text-emerald-600">{filterJob.valid_count}</span> · moved to garbage{" "}
+                  <span className="font-semibold text-rose-600">{filterJob.garbage_count}</span>
+                  {filterJob.failed_count > 0 && (
+                    <span className="text-amber-600"> · errors {filterJob.failed_count}</span>
+                  )}
+                </span>
+              </div>
+              {filterJobActive && (
+                <Button
+                  size="small"
+                  danger
+                  icon={<StopOutlined />}
+                  loading={stopFilterJobMutation.isPending}
+                  onClick={() => stopFilterJobMutation.mutate(filterJob.id)}
+                >
+                  Stop
+                </Button>
+              )}
+            </div>
+            <Progress
+              className="mt-1"
+              percent={
+                filterJob.total > 0
+                  ? Math.round((filterJob.processed / filterJob.total) * 100)
+                  : 0
+              }
+              size="small"
+              strokeColor={{
+                "0%": "#10b981",
+                "100%": "#8b5cf6",
+              }}
+              status={
+                filterJob.status === "failed"
+                  ? "exception"
+                  : filterJobActive
+                    ? "active"
+                    : "normal"
+              }
+            />
+          </Card>
+        )}
+
+        {/* Content: Table or Gallery View (only body scrolls) */}
+        {viewMode === "table" ? (
+          <Card
+            size="small"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 shadow-xs"
+            styles={{
+              body: {
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                padding: 0,
+                overflow: "hidden",
+              },
+            }}
+          >
             <Table
               rowKey="id"
               dataSource={images}
               columns={columns}
               loading={imagesQuery.isLoading}
+              className="flex-1 min-h-0 [&_.ant-table-wrapper]:h-full [&_.ant-spin-nested-loading]:h-full [&_.ant-spin-container]:h-full [&_.ant-table]:h-full [&_.ant-table-container]:flex [&_.ant-table-container]:h-full [&_.ant-table-container]:flex-col [&_.ant-table-header]:shrink-0 [&_.ant-table-body]:flex-1 [&_.ant-table-body]:overflow-y-auto"
               rowSelection={{
                 selectedRowKeys: selectedIds,
                 onChange: (keys) => setSelectedIds(keys as string[]),
               }}
-              locale={{ emptyText: <Empty description="No scraped images found matching filters" /> }}
-              pagination={{
-                current: page,
-                pageSize,
-                total,
-                showSizeChanger: true,
-                pageSizeOptions: ["24", "48", "96"],
-                showTotal: (t) => `Total ${t.toLocaleString()} images`,
-                onChange: (p, ps) => {
-                  setPage(p);
-                  setPageSize(ps);
-                },
+              onChange={(_pagination, filters, sorter) => {
+                const nextProv =
+                  Array.isArray(filters.provenance) && filters.provenance.length > 0
+                    ? String(filters.provenance[0])
+                    : undefined;
+                const nextRes =
+                  Array.isArray(filters.dimensions) && filters.dimensions.length > 0
+                    ? (String(filters.dimensions[0]) as "high" | "medium" | "small")
+                    : "all";
+
+                setProviderFilter(nextProv);
+                setResFilter(nextRes);
+
+                const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
+                if (activeSorter && activeSorter.order) {
+                  if (activeSorter.columnKey === "file_size_bytes") {
+                    setSortBy(activeSorter.order === "ascend" ? "size_asc" : "size_desc");
+                  } else if (activeSorter.columnKey === "created_at") {
+                    setSortBy(activeSorter.order === "ascend" ? "created_at_asc" : "created_at_desc");
+                  }
+                } else {
+                  setSortBy("created_at_desc");
+                }
+                setPage(1);
               }}
+              locale={{ emptyText: <Empty description="No scraped images found matching filters" /> }}
+              pagination={false}
               size="small"
-              scroll={{ x: 1100 }}
+              scroll={{ x: 1100, y: "calc(100vh - 375px)" }}
             />
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             {imagesQuery.isLoading ? (
               <div className="flex h-64 items-center justify-center">
                 <Spin tip="Loading gallery images..." />
@@ -2470,7 +2288,7 @@ export function ScrapeDataPage() {
                 <Empty description="No scraped images found matching filters" />
               </Card>
             ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {images.map((img) => {
                   const isSelected = selectedIds.includes(img.id);
                   return (
@@ -2588,26 +2406,28 @@ export function ScrapeDataPage() {
                 })}
               </div>
             )}
-
-            {/* Pagination for gallery */}
-            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3">
-              <Typography.Text type="secondary" className="text-xs">
-                Showing {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} of {total.toLocaleString()} images
-              </Typography.Text>
-              <Pagination
-                current={page}
-                pageSize={pageSize}
-                total={total}
-                showSizeChanger
-                pageSizeOptions={["24", "48", "96"]}
-                onChange={(p, ps) => {
-                  setPage(p);
-                  setPageSize(ps);
-                }}
-              />
-            </div>
           </div>
         )}
+
+        {/* Sticky Pagination Bar (both Table & Gallery views) */}
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
+          <Typography.Text type="secondary" className="text-xs">
+            {total > 0
+              ? `Showing ${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, total)} of ${total.toLocaleString()} images`
+              : "0 images"}
+          </Typography.Text>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            showSizeChanger
+            pageSizeOptions={["24", "48", "96"]}
+            onChange={(p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            }}
+          />
+        </div>
 
         {/* Batch Assign Category Modal */}
         <Modal
@@ -2651,11 +2471,6 @@ export function ScrapeDataPage() {
               handleCategoryChange(selectedImage.id, catId)
             }
             onDelete={() => handleDelete(selectedImage.id)}
-            onOpenGetValue={() => {
-              const img = selectedImage;
-              setSelectedImage(null);
-              setGetValueImage(img);
-            }}
           />
         )}
 
@@ -2676,20 +2491,6 @@ export function ScrapeDataPage() {
               if (selectedImage?.id === updated.id) {
                 setSelectedImage(updated);
               }
-            }}
-          />
-        )}
-
-        {/* Bulk Auto-label (Gemini AI) Modal */}
-        {bulkLabelOpen && (
-          <BulkLabelModal
-            images={images.filter((i) => selectedIds.includes(i.id))}
-            categories={categoriesQuery.data ?? []}
-            onClose={() => setBulkLabelOpen(false)}
-            onDone={() => {
-              queryClient.invalidateQueries({ queryKey: ["scraper", "images"] });
-              queryClient.invalidateQueries({ queryKey: ["scraper", "stats"] });
-              queryClient.invalidateQueries({ queryKey: ["scraper", "categories"] });
             }}
           />
         )}
@@ -2784,12 +2585,12 @@ export function ScrapeDataPage() {
           </div>
         </Modal>
 
-        {/* AI Garbage Filter Modal (Qwen2.5-VL 7B) */}
+        {/* AI Garbage Filter Modal (Mirage VLM / Ollama Vision) */}
         <Modal
           title={
             <div className="flex items-center gap-2 text-slate-800">
               <FilterOutlined className="text-purple-600" />
-              <span>AI Garbage Data Filter (Ollama Qwen2.5-VL 7B)</span>
+              <span>AI Garbage Data Filter</span>
             </div>
           }
           open={filterModalOpen}
@@ -2814,7 +2615,10 @@ export function ScrapeDataPage() {
                   valid_category_id: filterValidCategory,
                   image_ids: filterScope === "selected" ? selectedIds : undefined,
                   prompt: customPromptText.trim(),
-                  model: filterModel.trim() || "qwen2.5vl:7b",
+                  model:
+                    filterEngine === "mirage"
+                      ? "mirage"
+                      : filterModel.trim() || "qwen2.5vl:7b",
                   unlabeled_only: filterScope === "unlabeled",
                 });
               }}
@@ -2828,7 +2632,7 @@ export function ScrapeDataPage() {
               type="info"
               showIcon
               message="Pre-labeling Garbage Data Cleaner"
-              description="Qwen2.5-VL 7B inspects each image to filter out irrelevant or garbage images before you label them. Any image classified as garbage will be moved directly into the chosen garbage category."
+              description="Choose Mirage VLM (fast on-device local filtering, ~22MB) or an Ollama Vision Model (e.g. qwen2.5vl:7b) to filter out irrelevant images before labeling. Progress updates live in the background."
             />
 
             <div>
@@ -2889,16 +2693,42 @@ export function ScrapeDataPage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-700">
-                  4. Ollama Vision Model
+                  4. Vision Model
                 </label>
-                <Input
-                  value={filterModel}
-                  onChange={(e) => setFilterModel(e.target.value)}
-                  placeholder="qwen2.5vl:7b"
+                <Select
+                  value={filterEngine}
+                  onChange={(v) => {
+                    const nextEngine = v as "mirage" | "ollama";
+                    setFilterEngine(nextEngine);
+                    const targetPromptId =
+                      nextEngine === "mirage"
+                        ? "builtin-car-odometer-only"
+                        : "builtin-odometer-meter";
+                    const matched = filterPrompts.find((p) => p.id === targetPromptId);
+                    if (matched) {
+                      setSelectedPromptId(matched.id);
+                      setCustomPromptText(matched.prompt);
+                    }
+                  }}
+                  options={[
+                    { label: "Mirage VLM (Local Fast)", value: "mirage" },
+                    { label: "Ollama Vision Model", value: "ollama" },
+                  ]}
+                  style={{ width: "100%" }}
                 />
-                <span className="text-[11px] text-slate-400">
-                  Default: qwen2.5vl:7b (Ollama)
-                </span>
+                {filterEngine === "ollama" ? (
+                  <Input
+                    className="mt-1.5"
+                    size="small"
+                    value={filterModel}
+                    onChange={(e) => setFilterModel(e.target.value)}
+                    placeholder="qwen2.5vl:7b"
+                  />
+                ) : (
+                  <span className="mt-1 block text-[11px] text-emerald-600">
+                    On-device Cactus Mirage (~22MB, zero external server)
+                  </span>
+                )}
               </div>
             </div>
 
@@ -2974,7 +2804,7 @@ export function ScrapeDataPage() {
                 rows={6}
                 value={customPromptText}
                 onChange={(e) => setCustomPromptText(e.target.value)}
-                placeholder="Enter prompt instructions for Qwen2.5-VL..."
+                placeholder="Enter image filtering criteria (no GT or bounding box extraction)..."
                 className="font-mono text-xs"
               />
               <span className="text-[11px] text-slate-400">
@@ -4126,16 +3956,6 @@ function ImagePreviewModal({
             </Button>
           </Popconfirm>
           <Space>
-            {onOpenGetValue && (
-              <Button
-                type="primary"
-                ghost
-                icon={<ThunderboltOutlined />}
-                onClick={onOpenGetValue}
-              >
-                Get Value (AI)
-              </Button>
-            )}
             {image.source_url && (
               <Button
                 href={image.source_url}
